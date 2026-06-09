@@ -1,4 +1,4 @@
-# Резюме.ИИ
+# реюзмирую.рф
 
 AI-генератор резюме: адаптирует резюме под конкретную вакансию, хранит версии по компаниям, экспортирует в PDF.
 
@@ -18,21 +18,6 @@ cp .env.example .env
 # Заполни .env своими ключами
 docker build -t resuming .
 docker run -d --name resuming -p 80:8000 --env-file .env resuming
-```
-
-## Конфигурация (.env)
-
-```
-OLLAMA_MODEL=qwen2.5:14b
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_BOT_NAME=...
-SMTP_HOST=smtp.yandex.ru
-SMTP_USER=...
-SMTP_PASS=...
-YOKASSA_SHOP_ID=...
-YOKASSA_SECRET_KEY=...
-APP_URL=https://your-domain.com
-SECRET_KEY=...  # python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 ## Страницы
