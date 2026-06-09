@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Тарифы — Резюме.ИИ</title>
+<meta name="description" content="Бесплатный и Pro тариф для Резюме.ИИ. Создавайте и адаптируйте резюме под вакансии с помощью ИИ.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#0F1C3F;--navy-l:#1a3060;--gold:#F0A520;--bg:#F2F5FA;--card:#fff;--text:#1E293B;--muted:#64748B;--light:#94A3B8;--border:#E2E8F0;--success:#059669}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;text-decoration:none;color:#fff}.logo span{color:var(--gold)}
+.nav-a{color:rgba(255,255,255,.6);font-size:13px;text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .15s}
+.nav-a:hover{color:#fff;background:rgba(255,255,255,.1)}
+.nav-a.active{color:#fff;background:rgba(255,255,255,.12)}
+main{flex:1;padding:3rem 1.5rem}
+.page{max-width:860px;margin:0 auto}
+.hero{text-align:center;margin-bottom:3rem}
+.hero h1{font-size:28px;font-weight:800;color:var(--navy);margin-bottom:.5rem}
+.hero p{font-size:15px;color:var(--muted);max-width:480px;margin:0 auto}
+.plans{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:2.5rem}
+@media(max-width:580px){.plans{grid-template-columns:1fr}}
+.plan{background:var(--card);border:0.5px solid var(--border);border-radius:14px;padding:2rem;display:flex;flex-direction:column}
+.plan.featured{border:2.5px solid var(--gold);position:relative}
+.plan-badge{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--gold);color:var(--navy);font-size:11px;font-weight:700;padding:3px 14px;border-radius:12px;white-space:nowrap}
+.plan-name{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light);margin-bottom:10px}
+.plan-price{font-size:36px;font-weight:800;color:var(--navy);line-height:1;margin-bottom:4px}
+.plan-price span{font-size:14px;font-weight:400;color:var(--muted)}
+.plan-period{font-size:12px;color:var(--muted);margin-bottom:1.5rem}
+.plan-features{list-style:none;padding:0;margin-bottom:1.75rem;flex:1;display:flex;flex-direction:column;gap:8px}
+.plan-features li{font-size:13px;display:flex;align-items:flex-start;gap:9px;line-height:1.5}
+.feat-ok{color:var(--success);flex-shrink:0;font-size:15px;margin-top:-1px}
+.feat-no{color:var(--border);flex-shrink:0;font-size:15px;margin-top:-1px}
+.feat-text{color:var(--text)}
+.feat-text.dim{color:var(--muted);text-decoration:line-through}
+.btn-plan{display:block;text-align:center;padding:12px;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;border:none;text-decoration:none;transition:opacity .15s}
+.btn-plan:hover{opacity:.88}
+.btn-free{background:var(--bg);color:var(--navy);border:1.5px solid var(--border)!important}
+.btn-pro{background:var(--gold);color:var(--navy)}
+.payment-info{background:#fff;border:0.5px solid var(--border);border-radius:12px;padding:1.5rem 2rem;margin-bottom:2.5rem}
+.payment-info h2{font-size:15px;font-weight:600;color:var(--navy);margin-bottom:1rem}
+.payment-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:.75rem;font-size:13px}
+.payment-row:last-child{margin-bottom:0}
+.payment-icon{font-size:16px;flex-shrink:0;width:20px;text-align:center}
+.payment-text{color:#334155;line-height:1.6}
+.payment-text strong{color:var(--navy);font-weight:500}
+.faq{display:flex;flex-direction:column;gap:14px}
+.faq-item{background:#fff;border:0.5px solid var(--border);border-radius:10px;padding:1.1rem 1.25rem}
+.faq-q{font-size:13px;font-weight:600;color:var(--navy);margin-bottom:.375rem}
+.faq-a{font-size:12.5px;color:var(--muted);line-height:1.6}
+.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:200;align-items:center;justify-content:center}
+.loader.on{display:flex}
+.spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:300;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.on{opacity:1}.toast.err{background:#DC2626}
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/">Резюме<span>.ИИ</span></a>
+  <nav style="display:flex;gap:4px">
+    <a class="nav-a" href="/">Генератор</a>
+    <a class="nav-a" href="/resumes">Мои резюме</a>
+    <a class="nav-a active" href="/pricing">Тарифы</a>
+  </nav>
+</header>
+
+<main>
+<div class="page">
+
+  <div class="hero">
+    <h1>Простые и понятные тарифы</h1>
+    <p>Начните бесплатно — обновитесь до Pro когда будете готовы</p>
+  </div>
+
+  <div class="plans">
+
+    <!-- Бесплатный -->
+    <div class="plan">
+      <div class="plan-name">Бесплатный</div>
+      <div class="plan-price">0 ₽</div>
+      <div class="plan-period">навсегда</div>
+      <ul class="plan-features">
+        <li><span class="feat-ok">✓</span><span class="feat-text">До 3 AI-генераций резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">До 5 сохранённых резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Экспорт в PDF</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text dim">Безлимитные генерации</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text dim">Безлимитное хранение</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text dim">Полнофункциональный редактор</span></li>
+      </ul>
+      <a class="btn-plan btn-free" href="/">Начать бесплатно</a>
+    </div>
+
+    <!-- Pro -->
+    <div class="plan featured">
+      <div class="plan-badge">Рекомендуем</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">399 ₽ <span>/ мес</span></div>
+      <div class="plan-period">30 календарных дней с момента оплаты</div>
+      <ul class="plan-features">
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные AI-генерации резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитное хранение резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Экспорт в PDF</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Полнофункциональный редактор</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Адаптация резюме под вакансии</span></li>
+      </ul>
+      <button class="btn-plan btn-pro" id="btn-buy" onclick="buyPro()">Оформить Pro — 399 ₽</button>
+    </div>
+
+  </div>
+
+  <!-- Информация об оплате (требование ЮKassa) -->
+  <div class="payment-info">
+    <h2>Условия оплаты и предоставления услуги</h2>
+    <div class="payment-row">
+      <span class="payment-icon">💳</span>
+      <div class="payment-text">
+        <strong>Стоимость:</strong> 399 ₽. Оплата производится через платёжный сервис ЮKassa банковской картой или через СБП.
+      </div>
+    </div>
+    <div class="payment-row">
+      <span class="payment-icon">📅</span>
+      <div class="payment-text">
+        <strong>Срок действия подписки:</strong> 30 календарных дней с момента подтверждения оплаты. Повторная оплата продлевает подписку от текущей даты окончания.
+      </div>
+    </div>
+    <div class="payment-row">
+      <span class="payment-icon">⚡</span>
+      <div class="payment-text">
+        <strong>Активация:</strong> доступ открывается автоматически после подтверждения платежа — обычно в течение нескольких секунд. Активация отображается в личном кабинете в разделе «Настройки».
+      </div>
+    </div>
+    <div class="payment-row">
+      <span class="payment-icon">💻</span>
+      <div class="payment-text">
+        <strong>Формат услуги:</strong> цифровая услуга, предоставляется в электронной форме через интерфейс сайта. Физические товары не поставляются.
+      </div>
+    </div>
+    <div class="payment-row">
+      <span class="payment-icon">📄</span>
+      <div class="payment-text">
+        Нажимая кнопку оплаты, вы принимаете условия
+        <a href="/offer" style="color:#0F1C3F">публичной оферты</a>
+        и
+        <a href="/privacy" style="color:#0F1C3F">политики конфиденциальности</a>.
+      </div>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div class="faq">
+    <div class="faq-item">
+      <div class="faq-q">Как происходит оплата?</div>
+      <div class="faq-a">Оплата проходит через защищённый платёжный сервис ЮKassa. Поддерживаются карты Visa, Mastercard, МИР, а также оплата через СБП. Данные карты не хранятся на нашем сервере.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Подписка продлевается автоматически?</div>
+      <div class="faq-a">Нет. Подписка не продлевается автоматически — оплата списывается только один раз. По окончании 30 дней аккаунт переходит на бесплатный тариф. Чтобы продолжить пользоваться Pro, нужно оплатить снова.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Можно ли вернуть деньги?</div>
+      <div class="faq-a">Согласно ст. 26.1 Закона «О защите прав потребителей» и условиям публичной оферты, возврат средств за цифровые услуги не предусмотрен после активации. Если после оплаты подписка не активировалась — обратитесь по email, указанному в разделе «Контакты».</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Что будет с моими резюме после окончания подписки?</div>
+      <div class="faq-a">Все сохранённые резюме остаются доступны для просмотра и скачивания в PDF. После перехода на бесплатный тариф создание новых AI-генераций будет ограничено.</div>
+    </div>
+  </div>
+
+</div>
+</main>
+
+{% include '_footer.html' %}
+
+<div class="loader" id="loader"><div class="spinner"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+async function buyPro() {
+  const me = await fetch('/api/me').then(r=>r.json());
+  if (!me.authenticated) {
+    window.location.href = '/?auth_required=1&next=/pricing';
+    return;
+  }
+  document.getElementById('loader').classList.add('on');
+  try {
+    const res = await fetch('/api/pay', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const d = await res.json();
+    if (d.url) window.location.href = d.url;
+    else throw new Error('Ошибка');
+  } catch(e) {
+    const t = document.getElementById('toast');
+    t.textContent = 'Ошибка создания платежа'; t.className='toast on err';
+    setTimeout(()=>t.classList.remove('on'),3500);
+    document.getElementById('loader').classList.remove('on');
+  }
+}
+</script>
+</body>
+</html>

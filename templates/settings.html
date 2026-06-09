@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Настройки — Резюме.ИИ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0F1C3F;--gold:#F0A520;
+  --bg:#F2F5FA;--card:#fff;
+  --text:#1E293B;--muted:#64748B;--light:#94A3B8;
+  --border:#E2E8F0;--border-d:#CBD5E1;
+  --success:#059669;--danger:#EF4444;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh}
+
+/* ── Header ── */
+header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;text-decoration:none;color:#fff}.logo span{color:var(--gold)}
+.header-nav{display:flex;gap:4px;margin-left:8px}
+.nav-a{color:rgba(255,255,255,.6);font-size:13px;text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .15s}
+.nav-a:hover{color:#fff;background:rgba(255,255,255,.1)}
+.nav-a.active{color:#fff;background:rgba(255,255,255,.12)}
+.ml{margin-left:auto;display:flex;align-items:center;gap:8px}
+.btn-logout{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.5);font-size:13px;padding:4px 8px}
+.btn-logout:hover{color:#fff}
+
+/* ── Page ── */
+.page{max-width:680px;margin:0 auto;padding:2rem 1.5rem;display:flex;flex-direction:column;gap:1.25rem}
+
+/* ── User card ── */
+.user-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:1.5rem;display:flex;align-items:center;gap:16px}
+.avatar-lg{width:52px;height:52px;border-radius:14px;background:var(--gold);color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex-shrink:0}
+.avatar-img{width:52px;height:52px;border-radius:14px;object-fit:cover;flex-shrink:0}
+.user-name{font-size:17px;font-weight:700;margin-bottom:2px}
+.user-meta{font-size:12px;color:var(--muted)}
+
+/* ── Plan cards ── */
+.plan-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:540px){.plan-row{grid-template-columns:1fr}}
+.plan-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:1.25rem}
+.plan-card.current{border:2px solid var(--navy)}
+.plan-card.pro-card{border:2px solid var(--gold);background:linear-gradient(135deg,#FFFBEB 0%,#FFF7E6 100%)}
+.plan-card.active-pro{background:linear-gradient(135deg,#EAF3DE 0%,#F0F8E8 100%);border-color:#3B6D11}
+.plan-name{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.plan-price{font-size:24px;font-weight:800;color:var(--navy);line-height:1;margin-bottom:4px}
+.plan-price span{font-size:13px;font-weight:400;color:var(--muted)}
+.plan-period{font-size:11px;color:var(--muted);margin-bottom:14px}
+.plan-features{list-style:none;margin-bottom:16px;display:flex;flex-direction:column;gap:6px}
+.plan-features li{font-size:12px;display:flex;align-items:center;gap:8px}
+.feat-ok{color:var(--success);font-size:14px;flex-shrink:0}
+.feat-no{color:var(--light);font-size:14px;flex-shrink:0}
+.feat-text{color:var(--text)}
+.feat-text.muted{color:var(--muted);text-decoration:line-through}
+.btn-upgrade{width:100%;padding:10px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:opacity .15s}
+.btn-upgrade:hover{opacity:.88}
+.btn-upgrade-main{background:var(--navy);color:#fff}
+.btn-upgrade-gold{background:var(--gold);color:var(--navy)}
+.btn-upgrade-renew{background:#3B6D11;color:#fff}
+.btn-upgrade-current{background:var(--bg);color:var(--muted);cursor:default}
+.plan-badge{display:inline-block;font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px;margin-bottom:8px}
+.badge-free{background:#F1F5F9;color:#475569}
+.badge-pro{background:#FEF3C7;color:#B45309}
+.badge-active{background:#D1FAE5;color:#065F46}
+
+/* ── Usage bar ── */
+.usage-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:1.25rem}
+.usage-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:14px}
+.usage-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.usage-label{font-size:13px;color:var(--text)}
+.usage-val{font-size:13px;font-weight:600}
+.usage-bar-bg{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:4px;margin-bottom:14px}
+.usage-bar-fill{height:6px;border-radius:3px;background:var(--navy);transition:width .4s}
+.usage-bar-fill.warn{background:#D97706}
+.usage-bar-fill.full{background:var(--danger)}
+.usage-bar-fill.pro{background:var(--success)}
+.usage-unlimited{font-size:12px;color:var(--success);font-weight:500}
+
+/* ── Payment history ── */
+.history-card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;padding:1.25rem}
+.history-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:14px}
+.pay-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid var(--border)}
+.pay-row:last-child{border-bottom:none}
+.pay-date{font-size:12px;color:var(--muted)}
+.pay-desc{font-size:13px;font-weight:500}
+.pay-status{font-size:11px;font-weight:500;padding:3px 8px;border-radius:12px}
+.pay-ok{background:#D1FAE5;color:#065F46}
+.pay-pending{background:#FEF3C7;color:#B45309}
+.pay-empty{font-size:13px;color:var(--light);text-align:center;padding:1rem 0}
+
+/* ── Upgrade modal ── */
+.modal-wrap{display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;padding:16px}
+.modal-wrap.on{display:flex}
+.modal-bd{position:absolute;inset:0;background:rgba(10,20,50,.65)}
+.modal{background:#fff;border-radius:14px;padding:2rem;max-width:400px;width:100%;position:relative;z-index:1;text-align:center}
+.modal-icon{font-size:40px;margin-bottom:.75rem}
+.modal h2{font-size:19px;font-weight:800;color:var(--navy);margin-bottom:8px}
+.modal-p{font-size:13px;color:var(--muted);margin-bottom:1.5rem;line-height:1.6}
+.modal-price{font-size:36px;font-weight:900;color:var(--navy);line-height:1}
+.modal-period{font-size:12px;color:var(--muted);margin-bottom:1.5rem;margin-top:4px}
+.modal-features{text-align:left;background:var(--bg);border-radius:8px;padding:12px 14px;margin-bottom:1.5rem}
+.modal-features li{font-size:12px;color:var(--text);display:flex;align-items:center;gap:8px;padding:3px 0}
+.modal button{width:100%;padding:12px;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;border:none;margin-bottom:8px}
+.btn-modal-close{background:var(--bg);color:var(--text);border:0.5px solid var(--border)!important}
+.btn-modal-close:last-child{margin-bottom:0}
+
+/* ── Loader / Toast ── */
+.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:300;align-items:center;justify-content:center}
+.loader.on{display:flex}
+.spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:280px;pointer-events:none}
+.toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="logo" href="/">Резюме<span>.ИИ</span></a>
+  <nav class="header-nav">
+    <a class="nav-a" href="/">Генератор</a>
+    <a class="nav-a" href="/resumes">Мои резюме</a>
+    <a class="nav-a active" href="/settings">Настройки</a>
+  </nav>
+  <div class="ml">
+    <span id="h-name" style="font-size:13px;color:rgba(255,255,255,.7)"></span>
+    <button class="btn-logout" onclick="doLogout()">Выйти</button>
+  </div>
+</header>
+
+<div class="page" id="page" style="display:none">
+
+  <!-- User info -->
+  <div class="user-card" id="user-card">
+    <div class="avatar-lg" id="av">?</div>
+    <div>
+      <div class="user-name" id="u-name">—</div>
+      <div class="user-meta" id="u-meta">—</div>
+    </div>
+  </div>
+
+  <!-- Current plan + Pro offer -->
+  <div class="plan-row" id="plan-row">
+    <!-- filled by JS -->
+  </div>
+
+  <!-- Usage stats -->
+  <div class="usage-card">
+    <div class="usage-title">Использование</div>
+
+    <div class="usage-row">
+      <span class="usage-label">AI-генерации</span>
+      <span class="usage-val" id="u-gen">—</span>
+    </div>
+    <div class="usage-bar-bg"><div class="usage-bar-fill" id="u-gen-bar" style="width:0%"></div></div>
+
+    <div class="usage-row">
+      <span class="usage-label">Сохранённые резюме</span>
+      <span class="usage-val" id="u-res">—</span>
+    </div>
+    <div class="usage-bar-bg"><div class="usage-bar-fill" id="u-res-bar" style="width:0%"></div></div>
+
+  </div>
+
+  <!-- Payment history -->
+  <div class="history-card">
+    <div class="history-title">История платежей</div>
+    <div id="pay-history"><div class="pay-empty">Нет платежей</div></div>
+  </div>
+
+</div>
+
+<!-- Upgrade modal -->
+<div class="modal-wrap" id="modal-upgrade">
+  <div class="modal-bd" onclick="closeUpgrade()"></div>
+  <div class="modal">
+    <div class="modal-icon">✨</div>
+    <h2>Резюме.ИИ Pro</h2>
+    <p class="modal-p">Снимите все ограничения и откликайтесь<br>на любое количество вакансий</p>
+    <div class="modal-price">399 ₽</div>
+    <div class="modal-period">в месяц · отмена в любой момент</div>
+    <ul class="modal-features">
+      <li><span class="feat-ok">✓</span> Безлимитные AI-генерации</li>
+      <li><span class="feat-ok">✓</span> Безлимитные сохранённые резюме</li>
+      <li><span class="feat-ok">✓</span> Редактор и версии</li>
+      <li><span class="feat-ok">✓</span> PDF всегда бесплатно</li>
+    </ul>
+    <button class="btn-upgrade btn-upgrade-gold" onclick="startPayment()">Оплатить 399 ₽ через ЮKassa</button>
+    <button class="btn-modal-close" onclick="closeUpgrade()">Отмена</button>
+  </div>
+</div>
+
+<div class="loader" id="loader"><div class="spinner"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+let billing = null;
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const me = await fetch('/api/me').then(r => r.json());
+  if (!me.authenticated) { window.location.href = '/?auth_required=1'; return; }
+
+  // Header
+  document.getElementById('h-name').textContent = me.name || me.email || '';
+
+  // Avatar
+  const av = document.getElementById('av');
+  if (me.photo) {
+    const img = document.createElement('img');
+    img.className = 'avatar-img'; img.src = me.photo; img.alt = '';
+    av.replaceWith(img);
+  } else {
+    av.textContent = (me.name || '?').charAt(0).toUpperCase();
+  }
+  document.getElementById('u-name').textContent = me.name || me.email || 'Пользователь';
+  document.getElementById('u-meta').textContent = me.email || '';
+
+  // Load billing details
+  billing = await fetch('/api/billing').then(r => r.json());
+
+  renderPlanRow(billing);
+  renderUsage(billing);
+  renderPayments(billing.payments || []);
+
+  document.getElementById('page').style.display = 'flex';
+
+  // Check for payment success redirect
+  const p = new URLSearchParams(location.search);
+  if (p.get('paid') === '1') {
+    history.replaceState({}, '', '/settings');
+    toast('Подписка Pro активирована! 🎉', 'ok');
+  }
+});
+
+function renderPlanRow(b) {
+  const isPro = b.is_pro;
+  const expiresStr = isPro && b.pro_expires_at
+    ? formatDate(b.pro_expires_at)
+    : null;
+
+  const freeGenLeft = b.free_left + b.paid_left;
+
+  document.getElementById('plan-row').innerHTML = isPro ? `
+    <!-- Active Pro -->
+    <div class="plan-card active-pro">
+      <div class="plan-badge badge-active">✓ Активен</div>
+      <div class="plan-name">Ваш план</div>
+      <div class="plan-price">Pro</div>
+      <div class="plan-period">Действует до ${expiresStr || '—'}</div>
+      <ul class="plan-features">
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные генерации</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Редактор резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">PDF без ограничений</span></li>
+      </ul>
+      <button class="btn-upgrade btn-upgrade-renew" onclick="openUpgrade()">Продлить ещё на месяц</button>
+    </div>
+    <!-- Spacer / info -->
+    <div class="plan-card" style="border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;padding:2rem">
+      <div style="font-size:28px">🎉</div>
+      <div style="font-size:13px;font-weight:600;color:var(--navy)">Вы на Pro!</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5">Все функции доступны.<br>Создавайте резюме для любых вакансий.</div>
+      <a href="/" style="color:var(--navy);font-size:12px;font-weight:600;text-decoration:none">→ Создать резюме</a>
+    </div>
+  ` : `
+    <!-- Free plan -->
+    <div class="plan-card current">
+      <div class="plan-badge badge-free">Текущий</div>
+      <div class="plan-name">Бесплатный</div>
+      <div class="plan-price">0 ₽</div>
+      <div class="plan-period">навсегда</div>
+      <ul class="plan-features">
+        <li><span class="feat-ok">✓</span><span class="feat-text">3 AI-генерации</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">До 5 резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text muted">Безлимитные генерации</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text muted">Безлимитные резюме</span></li>
+      </ul>
+      <button class="btn-upgrade btn-upgrade-current" disabled>Текущий план</button>
+    </div>
+    <!-- Pro offer -->
+    <div class="plan-card pro-card">
+      <div class="plan-badge badge-pro">✨ Рекомендуем</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">399 ₽ <span>/ мес</span></div>
+      <div class="plan-period">30 дней, отмена в любой момент</div>
+      <ul class="plan-features">
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные генерации</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">Редактор и версии</span></li>
+      </ul>
+      <button class="btn-upgrade btn-upgrade-gold" onclick="openUpgrade()">Стать Pro — 399 ₽</button>
+    </div>
+  `;
+}
+
+function renderUsage(b) {
+  const isPro = b.is_pro;
+  const genLeft = b.free_left + b.paid_left;
+  const genUsed  = Math.max(0, 3 - b.free_left);  // approximate
+
+  // Generations
+  if (isPro) {
+    document.getElementById('u-gen').innerHTML = '<span class="usage-unlimited">∞ безлимит</span>';
+    document.getElementById('u-gen-bar').style.width = '100%';
+    document.getElementById('u-gen-bar').className = 'usage-bar-fill pro';
+  } else {
+    document.getElementById('u-gen').textContent = `${genLeft} из 3 осталось`;
+    const pct = Math.round((1 - genLeft / 3) * 100);
+    const bar = document.getElementById('u-gen-bar');
+    bar.style.width = pct + '%';
+    bar.className = 'usage-bar-fill' + (pct >= 100 ? ' full' : pct >= 67 ? ' warn' : '');
+  }
+
+  // Resumes
+  const resCnt = b.resume_count;
+  const resMax = b.resume_limit;
+  if (isPro) {
+    document.getElementById('u-res').innerHTML = `${resCnt} <span class="usage-unlimited">· безлимит</span>`;
+    document.getElementById('u-res-bar').style.width = '30%';
+    document.getElementById('u-res-bar').className = 'usage-bar-fill pro';
+  } else {
+    document.getElementById('u-res').textContent = `${resCnt} из ${resMax}`;
+    const pct = Math.round((resCnt / resMax) * 100);
+    const bar = document.getElementById('u-res-bar');
+    bar.style.width = Math.min(pct, 100) + '%';
+    bar.className = 'usage-bar-fill' + (pct >= 100 ? ' full' : pct >= 80 ? ' warn' : '');
+  }
+}
+
+function renderPayments(pays) {
+  const el = document.getElementById('pay-history');
+  const success = pays.filter(p => p.status === 'succeeded');
+  if (!success.length) {
+    el.innerHTML = '<div class="pay-empty">Платежей пока нет</div>';
+    return;
+  }
+  el.innerHTML = success.map(p => `
+    <div class="pay-row">
+      <div>
+        <div class="pay-desc">Pro-подписка · 399 ₽</div>
+        <div class="pay-date">${formatDate(p.created)}</div>
+      </div>
+      <span class="pay-status pay-ok">Оплачен</span>
+    </div>
+  `).join('');
+}
+
+// ── Upgrade ──────────────────────────────────────────────────────────────
+function openUpgrade() { document.getElementById('modal-upgrade').classList.add('on'); }
+function closeUpgrade() { document.getElementById('modal-upgrade').classList.remove('on'); }
+
+async function startPayment() {
+  closeUpgrade();
+  document.getElementById('loader').classList.add('on');
+  try {
+    const res = await fetch('/api/pay', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({})
+    });
+    const d = await res.json();
+    if (d.url) window.location.href = d.url;
+    else throw new Error('Ошибка создания платежа');
+  } catch(e) {
+    toast('Ошибка: ' + e.message, 'err');
+    document.getElementById('loader').classList.remove('on');
+  }
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+async function doLogout() {
+  await fetch('/auth/logout', {method:'POST'});
+  window.location.href = '/';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('ru-RU', {day:'2-digit',month:'long',year:'numeric'});
+  } catch { return iso.slice(0,10); }
+}
+let _tt;
+function toast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast on'+(type?' '+type:'');
+  clearTimeout(_tt); _tt = setTimeout(()=>t.classList.remove('on'), 4000);
+}
+</script>
+{% include '_footer.html' %}
+</body>
+</html>

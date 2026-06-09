@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Резюме.ИИ — резюме под каждую вакансию</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+{% if telegram_bot_name %}
+<script async src="https://telegram.org/js/telegram-widget.js?22"
+  data-telegram-login="{{ telegram_bot_name }}"
+  data-size="large"
+  data-radius="8"
+  data-onauth="onTelegramAuth(user)"
+  data-request-access="write"></script>
+{% endif %}
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0F1C3F;--navy-l:#1a3060;
+  --gold:#F0A520;--gold-d:#c88a18;
+  --bg:#F2F5FA;--card:#fff;
+  --text:#1E293B;--muted:#64748B;--light:#94A3B8;
+  --border:#E2E8F0;--border-d:#CBD5E1;
+  --danger:#EF4444;--success:#059669;
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;font-size:14px}
+
+/* ── Header ── */
+header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;white-space:nowrap}.logo span{color:var(--gold)}
+.header-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.btn-login{padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn-login:hover{background:rgba(255,255,255,.2)}
+.user-chip{display:flex;align-items:center;gap:8px}
+.user-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,.3)}
+.user-avatar-init{width:28px;height:28px;border-radius:50%;background:var(--gold);color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.user-name{font-size:13px;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uses-chip{font-size:11px;background:rgba(255,255,255,.12);padding:3px 8px;border-radius:12px;white-space:nowrap}
+.uses-chip.low{background:rgba(240,165,32,.25);color:var(--gold)}
+.btn-logout{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.5);font-size:13px;padding:4px;transition:color .15s}
+.btn-logout:hover{color:#fff}
+
+/* ── Tabs ── */
+.tabs{display:flex;background:var(--navy);padding:0 1.5rem;border-bottom:1px solid rgba(255,255,255,.1)}
+.tab{padding:10px 18px;font-size:13px;font-weight:500;color:rgba(255,255,255,.5);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.tab.active{color:#fff;border-color:var(--gold)}
+
+/* ── Layout ── */
+.layout{display:grid;grid-template-columns:460px 1fr;min-height:calc(100vh - 94px)}
+@media(max-width:860px){.layout{grid-template-columns:1fr}}
+
+/* ── Panels ── */
+.form-panel{padding:1.5rem;overflow-y:auto;border-right:1px solid var(--border);background:#F8FAFC}
+.preview-panel{padding:1.5rem;background:#E8EDF5;overflow-y:auto}
+
+/* ── Cards / Fields ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1.1rem;margin-bottom:.875rem}
+.card-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--light);margin-bottom:12px}
+.field{margin-bottom:10px}.field:last-child{margin-bottom:0}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px}
+.field input,.field textarea{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--text);background:#fff;transition:border-color .15s}
+.field input:focus,.field textarea:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 2px rgba(15,28,63,.08)}
+.field textarea{resize:vertical;min-height:58px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* ── Buttons ── */
+.btn{width:100%;padding:12px;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .15s;margin-top:4px}
+.btn:hover{opacity:.88}.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-navy{background:var(--navy);color:#fff}
+.btn-gold{background:var(--gold);color:var(--navy)}
+.btn-outline{background:#fff;color:var(--navy);border:1.5px solid var(--navy)}
+.btn-sm{padding:7px 14px;width:auto;font-size:13px;margin-top:0;border-radius:6px;border:none}
+
+/* ── Entries ── */
+.entry{background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:8px}
+.entry-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.entry-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light)}
+.btn-rm{background:none;border:none;cursor:pointer;color:var(--light);font-size:17px;line-height:1}
+.btn-rm:hover{color:var(--danger)}
+.btn-add{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px;background:none;border:1px dashed var(--border-d);border-radius:6px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s}
+.btn-add:hover{border-color:var(--navy);color:var(--navy)}
+
+/* ── Status / notices ── */
+.status-bar{display:none;align-items:center;justify-content:space-between;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:9px 14px;margin-bottom:1rem;font-size:13px}
+.status-bar.warn{background:#FFFBEB;border-color:#FCD34D}
+.status-count{font-weight:700;color:#3730A3;font-size:15px}
+.status-bar.warn .status-count{color:#92400E}
+.notice{border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:12px}
+.notice-warn{background:#FFFBEB;border:1px solid #FCD34D;color:#92400E}
+.notice-ok{background:#EAF3DE;border:1px solid #C0DD97;color:#3B6D11;display:none}
+.notice-ok.on{display:flex;align-items:center;gap:8px}
+
+/* ── Job toolbar ── */
+.job-toolbar{display:flex;gap:7px;margin-bottom:8px}
+.job-toolbar input{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;background:#fff;color:var(--text)}
+.job-toolbar button{padding:7px 12px;background:var(--navy);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.job-area{min-height:140px;font-size:13px;line-height:1.6}
+
+/* ── Preview ── */
+.preview-toolbar{display:flex;gap:8px;margin-bottom:1rem}
+.preview-toolbar button{flex:1;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
+#resume-paper{background:#fff;max-width:680px;margin:0 auto;padding:44px 52px;border:1px solid #ddd;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.06)}
+.r-empty{text-align:center;padding:4rem 2rem;color:var(--light)}
+.r-empty svg{opacity:.3;margin:0 auto 1rem;display:block}
+.r-empty p{font-size:13px;line-height:1.6}
+.r-name{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;margin-bottom:3px;line-height:1.2}
+.r-role{font-size:13px;color:var(--gold);font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
+.r-contacts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--muted);padding-bottom:14px;border-bottom:2.5px solid var(--navy);margin-bottom:18px}
+.r-contacts span{display:flex;align-items:center;gap:4px}
+.r-section{margin-bottom:18px}
+.r-section h2{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--navy);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--border-d)}
+.r-summary{font-size:12.5px;line-height:1.65;color:#334155}
+.r-exp{margin-bottom:12px}
+.r-exp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
+.r-exp-role{font-size:13px;font-weight:700;color:var(--text)}
+.r-exp-period{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:8px}
+.r-exp-co{font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.r-bullets{list-style:none;padding:0}
+.r-bullets li{font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative}
+.r-bullets li::before{content:"▸";position:absolute;left:0;color:var(--gold);font-size:10px;top:3px}
+.r-edu-item{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+.r-edu-item .deg{font-size:13px;font-weight:600}.r-edu-item .inst{font-size:11.5px;color:var(--muted)}
+.r-edu-year{font-size:11.5px;color:var(--muted)}
+.r-skills-row{display:flex;gap:10px;margin-bottom:5px;font-size:12px}
+.r-skill-cat{font-weight:600;color:var(--text);min-width:110px}
+.r-skill-items{color:#334155}
+.ats-panel{display:none;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:1rem;max-width:680px}
+.ats-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light);margin-bottom:6px}
+.ats-tags{display:flex;flex-wrap:wrap;gap:5px}
+.ats-tag{background:#EEF2FF;color:#3730A3;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:500}
+
+/* ── Save banner (shown after generation if logged in) ── */
+.save-banner{display:none;background:#EAF3DE;border:1px solid #C0DD97;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12px;color:#3B6D11;max-width:680px;align-items:center;justify-content:space-between;gap:8px}
+.save-banner.on{display:flex}
+.save-banner button{padding:5px 12px;background:#3B6D11;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+
+/* ── Auth modal ── */
+.modal-wrap{display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;padding:16px}
+.modal-wrap.on{display:flex}
+.modal-backdrop{position:absolute;inset:0;background:rgba(10,20,50,.65)}
+.modal{background:#fff;border-radius:14px;padding:2rem;width:100%;max-width:380px;position:relative;z-index:1}
+.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;cursor:pointer;font-size:20px;color:var(--muted);line-height:1}
+.modal h2{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.modal-sub{font-size:13px;color:var(--muted);margin-bottom:1.5rem;line-height:1.5}
+.auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:12px;color:var(--light)}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.auth-email-row{display:flex;gap:7px}
+.auth-email-row input{flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--text);background:#fff}
+.auth-email-row input:focus{outline:none;border-color:var(--navy)}
+.auth-email-row button{padding:9px 14px;background:var(--navy);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.magic-sent{display:none;text-align:center;padding:1rem 0}
+.magic-sent .icon{font-size:36px;margin-bottom:.5rem}
+.magic-sent p{font-size:13px;color:var(--muted);line-height:1.6}
+.tg-widget-wrap{min-height:56px;display:flex;align-items:center;justify-content:center}
+
+/* ── Pay modal ── */
+.pay-modal{background:#fff;border-radius:14px;padding:2rem;width:100%;max-width:360px;position:relative;z-index:1;text-align:center}
+.pay-modal h2{font-size:19px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.pay-modal-p{font-size:13px;color:var(--muted);margin-bottom:1.25rem;line-height:1.5}
+.pay-price{font-size:36px;font-weight:800;color:var(--navy);line-height:1}
+.pay-pack{font-size:12px;color:var(--muted);margin-bottom:1.5rem;margin-top:4px}
+
+/* ── Loader ── */
+.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:200;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+.loader.on{display:flex}
+.spinner{width:40px;height:40px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{font-size:14px;font-weight:500;color:#fff}
+.loader-sub{font-size:12px;color:rgba(255,255,255,.55)}
+
+/* ── Gate banner ── */
+.gate-banner{display:none;max-width:680px;margin:0 auto 1rem;border-radius:10px;overflow:hidden}
+.gate-banner.on{display:block}
+.gate-anon{background:var(--navy);padding:18px 20px}
+.gate-anon-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.gate-anon-icon{font-size:26px;line-height:1;flex-shrink:0}
+.gate-anon-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:3px}
+.gate-anon-sub{font-size:12px;color:rgba(255,255,255,.65);line-height:1.4}
+.gate-anon-btns{display:flex;gap:8px;flex-wrap:wrap}
+.gate-anon-btns button{flex:1;padding:10px 12px;border-radius:7px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;min-width:130px;transition:opacity .15s}
+.gate-anon-btns button:hover{opacity:.88}
+.gate-btn-pdf{background:var(--gold);color:var(--navy);border:none}
+.gate-btn-save{background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.25)}
+.gate-counter{font-size:11px;color:rgba(255,255,255,.4);margin-top:10px;text-align:center}
+.gate-auth{background:#EAF3DE;border:1px solid #C0DD97;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:10px}
+.gate-auth-msg{font-size:13px;color:#3B6D11;font-weight:500}
+.gate-auth button{padding:7px 16px;background:#3B6D11;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:300px;pointer-events:none}
+.toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Резюме<span>.ИИ</span></div>
+  <div class="header-right">
+    <a id="nav-resumes" href="/resumes" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Мои резюме</a>
+    <a id="nav-settings" href="/settings" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Настройки</a>
+    <span id="uses-chip" class="uses-chip" style="display:none"></span>
+    <div id="user-chip" class="user-chip" style="display:none">
+      <div id="user-avatar" class="user-avatar-init"></div>
+      <span id="user-name" class="user-name"></span>
+      <button class="btn-logout" onclick="doLogout()" title="Выйти">✕</button>
+    </div>
+    <button id="btn-login-header" class="btn-login" onclick="openAuthModal()">Войти</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" id="tab-match"   onclick="switchTab('match')">🎯 Под вакансию</div>
+  <div class="tab"        id="tab-general" onclick="switchTab('general')">📄 Общее резюме</div>
+  <div class="tab"        id="tab-profile" onclick="switchTab('profile')">👤 Мой профиль</div>
+</div>
+
+<div class="layout">
+<div class="form-panel">
+
+  <!-- ── TAB: MATCH ── -->
+  <div id="panel-match">
+    <div class="status-bar" id="status-bar">
+      <span>Адаптаций осталось</span>
+      <span class="status-count" id="status-n">3</span>
+    </div>
+    <div id="no-profile-warn" class="notice notice-warn" style="display:none">
+      ⚠️ Профиль не заполнен. Перейдите на вкладку <b>«Мой профиль»</b>.
+    </div>
+    <div id="profile-ok" class="notice notice-ok">
+      <span>✓</span> Профиль загружен
+    </div>
+    <div class="card">
+      <div class="card-title">Вакансия</div>
+      <div class="job-toolbar">
+        <input id="job-url" placeholder="Вставьте ссылку на hh.ru / LinkedIn...">
+        <button onclick="fetchJob()">Загрузить</button>
+      </div>
+      <div class="field">
+        <label>Или вставьте текст вакансии</label>
+        <textarea id="job-text" class="job-area" placeholder="Senior Product Manager в Тинькофф&#10;&#10;Требования:&#10;— Опыт 3+ лет в продукте..."></textarea>
+      </div>
+      <div class="field">
+        <label>Компания (для сохранения)</label>
+        <input id="job-company" placeholder="Тинькофф, Яндекс...">
+      </div>
+      <div class="field">
+        <label>Пожелания к акцентам (необязательно)</label>
+        <input id="m-hint" placeholder="Акцент на аналитике, убрать ранний опыт...">
+      </div>
+    </div>
+    <button class="btn btn-gold" id="btn-match" onclick="doMatch()">🎯 Адаптировать под вакансию</button>
+    <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px">
+      ИИ выберет релевантный опыт и добавит ключевые слова ATS
+    </div>
+  </div>
+
+  <!-- ── TAB: GENERAL ── -->
+  <div id="panel-general" style="display:none">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:1rem">Универсальное резюме из вашего профиля — для публикации на hh.ru или отправки «вхолодную»</p>
+    <div id="g-no-profile" class="notice notice-warn" style="display:none">
+      ⚠️ Профиль не заполнен. Перейдите на вкладку <b>«Мой профиль»</b>.
+    </div>
+    <div class="card">
+      <div class="card-title">Настройки</div>
+      <div class="field">
+        <label>Желаемая должность (необязательно)</label>
+        <input id="g-role" placeholder="Оставьте пустым — AI определит из опыта">
+      </div>
+      <div class="field">
+        <label>Пожелания</label>
+        <textarea id="g-hint" placeholder="Акцент на управлении, скрой нерелевантный опыт..."></textarea>
+      </div>
+    </div>
+    <button class="btn btn-navy" id="btn-general" onclick="doGeneralResume()">📄 Сгенерировать общее резюме</button>
+  </div>
+
+  <!-- ── TAB: PROFILE ── -->
+  <div id="panel-profile" style="display:none">
+    <p style="font-size:12px;color:var(--muted);margin-bottom:1rem">Заполните один раз — используйте для любой вакансии</p>
+    <div class="card">
+      <div class="card-title">Личные данные</div>
+      <div class="field"><label>Полное имя *</label><input id="p-name" placeholder="Иван Иванов"></div>
+      <div class="row2">
+        <div class="field"><label>Телефон</label><input id="p-phone" placeholder="+7 900 000-00-00" type="tel"></div>
+        <div class="field"><label>Город</label><input id="p-city" placeholder="Москва"></div>
+      </div>
+      <div class="field"><label>LinkedIn / hh.ru</label><input id="p-linkedin" placeholder="linkedin.com/in/username"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Опыт работы</div>
+      <div id="exp-list"></div>
+      <button class="btn-add" onclick="addExp()">+ Добавить место работы</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Образование</div>
+      <div id="edu-list"></div>
+      <button class="btn-add" onclick="addEdu()">+ Добавить</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Навыки и языки</div>
+      <div class="field">
+        <label>Навыки (через запятую)</label>
+        <textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой..."></textarea>
+      </div>
+      <div class="field">
+        <label>Языки</label>
+        <input id="p-langs" value="Русский — родной">
+      </div>
+    </div>
+    <button class="btn btn-navy" onclick="saveProfile()">💾 Сохранить профиль</button>
+  </div>
+
+</div><!-- form-panel -->
+
+<!-- ── Preview panel ── -->
+<div class="preview-panel">
+  <div class="preview-toolbar">
+    <button class="btn-gold"    id="btn-pdf"   style="display:none" onclick="downloadPDF()">↓ Скачать PDF</button>
+    <button class="btn-outline" id="btn-regen" style="display:none" onclick="regenCurrent()">↺ Перегенерировать</button>
+  </div>
+
+  <!-- Gate banner: два состояния — анон (гейт) и авторизован (подтверждение) -->
+  <div id="gate-banner" class="gate-banner">
+    <!-- Анонимный: призыв войти -->
+    <div id="gate-anon" style="display:none" class="gate-anon">
+      <div class="gate-anon-head">
+        <div class="gate-anon-icon">🎉</div>
+        <div>
+          <div class="gate-anon-title">Резюме готово!</div>
+          <div class="gate-anon-sub">Войдите чтобы скачать PDF и сохранить в личный кабинет</div>
+        </div>
+      </div>
+      <div class="gate-anon-btns">
+        <button class="gate-btn-pdf"  onclick="gateAction('pdf')">↓ Скачать PDF</button>
+        <button class="gate-btn-save" onclick="gateAction('save')">Сохранить резюме</button>
+      </div>
+      <div class="gate-counter" id="gate-counter"></div>
+    </div>
+    <!-- Авторизован: подтверждение -->
+    <div id="gate-auth" style="display:none" class="gate-auth">
+      <span class="gate-auth-msg">✓ Резюме сохранено</span>
+      <button onclick="downloadPDFDirect()">↓ Скачать PDF</button>
+    </div>
+  </div>
+  <div id="resume-paper">
+    <div class="r-empty" id="r-empty">
+      <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
+        <rect x="8" y="4" width="38" height="52" rx="4" stroke="currentColor" stroke-width="2.5"/>
+        <line x1="16" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <line x1="16" y1="24" x2="38" y2="24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <line x1="16" y1="32" x2="30" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <p>Заполните профиль и вставьте вакансию<br>→ получите резюме с нужными ключевыми словами</p>
+    </div>
+    <div id="r-content" style="display:none">
+      <p class="r-name" id="r-name"></p>
+      <p class="r-role" id="r-role"></p>
+      <div class="r-contacts" id="r-contacts"></div>
+      <div class="r-section"><h2>Профессиональный профиль</h2><p class="r-summary" id="r-summary"></p></div>
+      <div class="r-section"><h2>Опыт работы</h2><div id="r-exp"></div></div>
+      <div class="r-section"><h2>Образование</h2><div id="r-edu"></div></div>
+      <div class="r-section"><h2>Навыки</h2><div id="r-skills-out"></div></div>
+      <div class="r-section"><h2>Языки</h2><p class="r-langs" id="r-langs-out"></p></div>
+    </div>
+  </div>
+</div>
+</div><!-- layout -->
+
+<!-- ── Auth modal ── -->
+<div class="modal-wrap" id="modal-auth">
+  <div class="modal-backdrop" onclick="closeAuthModal()"></div>
+  <div class="modal">
+    <button class="modal-close" onclick="closeAuthModal()">×</button>
+    <div id="auth-main">
+      <h2>Войдите в аккаунт</h2>
+      <p class="modal-sub" id="auth-sub">Чтобы сохранять резюме и использовать все функции</p>
+      {% if telegram_bot_name %}
+      <div class="tg-widget-wrap" id="tg-widget-wrap"></div>
+      <div class="auth-divider">или</div>
+      {% endif %}
+      <div class="auth-email-row">
+        <input type="email" id="auth-email" placeholder="email@example.com" autocomplete="email">
+        <button onclick="requestMagicLink()">Войти</button>
+      </div>
+      <p style="font-size:11px;color:var(--light);margin-top:8px;text-align:center">Без пароля — пришлём ссылку на почту</p>
+    </div>
+    <div class="magic-sent" id="magic-sent">
+      <div class="icon">📬</div>
+      <p>Ссылка отправлена на<br><b id="magic-email-display"></b><br><br>Проверьте почту и нажмите на ссылку.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Payment modal ── -->
+<div class="modal-wrap" id="modal-pay">
+  <div class="modal-backdrop" onclick="closePayModal()"></div>
+  <div class="pay-modal">
+    <button class="modal-close" onclick="closePayModal()">×</button>
+    <div style="font-size:36px;margin-bottom:.75rem">✨</div>
+    <h2 id="paywall-title">Перейдите на Pro</h2>
+    <p class="pay-modal-p" id="paywall-msg">Безлимитные генерации и сохранение<br>любого количества резюме.</p>
+    <div class="pay-price">399 ₽</div>
+    <div class="pay-pack">Pro-подписка на 30 дней</div>
+    <ul style="list-style:none;text-align:left;margin:0 0 1.25rem;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+      <li>✓ Безлимитные AI-генерации</li>
+      <li>✓ Безлимитные сохранённые резюме</li>
+      <li>✓ PDF всегда бесплатно</li>
+    </ul>
+    <button class="btn btn-gold" onclick="doPay()">Оплатить через ЮKassa</button>
+    <button class="btn btn-outline" onclick="closePayModal()" style="margin-top:8px">Отмена</button>
+    <div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--border)">
+      <div style="font-size:11px;color:var(--muted);line-height:1.7">
+        <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 календарных дней</div>
+        <div>⚡ Доступ открывается автоматически после оплаты</div>
+        <div>💻 Услуга предоставляется в цифровой форме</div>
+        <div style="margin-top:6px">
+          <a href="/offer" style="color:var(--muted)" target="_blank">Оферта</a>
+          <span style="margin:0 6px;opacity:.4">·</span>
+          <a href="/privacy" style="color:var(--muted)" target="_blank">Конфиденциальность</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Loader ── -->
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <div class="loader-text" id="loader-text">Обрабатываю...</div>
+  <div class="loader-sub">Обычно 10–20 секунд</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+let currentUser  = null;
+let hasProfile   = false;
+let lastResume   = null;
+let lastResumeId = null;
+let lastTab      = 'match';
+let expCnt = 0, eduCnt = 0;
+let pendingAction = null;
+
+// ── Boot ──────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  addExp(); addEdu();
+
+  // Анонимный профиль из localStorage — показываем сразу, до авторизации
+  const localP = getLocalProfile();
+  if (localP) { hasProfile = true; fillProfileForm(localP); }
+
+  // Move Telegram widget into modal (it was rendered by Jinja2 in <head>)
+  const tgEl = document.querySelector('iframe[src*="telegram"]') ||
+               document.querySelector('script[src*="telegram-widget"]');
+  // Widget loads async; we'll re-inject if needed via onTelegramAuth
+
+  await refreshSession();
+
+  const p = new URLSearchParams(location.search);
+  if (p.get('login') === 'success') {
+    history.replaceState({}, '', '/');
+    await _afterAuth();
+    toast('Вы вошли в аккаунт!', 'ok');
+  }
+  if (p.get('paid') === '1') {
+    history.replaceState({}, '', '/');
+    await refreshSession();
+    toast('Оплата прошла! Адаптации добавлены.', 'ok');
+  }
+});
+
+// ── Session / user ────────────────────────────────────────────────
+async function refreshSession() {
+  const res = await fetch('/api/me');
+  const d   = await res.json();
+  if (d.authenticated) {
+    currentUser = d;
+    refreshAuthUI();
+    await loadProfileData();
+  } else {
+    currentUser = null;
+    refreshAuthUI();
+  }
+}
+
+async function _afterAuth() {
+  // Вызывается после любого успешного входа
+  await refreshSession();       // Получаем актуальные данные пользователя
+  // Если было анонимно сгенерированное резюме — синхронизируем
+  if (lastResume && !lastResumeId) {
+    await saveCurrentResume();  // Теперь пользователь авторизован, сохраняем
+  } else if (lastResume) {
+    showGateAuth();             // Уже сохранено — показываем подтверждение
+    show('btn-pdf');
+  }
+  if (pendingAction) { const a = pendingAction; pendingAction = null; a(); }
+}
+
+function refreshAuthUI() {
+  const loggedIn = !!currentUser;
+  document.getElementById('btn-login-header').style.display = loggedIn ? 'none' : '';
+  document.getElementById('user-chip').style.display = loggedIn ? 'flex' : 'none';
+
+  if (loggedIn) {
+    const initials = (currentUser.name || 'U').charAt(0).toUpperCase();
+    const av = document.getElementById('user-avatar');
+    if (currentUser.photo) {
+      av.outerHTML = `<img id="user-avatar" class="user-avatar" src="${currentUser.photo}" alt="">`;
+    } else {
+      av.textContent = initials;
+    }
+    document.getElementById('user-name').textContent = currentUser.name || currentUser.email || 'Пользователь';
+    document.getElementById('nav-resumes').style.display = '';
+    const navSettings = document.getElementById('nav-settings');
+    if (navSettings) navSettings.style.display = '';
+
+    const chip = document.getElementById('uses-chip');
+    chip.style.display = '';
+    if (currentUser.is_pro) {
+      chip.textContent = '✨ Pro';
+      chip.classList.remove('low');
+      chip.style.cssText = 'background:rgba(240,165,32,.22);color:#F0A520;display:inline-block';
+    } else {
+      const total = currentUser.total || 0;
+      chip.textContent = `Осталось: ${total}`;
+      chip.classList.toggle('low', total <= 1);
+      chip.style.cssText = '';
+    }
+
+    const bar = document.getElementById('status-bar');
+    bar.style.display = 'flex';
+    const t = currentUser.is_pro ? 999 : (currentUser.total || 0);
+    bar.classList.toggle('warn', !currentUser.is_pro && t <= 1);
+    document.getElementById('status-n').textContent = currentUser.is_pro ? '∞' : t;
+  }
+  refreshProfileWarnings();
+}
+
+// ── Auth modal ────────────────────────────────────────────────────
+function openAuthModal(sub) {
+  document.getElementById('modal-auth').classList.add('on');
+  document.getElementById('auth-main').style.display = '';
+  document.getElementById('magic-sent').style.display = 'none';
+  if (sub) document.getElementById('auth-sub').textContent = sub;
+
+  // Re-inject Telegram widget into modal if not already there
+  const wrap = document.getElementById('tg-widget-wrap');
+  if (wrap && !wrap.querySelector('iframe')) {
+    // Widget script already loaded globally — re-render into modal
+    const script = document.createElement('script');
+    script.async = true;
+    script.src   = 'https://telegram.org/js/telegram-widget.js?22';
+    script.setAttribute('data-telegram-login', '{{ telegram_bot_name }}');
+    script.setAttribute('data-size', 'large');
+    script.setAttribute('data-radius', '8');
+    script.setAttribute('data-onauth', 'onTelegramAuth(user)');
+    wrap.appendChild(script);
+  }
+}
+function closeAuthModal() { document.getElementById('modal-auth').classList.remove('on'); }
+
+// Telegram callback (global, called by widget)
+window.onTelegramAuth = async function(user) {
+  setLoader(true, 'Входим через Telegram...');
+  try {
+    const res = await fetch('/auth/telegram', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(user)
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || 'Ошибка');
+    currentUser = {...d.user, total: d.user.free_left};
+    closeAuthModal();
+    await _afterAuth();
+    toast(`Добро пожаловать, ${d.user.name || ''}!`, 'ok');
+    if (pendingAction) { pendingAction(); pendingAction = null; }
+  } catch(e) { toast('Ошибка Telegram: ' + e.message, 'err'); }
+  finally { setLoader(false); }
+};
+
+async function requestMagicLink() {
+  const email = v('auth-email');
+  if (!email.includes('@')) { toast('Введите корректный email', 'err'); return; }
+  setLoader(true, 'Отправляем ссылку...');
+  try {
+    const res = await fetch('/auth/email/request', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ email })
+    });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
+    document.getElementById('auth-main').style.display = 'none';
+    document.getElementById('magic-sent').style.display = '';
+    document.getElementById('magic-email-display').textContent = email;
+  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+  finally { setLoader(false); }
+}
+
+async function doLogout() {
+  await fetch('/auth/logout', { method: 'POST' });
+  currentUser = null;
+  hasProfile  = false;
+  refreshAuthUI();
+  toast('Вы вышли из аккаунта');
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────
+function switchTab(t) {
+  lastTab = t;
+  ['match','general','profile'].forEach(id => {
+    document.getElementById('tab-' + id).classList.toggle('active', id === t);
+    document.getElementById('panel-' + id).style.display = id === t ? '' : 'none';
+  });
+  refreshProfileWarnings();
+}
+
+function refreshProfileWarnings() {
+  // Предупреждение нужно если профиль ещё не заполнен (независимо от авторизации)
+  ['no-profile-warn', 'g-no-profile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = !hasProfile ? 'block' : 'none';
+  });
+  const okEl = document.getElementById('profile-ok');
+  if (okEl) okEl.classList.toggle('on', hasProfile);
+}
+
+// ── LocalStorage profile helpers ──────────────────────────────────
+function getLocalProfile() {
+  try { return JSON.parse(localStorage.getItem('resume_profile') || 'null'); }
+  catch { return null; }
+}
+function saveLocalProfile(data) {
+  localStorage.setItem('resume_profile', JSON.stringify(data));
+}
+
+// ── Profile ───────────────────────────────────────────────────────
+async function saveProfile() {
+  if (!v('p-name')) { toast('Введите имя', 'err'); return; }
+  const body = {
+    name:v('p-name'), phone:v('p-phone'), city:v('p-city'), linkedin:v('p-linkedin'),
+    skills:v('p-skills'), languages:v('p-langs'),
+    experience:collectExp(), education:collectEdu()
+  };
+
+  // Всегда сохраняем локально (работает без аккаунта)
+  saveLocalProfile(body);
+  hasProfile = true;
+  refreshProfileWarnings();
+
+  if (currentUser) {
+    // Если залогинен — дублируем на сервер
+    setLoader(true, 'Сохраняем профиль...');
+    try {
+      const res = await fetch('/api/profile', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error((await res.json()).detail);
+    } catch(e) { toast('Ошибка синхронизации с сервером', 'err'); return; }
+    finally { setLoader(false); }
+  }
+
+  toast('Профиль сохранён!', 'ok');
+  switchTab('match');
+}
+
+async function loadProfileData() {
+  const localP = getLocalProfile();
+
+  if (currentUser) {
+    const res = await fetch('/api/profile');
+    const d   = await res.json();
+    if (d.profile) {
+      hasProfile = true;
+      fillProfileForm(d.profile);
+      saveLocalProfile(d.profile);   // держим localStorage в синхронизации
+    } else if (localP) {
+      // Пользователь только зарегистрировался — синхронизируем локальный профиль в БД
+      hasProfile = true;
+      fillProfileForm(localP);
+      await _syncLocalProfileToDB(localP);
+    }
+  } else {
+    if (localP) { hasProfile = true; fillProfileForm(localP); }
+  }
+  refreshProfileWarnings();
+}
+
+async function _syncLocalProfileToDB(profile) {
+  try {
+    await fetch('/api/profile', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(profile)
+    });
+  } catch(e) { console.warn('Profile sync failed:', e); }
+}
+
+function fillProfileForm(p) {
+  set('p-name', p.name||''); set('p-phone', p.phone||''); set('p-city', p.city||'');
+  set('p-linkedin', p.linkedin||''); set('p-skills', p.skills||''); set('p-langs', p.languages||'');
+  document.getElementById('exp-list').innerHTML=''; expCnt=0;
+  (p.experience||[]).forEach(e => addExp(e));
+  document.getElementById('edu-list').innerHTML=''; eduCnt=0;
+  (p.education||[]).forEach(e => addEdu(e));
+}
+
+// ── Match ─────────────────────────────────────────────────────────
+async function doMatch() {
+  if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
+  const job = v('job-text');
+  if (job.length < 30) { toast('Вставьте текст вакансии (минимум 30 символов)', 'err'); return; }
+
+  setLoader(true, 'Анализирую вакансию и подбираю опыт…');
+  document.getElementById('btn-match').disabled = true;
+  hideGate();
+
+  try {
+    let d;
+    if (currentUser) {
+      // Залогинен → сохраняем в БД
+      const res = await fetch('/api/match', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ job_text:job, company:v('job-company'), job_url:v('job-url'), extra_hint:v('m-hint') })
+      });
+      if (res.status === 402) {
+        setLoader(false); document.getElementById('btn-match').disabled=false;
+        const err = (await res.json()).error || 'no_uses';
+        openPayModal(err); return;
+      }
+      d = await res.json();
+      if (!res.ok) throw new Error(d.detail);
+      lastResumeId = d.resume_id;
+      updateUsesFromResponse(d.uses_left);
+      showGateAuth();
+      show('btn-pdf');
+    } else {
+      // Анонимный → только генерируем, не сохраняем
+      const res = await fetch('/api/generate-preview', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, hint:v('m-hint') })
+      });
+      if (res.status === 429) {
+        setLoader(false); document.getElementById('btn-match').disabled=false;
+        openAuthModal('Бесплатные генерации исчерпаны — войдите чтобы продолжить'); return;
+      }
+      d = await res.json();
+      if (!res.ok) throw new Error(d.detail || 'Ошибка сервера');
+      lastResumeId = null;
+      showGateAnon(d.anon_uses_left);
+    }
+
+    lastResume = d.resume;
+    renderResume(d.resume, true);
+    show('btn-regen');
+    toast(currentUser ? 'Резюме адаптировано и сохранено!' : 'Резюме готово!', 'ok');
+    if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
+  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+  finally { setLoader(false); document.getElementById('btn-match').disabled=false; }
+}
+
+// ── General ───────────────────────────────────────────────────────
+async function doGeneralResume() {
+  if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
+  setLoader(true, 'Создаю универсальное резюме…');
+  document.getElementById('btn-general').disabled = true;
+  hideGate();
+
+  try {
+    let d;
+    if (currentUser) {
+      const res = await fetch('/api/generate-from-profile', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ target_role:v('g-role'), hint:v('g-hint') })
+      });
+      if (res.status === 402) {
+        setLoader(false); document.getElementById('btn-general').disabled=false;
+        const err = (await res.json()).error || 'no_uses';
+        openPayModal(err); return;
+      }
+      d = await res.json();
+      if (!res.ok) throw new Error(d.detail);
+      lastResumeId = d.resume_id;
+      updateUsesFromResponse(d.uses_left);
+      showGateAuth();
+      show('btn-pdf');
+    } else {
+      const res = await fetch('/api/generate-preview', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint') })
+      });
+      if (res.status === 429) {
+        setLoader(false); document.getElementById('btn-general').disabled=false;
+        openAuthModal('Бесплатные генерации исчерпаны — войдите чтобы продолжить'); return;
+      }
+      d = await res.json();
+      if (!res.ok) throw new Error(d.detail || 'Ошибка сервера');
+      lastResumeId = null;
+      showGateAnon(d.anon_uses_left);
+    }
+
+    lastResume = d.resume;
+    renderResume(d.resume, false);
+    show('btn-regen');
+    toast(currentUser ? 'Резюме создано и сохранено!' : 'Резюме готово!', 'ok');
+    if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
+  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+  finally { setLoader(false); document.getElementById('btn-general').disabled=false; }
+}
+
+function regenCurrent() {
+  if (lastTab === 'general') doGeneralResume();
+  else doMatch();
+}
+
+// ── Gate helpers ──────────────────────────────────────────────────
+function showGateAnon(anonLeft) {
+  const b = document.getElementById('gate-banner'); b.classList.add('on');
+  document.getElementById('gate-anon').style.display = '';
+  document.getElementById('gate-auth').style.display = 'none';
+  document.getElementById('gate-counter').textContent = anonLeft > 0
+    ? `Ещё ${anonLeft} бесплатных генераций без аккаунта`
+    : 'Бесплатные генерации исчерпаны — войдите для продолжения';
+}
+function showGateAuth() {
+  const b = document.getElementById('gate-banner'); b.classList.add('on');
+  document.getElementById('gate-anon').style.display = 'none';
+  document.getElementById('gate-auth').style.display = '';
+}
+function hideGate() {
+  document.getElementById('gate-banner').classList.remove('on');
+  document.getElementById('gate-anon').style.display = 'none';
+  document.getElementById('gate-auth').style.display = 'none';
+}
+
+function gateAction(type) {
+  // Сохраняем что хотел сделать пользователь, открываем логин
+  if (type === 'pdf')  pendingAction = downloadPDFDirect;
+  else                 pendingAction = saveCurrentResume;
+  const msg = type === 'pdf'
+    ? 'Войдите чтобы скачать PDF'
+    : 'Войдите чтобы сохранить резюме в личный кабинет';
+  openAuthModal(msg);
+}
+
+// ── PDF ───────────────────────────────────────────────────────────
+function downloadPDF() {
+  if (!currentUser) { gateAction('pdf'); return; }
+  downloadPDFDirect();
+}
+function downloadPDFDirect() {
+  const el   = document.getElementById('resume-paper');
+  const name = (document.getElementById('r-name').textContent||'resume').replace(/\s+/g,'_');
+  setLoader(true,'Создание PDF…');
+  html2pdf().set({
+    margin:[10,10,10,10], filename:`${name}.pdf`,
+    image:{type:'jpeg',quality:.98},
+    html2canvas:{scale:2,useCORS:true,logging:false},
+    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
+  }).from(el).save().then(()=>setLoader(false));
+}
+
+// ── Save to dashboard ─────────────────────────────────────────────
+async function saveCurrentResume() {
+  if (!currentUser) { gateAction('save'); return; }
+  // Если резюме было сгенерировано анонимно — сохраняем его сейчас
+  if (!lastResumeId && lastResume) {
+    try {
+      const res = await fetch('/api/resumes/save', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          resume_data: lastResume,
+          kind:         lastTab === 'match' ? 'matched' : 'general',
+          company_name: v('job-company') || '',
+          job_snippet:  v('job-text').substring(0, 300)
+        })
+      });
+      const d = await res.json();
+      if (d.resume_id) lastResumeId = d.resume_id;
+    } catch(e) { console.warn('Save failed:', e); }
+  }
+  showGateAuth();
+  toast('Резюме сохранено в «Мои резюме»', 'ok');
+}
+function renderResume(r, showAts) {
+  hide('r-empty'); show('r-content');
+  setText('r-name', r.name||''); setText('r-role', r.target_role||''); setText('r-summary', r.summary||'');
+  const c = r.contact||{};
+  const parts = [c.city&&`📍 ${c.city}`,c.phone&&`📞 ${c.phone}`,c.email&&`✉️ ${c.email}`,c.linkedin&&`🔗 ${c.linkedin}`].filter(Boolean);
+  document.getElementById('r-contacts').innerHTML = parts.map(p=>`<span>${esc(p)}</span>`).join('');
+  document.getElementById('r-exp').innerHTML = (r.experience||[]).map(e=>`
+    <div class="r-exp">
+      <div class="r-exp-top"><span class="r-exp-role">${esc(e.role||'')}</span><span class="r-exp-period">${esc(e.period||'')}</span></div>
+      <div class="r-exp-co">${esc(e.company||'')}${e.location?' · '+esc(e.location):''}</div>
+      <ul class="r-bullets">${(e.bullets||[]).map(b=>`<li>${esc(b)}</li>`).join('')}</ul>
+    </div>`).join('');
+  document.getElementById('r-edu').innerHTML = (r.education||[]).map(e=>`
+    <div class="r-edu-item">
+      <div><div class="deg">${esc(e.degree||'')}</div><div class="inst">${esc(e.institution||'')}</div></div>
+      <div class="r-edu-year">${esc(e.year||'')}</div>
+    </div>`).join('');
+  const sk = r.skills||{};
+  document.getElementById('r-skills-out').innerHTML = Object.entries(sk).map(([cat,items])=>`
+    <div class="r-skills-row"><span class="r-skill-cat">${esc(cat)}</span><span class="r-skill-items">${(items||[]).map(esc).join(', ')}</span></div>`).join('');
+  setText('r-langs-out', (r.languages||[]).join(' · '));
+  const atsPanel = document.getElementById('ats-panel');
+  if (showAts && (r.ats_keywords||[]).length) {
+    atsPanel.style.display='block';
+    document.getElementById('ats-tags').innerHTML = (r.ats_keywords||[]).map(k=>`<span class="ats-tag">${esc(k)}</span>`).join('');
+  } else {
+    atsPanel.style.display = 'none';
+  }
+}
+
+function updateUsesFromResponse(usesLeft) {
+  if (currentUser) {
+    currentUser.total = usesLeft;
+    const chip = document.getElementById('uses-chip');
+    chip.textContent = `Осталось: ${usesLeft}`;
+    chip.classList.toggle('low', usesLeft <= 1);
+    const bar = document.getElementById('status-bar');
+    bar.classList.toggle('warn', usesLeft <= 1);
+    document.getElementById('status-n').textContent = usesLeft;
+  }
+}
+
+// ── Job fetch ─────────────────────────────────────────────────────
+async function fetchJob() {
+  const url = v('job-url');
+  if (!url) { toast('Введите URL', 'err'); return; }
+  setLoader(true, 'Загружаем вакансию...');
+  try {
+    const res = await fetch('/api/fetch-job', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url}) });
+    if (!res.ok) throw new Error('Не удалось загрузить');
+    const d = await res.json();
+    document.getElementById('job-text').value = d.text;
+    toast('Вакансия загружена!', 'ok');
+  } catch(e) { toast('Ошибка. Вставьте текст вручную.', 'err'); }
+  finally { setLoader(false); }
+}
+
+// ── PDF ───────────────────────────────────────────────────────────
+function downloadPDF() {
+  const el   = document.getElementById('resume-paper');
+  const name = (document.getElementById('r-name').textContent||'resume').replace(/\s+/g,'_');
+  setLoader(true,'Создание PDF…');
+  html2pdf().set({margin:[10,10,10,10],filename:`${name}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(el).save().then(()=>setLoader(false));
+}
+
+// ── Payment ───────────────────────────────────────────────────────
+function openPayModal(reason) {
+  const titles = {
+    no_uses:      ['Генерации закончились', 'Оформите подписку Pro для продолжения.'],
+    resume_limit: ['Лимит резюме исчерпан', `Бесплатный тариф — до 5 резюме. Pro — безлимит.`],
+  };
+  const [title, msg] = titles[reason] || ['Перейдите на Pro', 'Безлимитные генерации и сохранение резюме.'];
+  document.getElementById('paywall-title').textContent = title;
+  document.getElementById('paywall-msg').textContent   = msg;
+  document.getElementById('modal-pay').classList.add('on');
+}
+function closePayModal(){document.getElementById('modal-pay').classList.remove('on')}
+async function doPay(){
+  closePayModal(); setLoader(true,'Создаём платёж...');
+  try {
+    const res = await fetch('/api/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const d = await res.json();
+    if(d.url) window.location.href=d.url;
+    else throw new Error('Ошибка');
+  } catch(e){toast('Ошибка: '+e.message,'err');setLoader(false)}
+}
+
+// ── Dynamic entries ───────────────────────────────────────────────
+function addExp(fill) {
+  expCnt++;
+  const n=expCnt, d=document.createElement('div');
+  d.className='entry';d.id=`exp-${n}`;
+  d.innerHTML=`<div class="entry-head"><span class="entry-label">Место работы ${n}</span>${n>1?`<button class="btn-rm" onclick="rm('exp-${n}')">×</button>`:''}</div>
+  <div class="row2"><div class="field"><label>Компания</label><input id="ec-${n}" placeholder="ООО Название"></div><div class="field"><label>Должность</label><input id="er-${n}" placeholder="Менеджер"></div></div>
+  <div class="row2"><div class="field"><label>Период</label><input id="ep-${n}" placeholder="2022 — 2025"></div><div class="field"><label>Город</label><input id="el-${n}" placeholder="Москва"></div></div>
+  <div class="field"><label>Обязанности и достижения</label><textarea id="ed-${n}" placeholder="Вёл клиентов, перевыполнял план..."></textarea></div>`;
+  document.getElementById('exp-list').appendChild(d);
+  if(fill){set(`ec-${n}`,fill.company||'');set(`er-${n}`,fill.role||'');set(`ep-${n}`,fill.period||'');set(`el-${n}`,fill.location||'');set(`ed-${n}`,fill.desc||fill.description||'')}
+}
+function addEdu(fill) {
+  eduCnt++;
+  const n=eduCnt, d=document.createElement('div');
+  d.className='entry';d.id=`edu-${n}`;
+  d.innerHTML=`<div class="entry-head"><span class="entry-label">Учебное заведение ${n}</span>${n>1?`<button class="btn-rm" onclick="rm('edu-${n}')">×</button>`:''}</div>
+  <div class="field"><label>Университет</label><input id="ei-${n}" placeholder="МГУ"></div>
+  <div class="row2"><div class="field"><label>Специальность</label><input id="eg-${n}" placeholder="Бакалавр экономики"></div><div class="field"><label>Год</label><input id="ey-${n}" placeholder="2021"></div></div>`;
+  document.getElementById('edu-list').appendChild(d);
+  if(fill){set(`ei-${n}`,fill.institution||'');set(`eg-${n}`,fill.degree||'');set(`ey-${n}`,fill.year||'')}
+}
+function rm(id){const el=document.getElementById(id);if(el)el.remove()}
+function collectExp(){const a=[];for(let i=1;i<=50;i++){if(!document.getElementById(`exp-${i}`))continue;const co=v(`ec-${i}`),ro=v(`er-${i}`);if(co||ro)a.push({company:co,role:ro,period:v(`ep-${i}`),location:v(`el-${i}`),desc:v(`ed-${i}`)});}return a}
+function collectEdu(){const a=[];for(let i=1;i<=50;i++){if(!document.getElementById(`edu-${i}`))continue;const inst=v(`ei-${i}`);if(inst)a.push({institution:inst,degree:v(`eg-${i}`),year:v(`ey-${i}`)});}return a}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function v(id){return(document.getElementById(id)?.value||'').trim()}
+function set(id,val){const el=document.getElementById(id);if(el)el.value=val}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function setText(id,t){const el=document.getElementById(id);if(el)el.textContent=t}
+function show(id){const el=document.getElementById(id);if(el)el.style.display='block'}
+function hide(id){const el=document.getElementById(id);if(el)el.style.display='none'}
+function setLoader(on,txt){document.getElementById('loader').classList.toggle('on',on);if(txt)document.getElementById('loader-text').textContent=txt}
+let _tt;
+function toast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast on'+(type?' '+type:'');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),3500)}
+</script>{% include '_footer.html' %}
+</body>
+</html>

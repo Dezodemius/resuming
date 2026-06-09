@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# База данных
+*.db
+*.sqlite
+
+# Окружение
+.env
+
+# Ollama модели (кешируются отдельно)
+.ollama/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
