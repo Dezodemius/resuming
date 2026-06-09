@@ -50,4 +50,4 @@ SECRET_KEY=...  # python -c "import secrets; print(secrets.token_hex(32))"
 
 ## Лицензия
 
-[AGPL-3.0](LICENSE) © 2025 Dezodemius
+[AGPL-3.0](LICENSE) © 2025 Гладков Егор Сергеевич (Dezodemius)
