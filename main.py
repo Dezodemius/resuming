@@ -24,6 +24,13 @@ except ImportError:
 
 load_dotenv()
 
+# База данных: в Docker используем volume /app/data, локально — текущая папка
+_data_dir = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
+os.makedirs(_data_dir, exist_ok=True)
+DB_PATH = os.path.join(_data_dir, "resume.db")
+
+load_dotenv()
+
 # ── Config ──────────────────────────────────────────────────────────────
 OLLAMA_URL          = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL               = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
@@ -66,7 +73,7 @@ tpl = Jinja2Templates(directory="templates")
 
 # ── Database ────────────────────────────────────────────────────────────
 def get_db():
-    conn = sqlite3.connect("resume.db", check_same_thread=False, timeout=30)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")       # параллельные чтения без блокировок
     conn.execute("PRAGMA synchronous=NORMAL")     # баланс скорость/надёжность

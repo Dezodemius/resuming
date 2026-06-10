@@ -1,0 +1,48 @@
+services:
+
+  # ── Ollama (локальная AI-модель) ──────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: resuming-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Раскомментируй если есть NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ── FastAPI приложение ────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: resuming-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - OLLAMA_URL=http://ollama:11434   # ollama доступен по имени сервиса
+    volumes:
+      - app_data:/app/data              # SQLite база
+    depends_on:
+      - ollama
+
+  # ── Nginx (реверс-прокси, порт 80 наружу) ────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: resuming-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  ollama_data:   # модели хранятся между перезапусками
+  app_data:      # база данных
