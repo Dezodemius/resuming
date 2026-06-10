@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Резюме.ИИ — резюме под каждую вакансию</title>
+<title>Резюмирую.рф — резюме под каждую вакансию</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/favicon.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 {% if telegram_bot_name %}
 <script async src="https://telegram.org/js/telegram-widget.js?22"
@@ -29,7 +31,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-
 
 /* ── Header ── */
 header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;white-space:nowrap}.logo span{color:var(--gold)}
+.logo{display:flex;align-items:center;text-decoration:none}
 .header-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .btn-login{padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;white-space:nowrap}
 .btn-login:hover{background:rgba(255,255,255,.2)}
@@ -196,7 +198,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 <body>
 
 <header>
-  <div class="logo">Резюме<span>.ИИ</span></div>
+  <a class="logo" href="/"><img src="/static/logo.png" alt="Резюмирую.рф" height="34"></a>
   <div class="header-right">
     <a id="nav-resumes" href="/resumes" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Мои резюме</a>
     <a id="nav-settings" href="/settings" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Настройки</a>
