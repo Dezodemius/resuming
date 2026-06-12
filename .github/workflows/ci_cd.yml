@@ -43,6 +43,7 @@ jobs:
       - name: Pull latest code
         run: |
           cd $env:DEPLOY_PATH
+          git config --global --replace-all safe.directory $env:DEPLOY_PATH
           git pull origin main
 
       - name: Rebuild and restart containers
