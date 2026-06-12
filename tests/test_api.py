@@ -43,7 +43,17 @@ async def test_settings_redirects_unauthenticated(client):
 
 
 async def test_generate_requires_auth(client):
-    r = await client.post("/api/generate", json={"job": "Python dev", "profile": {}})
+    body = {
+        "name": "Test",
+        "phone": "1234567890",
+        "city": "Moscow",
+        "target": "Python dev",
+        "experience": [],
+        "education": [],
+        "skills": "Python",
+        "languages": "Russian",
+    }
+    r = await client.post("/api/generate", json=body)
     assert r.status_code == 401
 
 
