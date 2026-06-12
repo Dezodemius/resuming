@@ -36,6 +36,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     env:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -44,7 +45,7 @@ jobs:
         run: |
           cd $env:DEPLOY_PATH
           git config --global --replace-all safe.directory $env:DEPLOY_PATH
-          git pull origin main
+          git pull "https://x-access-token:${env:DEPLOY_TOKEN}@github.com/${{ github.repository }}.git" main
 
       - name: Rebuild and restart containers
         run: |
