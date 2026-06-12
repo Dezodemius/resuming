@@ -32,18 +32,25 @@ jobs:
 
   deploy:
     needs: test
+    runs-on: [self-hosted, windows]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    env:
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    defaults:
+      run:
+        shell: pwsh
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          script: |
-            cd ${{ secrets.DEPLOY_PATH }}
-            git pull origin main
-            docker compose up --build -d
-            docker system prune -f
+      - name: Pull latest code
+        run: |
+          cd $env:DEPLOY_PATH
+          git pull origin main
+
+      - name: Rebuild and restart containers
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose up --build -d
+
+      - name: Prune dangling images
+        run: |
+          cd $env:DEPLOY_PATH
+          docker system prune -f
