@@ -1,0 +1,56 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest tests/ -v
+        env:
+          SECRET_KEY: ci-test-secret-key-not-for-production
+
+  deploy:
+    needs: test
+    runs-on: [self-hosted, windows]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+    steps:
+      - name: Pull latest code
+        run: |
+          cd $env:DEPLOY_PATH
+          git pull origin main
+
+      - name: Rebuild and restart containers
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose up --build -d
+
+      - name: Prune dangling images
+        run: |
+          cd $env:DEPLOY_PATH
+          docker system prune -f
