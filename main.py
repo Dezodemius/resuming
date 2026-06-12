@@ -1,16 +1,23 @@
 import asyncio
-import os, json, uuid, sqlite3, hashlib, hmac, time
+import os
+import json
+import uuid
+import sqlite3
+import hashlib
+import hmac
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Request, HTTPException, Response, Depends
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 import httpx
 from dotenv import load_dotenv
 
@@ -155,7 +162,9 @@ async def lifespan(app):
     init_db()
     yield
 
-app = FastAPI(title="Резюме.ИИ", lifespan=lifespan)
+app = FastAPI(title="Резюмирую.рф", lifespan=lifespan)
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── CORS ── разрешаем только собственный домен ───────────────────────────
 app.add_middleware(
@@ -263,14 +272,14 @@ async def _send_magic_email(to_email: str, token: str) -> bool:
         return True
     link = f"{APP_URL}/auth/email/verify?token={token}"
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Ваша ссылка для входа в Резюме.ИИ"
+    msg["Subject"] = "Ваша ссылка для входа в Резюмирую.рф"
     msg["From"]    = SMTP_FROM
     msg["To"]      = to_email
     html = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-      <h2 style="font-size:20px;font-weight:600;color:#0F1C3F;margin-bottom:8px">Резюме.ИИ</h2>
+      <h2 style="font-size:20px;font-weight:600;color:#0F1C3F;margin-bottom:8px">Резюмирую</h2>
       <p style="color:#64748B;margin-bottom:24px">Нажмите кнопку ниже чтобы войти. Ссылка действует {MAGIC_MINUTES} минут.</p>
-      <a href="{link}" style="display:inline-block;background:#0F1C3F;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600">Войти в Резюме.ИИ</a>
+      <a href="{link}" style="display:inline-block;background:#0F1C3F;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600">Войти в Резюмирую.рф</a>
       <p style="color:#94A3B8;font-size:12px;margin-top:24px">Если вы не запрашивали этот email — просто проигнорируйте его.</p>
     </div>"""
     msg.attach(MIMEText(html, "html"))
