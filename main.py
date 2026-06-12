@@ -266,10 +266,11 @@ async def _resolve_user(request: Request, body_email: Optional[str] = None) -> O
     return None
 
 # ── Email magic link ──────────────────────────────────────────────────────
-async def _send_magic_email(to_email: str, token: str) -> bool:
+async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
+    """Отправляет magic-ссылку. Возвращает None при успехе, иначе строку с причиной ошибки."""
     if not SMTP_USER:
         print(f"[DEV] Magic link: {APP_URL}/auth/email/verify?token={token}")
-        return True
+        return None
     link = f"{APP_URL}/auth/email/verify?token={token}"
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Ваша ссылка для входа в Резюмирую.рф"
@@ -292,10 +293,14 @@ async def _send_magic_email(to_email: str, token: str) -> bool:
             use_tls=(SMTP_PORT == 465),
             start_tls=(SMTP_PORT == 587),
         )
-        return True
+        return None
     except Exception as e:
-        print(f"Email error: {e}")
-        return False
+        errno = getattr(e, "errno", None) or getattr(getattr(e, "os_error", None), "errno", None)
+        reason = f"{type(e).__name__}: {e}"
+        print(f"Email error (SMTP {SMTP_HOST}:{SMTP_PORT}, errno={errno}): {reason}")
+        if errno in (51, 101, 113, 10051):  # ENETUNREACH / EHOSTUNREACH
+            reason += " — нет сетевого маршрута до SMTP-сервера (порт блокирует хостер/VPN)"
+        return reason
 
 # ── Pydantic models ────────────────────────────────────────────────────────
 class TgAuthData(BaseModel):
@@ -568,9 +573,9 @@ async def auth_email_request(req: EmailReq):
             (token, req.email, exp)
         )
         db.commit()
-    ok = await _send_magic_email(req.email, token)
-    if not ok:
-        raise HTTPException(500, "Не удалось отправить письмо. Проверьте настройки SMTP.")
+    err = await _send_magic_email(req.email, token)
+    if err:
+        raise HTTPException(500, f"Не удалось отправить письмо. {err}")
     return {"ok": True}
 
 @app.get("/auth/email/verify")
