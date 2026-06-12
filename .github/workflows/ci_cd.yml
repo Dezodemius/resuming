@@ -52,6 +52,17 @@ jobs:
           cd $env:DEPLOY_PATH
           docker compose up --build -d
 
+      # Прогреваем модель сразу после деплоя, чтобы первый пользователь
+      # не ждал её загрузку (и не ловил таймаут)
+      - name: Warm up Ollama model
+        continue-on-error: true
+        run: |
+          cd $env:DEPLOY_PATH
+          $model = (Select-String -Path .env -Pattern '^OLLAMA_MODEL=(\S+)').Matches[0].Groups[1].Value
+          Write-Host "Warming up $model..."
+          Invoke-RestMethod -Method Post -Uri http://localhost:11434/api/generate -ContentType 'application/json' -TimeoutSec 300 -Body (@{model=$model; keep_alive='24h'} | ConvertTo-Json) | Out-Null
+          Write-Host "Model loaded."
+
       - name: Prune dangling images
         run: |
           cd $env:DEPLOY_PATH
