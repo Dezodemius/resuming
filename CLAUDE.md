@@ -57,5 +57,7 @@ ollama pull qwen2.5:14b
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_NAME` | Telegram Login Widget |
 | `YOKASSA_SHOP_ID` / `YOKASSA_SECRET_KEY` | ЮKassa платежи |
 | `SMTP_*` | Email magic link |
+| `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
+| `LOG_LEVEL` | Уровень логов бэкенда (по умолчанию `INFO`) |
 | `APP_URL` | Публичный URL (влияет на secure-cookie и CORS) |
 | `AI_CONCURRENCY` | Параллельных вызовов Ollama (по умолчанию 2) |

@@ -1,11 +1,14 @@
 import asyncio
+import logging
 import os
 import json
+import re
 import uuid
 import sqlite3
 import hashlib
 import hmac
 import time
+from urllib.parse import urlencode
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -38,6 +41,13 @@ DB_PATH = os.path.join(_data_dir, "resume.db")
 
 load_dotenv()
 
+# ── Logging ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
+)
+log = logging.getLogger("resuming")
+
 # ── Config ──────────────────────────────────────────────────────────────
 OLLAMA_URL          = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL               = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
@@ -51,6 +61,8 @@ SMTP_PORT           = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER           = os.getenv("SMTP_USER", "")
 SMTP_PASS           = os.getenv("SMTP_PASS", "")
 SMTP_FROM           = os.getenv("SMTP_FROM", SMTP_USER)
+YANDEX_CLIENT_ID    = os.getenv("YANDEX_CLIENT_ID", "")
+YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
 
 FREE_USES         = 3
 FREE_RESUMES      = 5
@@ -175,6 +187,23 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+# ── Request logging ──────────────────────────────────────────────────────
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    if request.url.path.startswith("/static"):
+        return await call_next(request)
+    t0 = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.exception("%s %s -> unhandled error (%.0f ms)",
+                      request.method, request.url.path, (time.monotonic() - t0) * 1000)
+        raise
+    log.info("%s %s -> %s (%.0f ms)",
+             request.method, request.url.path, response.status_code,
+             (time.monotonic() - t0) * 1000)
+    return response
+
 # ── Rate limiting ────────────────────────────────────────────────────────
 if _RATE_LIMIT:
     limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -269,8 +298,9 @@ async def _resolve_user(request: Request, body_email: Optional[str] = None) -> O
 async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
     """Отправляет magic-ссылку. Возвращает None при успехе, иначе строку с причиной ошибки."""
     if not SMTP_USER:
-        print(f"[DEV] Magic link: {APP_URL}/auth/email/verify?token={token}")
+        log.info("[DEV] Magic link: %s/auth/email/verify?token=%s", APP_URL, token)
         return None
+    log.info("magic-email: sending to %s via %s:%s", to_email, SMTP_HOST, SMTP_PORT)
     link = f"{APP_URL}/auth/email/verify?token={token}"
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Ваша ссылка для входа в Резюмирую.рф"
@@ -293,11 +323,12 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
             use_tls=(SMTP_PORT == 465),
             start_tls=(SMTP_PORT == 587),
         )
+        log.info("magic-email: sent to %s", to_email)
         return None
     except Exception as e:
         errno = getattr(e, "errno", None) or getattr(getattr(e, "os_error", None), "errno", None)
         reason = f"{type(e).__name__}: {e}"
-        print(f"Email error (SMTP {SMTP_HOST}:{SMTP_PORT}, errno={errno}): {reason}")
+        log.error("magic-email failed (SMTP %s:%s, errno=%s): %s", SMTP_HOST, SMTP_PORT, errno, reason)
         if errno in (51, 101, 113, 10051):  # ENETUNREACH / EHOSTUNREACH
             reason += " — нет сетевого маршрута до SMTP-сервера (порт блокирует хостер/VPN)"
         return reason
@@ -362,6 +393,7 @@ class AnonymousPreviewReq(BaseModel):
     kind:        str        # "match" | "general"
     profile:     dict
     job_text:    str = ""
+    job_url:     str = ""
     target_role: str = ""
     hint:        str = ""
 
@@ -388,6 +420,14 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         secure=APP_URL.startswith("https"), httponly=True,
     )
 
+    # Текст вакансии: вручную или по ссылке (до списания лимита)
+    job_text = req.job_text.strip()
+    if req.kind == "match":
+        if len(job_text) < 30 and req.job_url.strip():
+            job_text = await _fetch_job_text(req.job_url.strip())
+        if len(job_text) < 30:
+            raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
+
     with get_db() as db:
         row  = db.execute("SELECT uses FROM anon_usage WHERE anon_id=?", (anon_id,)).fetchone()
         uses = row["uses"] if row else 0
@@ -403,7 +443,7 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 
     try:
         prompt = (
-            _match_prompt(req.profile, req.job_text, req.hint)
+            _match_prompt(req.profile, job_text, req.hint)
             if req.kind == "match"
             else _general_prompt(req.profile, req.target_role, req.hint)
         )
@@ -417,6 +457,26 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 
     return {"resume": resume, "anon_uses_left": ANON_LIMIT - uses - 1}
 
+# ── Health check ──────────────────────────────────────────────────────────
+@app.get("/healthz")
+async def healthz():
+    """Диагностика: жив ли app и доступна ли Ollama с нужной моделью."""
+    ollama = "fail"
+    detail = ""
+    try:
+        async with httpx.AsyncClient(timeout=5) as http:
+            r = await http.get(f"{OLLAMA_URL}/api/tags")
+        if r.status_code == 200:
+            ollama = "ok"
+            models = [m.get("name", "") for m in r.json().get("models", [])]
+            detail = "model_present" if any(MODEL in m for m in models) \
+                     else f"model '{MODEL}' not pulled (have: {', '.join(models) or 'none'})"
+        else:
+            detail = f"HTTP {r.status_code}"
+    except Exception as e:
+        detail = f"{type(e).__name__}: {e}"
+    return {"app": "ok", "ollama": ollama, "model": MODEL, "detail": detail}
+
 # ── Static pages ──────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
@@ -424,6 +484,7 @@ async def root(request: Request):
     return tpl.TemplateResponse("index.html", {
         "request": request,
         "telegram_bot_name": TELEGRAM_BOT_NAME,
+        "yandex_enabled": bool(YANDEX_CLIENT_ID),
         "user": user,
     })
 
@@ -560,6 +621,7 @@ async def auth_telegram(data: TgAuthData, response: Response):
         db.commit()
         u = db.execute("SELECT * FROM users WHERE telegram_id=?", (data.id,)).fetchone()
         sid = _create_session(db, u["id"])
+    log.info("auth/telegram: login ok user_id=%s", u["id"])
     _set_session_cookie(response, sid)
     return {"ok": True, "user": {"name": u["display_name"], "photo": u["tg_photo"], "free_left": u["free_left"]}}
 
@@ -597,6 +659,70 @@ async def auth_email_verify(token: str, response: Response):
         u = _upsert_user_by_email(db, email)
         sid = _create_session(db, u["id"])
     r = RedirectResponse(url="/?login=success", status_code=303)
+    _set_session_cookie(r, sid)
+    return r
+
+# ── Yandex OAuth ──────────────────────────────────────────────────────────
+@app.get("/auth/yandex")
+async def auth_yandex_start():
+    if not YANDEX_CLIENT_ID:
+        raise HTTPException(503, "Вход через Яндекс не настроен")
+    state = str(uuid.uuid4())
+    params = urlencode({
+        "response_type": "code",
+        "client_id":     YANDEX_CLIENT_ID,
+        "redirect_uri":  f"{APP_URL}/auth/yandex/callback",
+        "state":         state,
+    })
+    r = RedirectResponse(f"https://oauth.yandex.ru/authorize?{params}", status_code=302)
+    r.set_cookie("ya_state", state, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    log.info("auth/yandex: redirect to Yandex OAuth")
+    return r
+
+@app.get("/auth/yandex/callback")
+async def auth_yandex_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error or not code:
+        log.warning("auth/yandex callback error: %s", error or "no code")
+        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+    if not state or state != request.cookies.get("ya_state"):
+        log.warning("auth/yandex callback: state mismatch")
+        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.post("https://oauth.yandex.ru/token", data={
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "client_id":     YANDEX_CLIENT_ID,
+                "client_secret": YANDEX_CLIENT_SECRET,
+            })
+            access = tr.json().get("access_token")
+            if not access:
+                log.error("auth/yandex: token exchange failed: %s", tr.text[:300])
+                return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+            ir = await http.get("https://login.yandex.ru/info",
+                                params={"format": "json"},
+                                headers={"Authorization": f"OAuth {access}"})
+            info = ir.json()
+    except Exception:
+        log.exception("auth/yandex: OAuth request failed")
+        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+
+    email = info.get("default_email") or ""
+    if not email:
+        log.error("auth/yandex: no default_email in userinfo")
+        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+
+    with get_db() as db:
+        u = _upsert_user_by_email(db, email)
+        name = info.get("real_name") or info.get("display_name")
+        if name and u.get("display_name") in (None, "", email.split("@")[0]):
+            db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+            db.commit()
+        sid = _create_session(db, u["id"])
+    log.info("auth/yandex: login ok user_id=%s", u["id"])
+    r = RedirectResponse(url="/?login=success", status_code=303)
+    r.delete_cookie("ya_state")
     _set_session_cookie(r, sid)
     return r
 
@@ -677,13 +803,16 @@ def _deduct(db, user_id: int) -> tuple[bool, str, int]:
     db.execute(f"UPDATE users SET {col}={col}-1 WHERE id=?", (user_id,))
     db.commit()
     upd = db.execute("SELECT free_left, paid_left FROM users WHERE id=?", (user_id,)).fetchone()
-    return True, col, upd["free_left"] + upd["paid_left"]
+    left = upd["free_left"] + upd["paid_left"]
+    log.info("deduct: user=%s col=%s left=%s", user_id, col, left)
+    return True, col, left
 
 def _refund(db, user_id: int, col: str):
     if col == "pro":
         return  # Pro-пользователям не нужен возврат
     db.execute(f"UPDATE users SET {col}={col}+1 WHERE id=?", (user_id,))
     db.commit()
+    log.info("refund: user=%s col=%s (генерация не удалась)", user_id, col)
 
 # ── AI call ────────────────────────────────────────────────────────────────
 async def call_ai(prompt: str) -> str:
@@ -694,6 +823,8 @@ async def call_ai(prompt: str) -> str:
     - Безопасными сообщениями об ошибках (без деталей внутренностей)
     """
     async with get_ai_sem():
+        t0 = time.monotonic()
+        log.info("AI call start: model=%s prompt_len=%d", MODEL, len(prompt))
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(120.0, connect=5.0)
@@ -708,14 +839,25 @@ async def call_ai(prompt: str) -> str:
                     },
                 )
                 r.raise_for_status()
-                return r.json()["choices"][0]["message"]["content"]
-        except httpx.ConnectError:
+                content = r.json()["choices"][0]["message"]["content"]
+                log.info("AI call ok: %.1f s, response_len=%d", time.monotonic() - t0, len(content))
+                return content
+        except httpx.ConnectError as e:
+            log.error("AI connect error (%s): %s", OLLAMA_URL, e)
             raise HTTPException(503, "Сервис генерации недоступен. Проверьте Ollama.")
         except httpx.TimeoutException:
+            log.error("AI timeout after %.1f s (model=%s)", time.monotonic() - t0, MODEL)
             raise HTTPException(504, "Генерация заняла слишком долго. Попробуйте ещё раз.")
         except httpx.HTTPStatusError as e:
+            body = e.response.text[:500]
+            log.error("AI HTTP %s after %.1f s: %s", e.response.status_code, time.monotonic() - t0, body)
+            if e.response.status_code == 500 and ("killed" in body or "terminated" in body):
+                # llama-server убит OOM-killer'ом: модели не хватает RAM на сервере
+                raise HTTPException(503, "Модель не смогла загрузиться: серверу не хватает памяти. "
+                                         "Сообщите администратору или попробуйте позже.")
             raise HTTPException(502, f"Ошибка модели: {e.response.status_code}")
         except Exception:
+            log.exception("AI call unexpected error after %.1f s", time.monotonic() - t0)
             raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 def _parse_ai(raw: str) -> dict:
@@ -872,8 +1014,12 @@ async def match_to_job(req: MatchReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
-    if not req.job_text.strip():
-        raise HTTPException(400, "Вставьте текст вакансии")
+    # Текст вакансии: либо вставлен вручную, либо подтягиваем по ссылке
+    job_text = req.job_text.strip()
+    if len(job_text) < 30 and req.job_url.strip():
+        job_text = await _fetch_job_text(req.job_url.strip())
+    if len(job_text) < 30:
+        raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
     with get_db() as db:
         p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
     if not p:
@@ -883,7 +1029,7 @@ async def match_to_job(req: MatchReq, request: Request):
         if not ok:
             return JSONResponse(status_code=402, content={"error": "no_uses"})
     try:
-        raw = await call_ai(_match_prompt(json.loads(p["data"]), req.job_text, req.extra_hint))
+        raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, req.extra_hint))
         resume = _parse_ai(raw)
     except Exception as e:
         with get_db() as db:
@@ -891,7 +1037,7 @@ async def match_to_job(req: MatchReq, request: Request):
         raise HTTPException(500, str(e))
     with get_db() as db:
         try:
-            rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, req.job_text)
+            rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, job_text)
         except ValueError as e:
             if "resume_limit" in str(e):
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
@@ -955,21 +1101,29 @@ async def generate(req: GenerateReq, request: Request):
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
 
 # ── Fetch job URL ──────────────────────────────────────────────────────────
+async def _fetch_job_text(url: str) -> str:
+    """Скачивает страницу вакансии и возвращает её текст (без HTML-тегов)."""
+    if not url.startswith("http"):
+        raise HTTPException(400, "Некорректная ссылка на вакансию")
+    log.info("fetch-job start: %s", url)
+    try:
+        async with httpx.AsyncClient(
+            timeout=15, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
+        ) as h:
+            r = await h.get(url)
+        text = re.sub(r"<[^>]+>", " ", r.text)
+        text = re.sub(r"\s+", " ", text).strip()
+        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), r.status_code)
+        return text[:4000]
+    except Exception as e:
+        log.warning("fetch-job failed: %s: %s", url, e)
+        raise HTTPException(502, "Не удалось загрузить вакансию по ссылке — вставьте текст вручную")
+
 @app.post("/api/fetch-job")
 async def fetch_job(request: Request):
     body = await request.json()
     url  = body.get("url", "").strip()
-    if not url.startswith("http"):
-        raise HTTPException(400, "Нужен URL")
-    import re
-    try:
-        async with httpx.AsyncClient(timeout=15, headers={"User-Agent": "Mozilla/5.0"}) as h:
-            r = await h.get(url)
-        text = re.sub(r"<[^>]+>", " ", r.text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return {"text": text[:4000]}
-    except Exception as e:
-        raise HTTPException(502, str(e))
+    return {"text": await _fetch_job_text(url)}
 
 # ── Payments ───────────────────────────────────────────────────────────────
 @app.post("/api/pay")
@@ -1006,6 +1160,8 @@ async def create_payment(req: PayReq, request: Request):
 @app.post("/api/pay/webhook")
 async def payment_webhook(request: Request):
     body = await request.json()
+    log.info("pay/webhook: event=%s payment_id=%s",
+             body.get("event"), body.get("object", {}).get("id"))
     if body.get("event") == "payment.succeeded":
         obj     = body.get("object", {})
         pid     = obj.get("id")
