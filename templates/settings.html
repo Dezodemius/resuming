@@ -3,9 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Настройки — Резюме.ИИ</title>
+<title>Настройки — Резюмирую.рф</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/site.webmanifest">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -19,7 +24,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
 
 /* ── Header ── */
 header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;text-decoration:none;color:#fff}.logo span{color:var(--gold)}
+.logo{display:flex;align-items:center;text-decoration:none}
 .header-nav{display:flex;gap:4px;margin-left:8px}
 .nav-a{color:rgba(255,255,255,.6);font-size:13px;text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .15s}
 .nav-a:hover{color:#fff;background:rgba(255,255,255,.1)}
@@ -119,7 +124,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 <body>
 
 <header>
-  <a class="logo" href="/">Резюме<span>.ИИ</span></a>
+  <a class="logo" href="/"><img src="/static/banner.png" alt="Резюмирую.рф" height="34"></a>
   <nav class="header-nav">
     <a class="nav-a" href="/">Генератор</a>
     <a class="nav-a" href="/resumes">Мои резюме</a>
@@ -178,7 +183,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
   <div class="modal-bd" onclick="closeUpgrade()"></div>
   <div class="modal">
     <div class="modal-icon">✨</div>
-    <h2>Резюме.ИИ Pro</h2>
+    <h2>Резюмирую Pro</h2>
     <p class="modal-p">Снимите все ограничения и откликайтесь<br>на любое количество вакансий</p>
     <div class="modal-price">399 ₽</div>
     <div class="modal-period">в месяц · отмена в любой момент</div>

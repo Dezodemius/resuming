@@ -3,9 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Мои резюме — Резюме.ИИ</title>
+<title>Мои резюме — Резюмирую.рф</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/site.webmanifest">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -21,7 +26,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-
 
 /* ── Header ── */
 header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;text-decoration:none;color:#fff;white-space:nowrap}.logo span{color:var(--gold)}
+.logo{display:flex;align-items:center;text-decoration:none}
 .header-nav{display:flex;align-items:center;gap:6px}
 .nav-link{color:rgba(255,255,255,.6);font-size:13px;text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .15s}
 .nav-link:hover{color:#fff;background:rgba(255,255,255,.1)}
@@ -150,7 +155,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 <body>
 
 <header>
-  <a class="logo" href="/">Резюме<span>.ИИ</span></a>
+  <a class="logo" href="/"><img src="/static/banner.png" alt="Резюмирую.рф" height="34"></a>
   <nav class="header-nav">
     <a class="nav-link" href="/">Генератор</a>
     <a class="nav-link active" href="/resumes">Мои резюме</a>
