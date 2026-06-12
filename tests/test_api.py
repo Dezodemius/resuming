@@ -1,6 +1,4 @@
-import pytest
-
-
+﻿
 async def test_homepage_returns_200(client):
     r = await client.get("/")
     assert r.status_code == 200

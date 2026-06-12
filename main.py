@@ -1,17 +1,23 @@
 import asyncio
-import os, json, uuid, sqlite3, hashlib, hmac, time
+import os
+import json
+import uuid
+import sqlite3
+import hashlib
+import hmac
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Request, HTTPException, Response, Depends
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 import httpx
 from dotenv import load_dotenv
 
