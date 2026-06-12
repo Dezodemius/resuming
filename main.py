@@ -163,6 +163,7 @@ async def lifespan(app):
     yield
 
 app = FastAPI(title="Резюмирую.рф", lifespan=lifespan)
+os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── CORS ── разрешаем только собственный домен ───────────────────────────
