@@ -1,0 +1,55 @@
+name: Backup DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: [self-hosted, windows]
+    env:
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Get timestamp
+        id: ts
+        run: |
+          $stamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+          "stamp=$stamp" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # В образе app нет sqlite3 CLI (python:3.12-slim), поэтому консистентный
+      # снимок делаем через sqlite3.Connection.backup() — он корректно работает
+      # с WAL-базой под нагрузкой.
+      - name: Create consistent backup inside container
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose exec -T app python -c "import sqlite3; src=sqlite3.connect('/app/data/resume.db'); dst=sqlite3.connect('/app/data/_backup_tmp.db'); src.backup(dst); dst.close(); src.close()"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Backup inside container failed"; exit 1 }
+
+      - name: Copy backup to runner workspace
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose cp app:/app/data/_backup_tmp.db "$env:GITHUB_WORKSPACE\resume-backup.db"
+          if ($LASTEXITCODE -ne 0) { Write-Error "docker compose cp failed"; exit 1 }
+
+      - name: Remove temp file from container
+        if: always()
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose exec -T app python -c "import os; p='/app/data/_backup_tmp.db'; os.path.exists(p) and os.remove(p)"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: resume-db-backup-${{ steps.ts.outputs.stamp }}
+          path: resume-backup.db
+          retention-days: 7
+          if-no-files-found: error
+
+      # Не оставляем копию БД с PII в рабочей папке раннера.
+      - name: Remove backup copy from runner
+        if: always()
+        run: |
+          $f = Join-Path $env:GITHUB_WORKSPACE "resume-backup.db"
+          if (Test-Path $f) { Remove-Item -Force -Confirm:$false $f }

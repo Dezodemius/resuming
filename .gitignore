@@ -24,3 +24,7 @@ Thumbs.db
 .vscode/
 .idea/
 site.webmanifest
+
+# Локальные бэкапы продовой БД (PII — не коммитить)
+backups/
+.claude/settings.json

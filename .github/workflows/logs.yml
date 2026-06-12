@@ -1,0 +1,42 @@
+name: Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Окно логов (например 30m, 2h, 24h)"
+        required: false
+        default: "2h"
+      service:
+        description: "Сервис (ollama / app / nginx); пусто = все"
+        required: false
+        default: ""
+
+jobs:
+  logs:
+    runs-on: [self-hosted, windows]
+    env:
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Container status
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose ps
+
+      - name: Collect logs
+        run: |
+          cd $env:DEPLOY_PATH
+          $since = "${{ github.event.inputs.since }}"
+          $service = "${{ github.event.inputs.service }}"
+          if ([string]::IsNullOrWhiteSpace($service)) {
+            docker compose logs --since $since --timestamps
+          } else {
+            docker compose logs --since $since --timestamps $service
+          }
+
+      - name: Memory and CPU stats
+        run: |
+          docker stats --no-stream

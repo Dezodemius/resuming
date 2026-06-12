@@ -48,6 +48,27 @@ services:
     depends_on:
       - app
 
+  # ── Ops MCP-сервер (диагностика прода для Claude Code) ───────────────
+  # Порты наружу НЕ публикуются: доступ только из сети compose (через cloudflared).
+  # ВНИМАНИЕ: docker.sock внутри контейнера = root на хосте (см. ops_mcp/README.md).
+  ops-mcp:
+    build: ./ops_mcp
+    container_name: resuming-ops-mcp
+    restart: unless-stopped
+    environment:
+      - OPS_MCP_TOKEN=${OPS_MCP_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ── Cloudflare Tunnel (ops.резюмирую.рф → ops-mcp:8765) ──────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: resuming-cloudflared
+    restart: unless-stopped
+    command: tunnel run --token ${CF_TUNNEL_TOKEN}
+    depends_on:
+      - ops-mcp
+
 volumes:
   ollama_data:   # модели хранятся между перезапусками
   app_data:      # база данных
