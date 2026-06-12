@@ -36,19 +36,32 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     env:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
       - name: Pull latest code
         run: |
           cd $env:DEPLOY_PATH
-          git pull origin main
+          git config --global --replace-all safe.directory $env:DEPLOY_PATH
+          git pull "https://x-access-token:${env:DEPLOY_TOKEN}@github.com/${{ github.repository }}.git" main
 
       - name: Rebuild and restart containers
         run: |
           cd $env:DEPLOY_PATH
           docker compose up --build -d
+
+      # Прогреваем модель сразу после деплоя, чтобы первый пользователь
+      # не ждал её загрузку (и не ловил таймаут)
+      - name: Warm up Ollama model
+        continue-on-error: true
+        run: |
+          cd $env:DEPLOY_PATH
+          $model = (Select-String -Path .env -Pattern '^OLLAMA_MODEL=(\S+)').Matches[0].Groups[1].Value
+          Write-Host "Warming up $model..."
+          Invoke-RestMethod -Method Post -Uri http://localhost:11434/api/generate -ContentType 'application/json' -TimeoutSec 300 -Body (@{model=$model; keep_alive='24h'} | ConvertTo-Json) | Out-Null
+          Write-Host "Model loaded."
 
       - name: Prune dangling images
         run: |

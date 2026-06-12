@@ -5,6 +5,11 @@ services:
     image: ollama/ollama:latest
     container_name: resuming-ollama
     restart: unless-stopped
+    # Лимит памяти: загрузка слишком большой модели упадёт внутри контейнера,
+    # а не задушит всю VM (иначе nginx/app перестают отвечать и сайт отдаёт 522)
+    mem_limit: 6g
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h   # держим модель в памяти, а не перегружаем на каждый запрос
     ports:
       - "11434:11434"
     volumes:

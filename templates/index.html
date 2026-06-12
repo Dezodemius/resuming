@@ -197,6 +197,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:300px;pointer-events:none}
 .toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
 </style>
+<script src="/static/logger.js"></script>
 </head>
 <body>
 
@@ -385,6 +386,14 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
       <div class="tg-widget-wrap" id="tg-widget-wrap"></div>
       <div class="auth-divider">или</div>
       {% endif %}
+      {% if yandex_enabled %}
+      <a href="/auth/yandex" onclick="appLog('auth','переход на Яндекс OAuth')"
+         style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;background:#000;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">
+        <span style="background:#FC3F1D;color:#fff;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">Я</span>
+        Войти с Яндекс&nbsp;ID
+      </a>
+      <div class="auth-divider">или</div>
+      {% endif %}
       <div class="auth-email-row">
         <input type="email" id="auth-email" placeholder="email@example.com" autocomplete="email">
         <button onclick="requestMagicLink()">Войти</button>
@@ -451,6 +460,7 @@ let pendingAction = null;
 
 // ── Boot ──────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
+  appLog('boot', 'загрузка страницы');
   addExp(); addEdu();
 
   // Анонимный профиль из localStorage — показываем сразу, до авторизации
@@ -475,6 +485,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     await refreshSession();
     toast('Оплата прошла! Адаптации добавлены.', 'ok');
   }
+  if (p.get('auth_error')) {
+    history.replaceState({}, '', '/');
+    appError('auth', 'вход через Яндекс не удался');
+    toast('Не удалось войти через Яндекс. Попробуйте другой способ.', 'err');
+  }
+  appLog('boot', 'готово', {авторизован: !!currentUser, профиль: hasProfile});
 });
 
 // ── Session / user ────────────────────────────────────────────────
@@ -483,10 +499,12 @@ async function refreshSession() {
   const d   = await res.json();
   if (d.authenticated) {
     currentUser = d;
+    appLog('session', 'пользователь авторизован', {id: d.id, pro: d.is_pro, осталось: d.total});
     refreshAuthUI();
     await loadProfileData();
   } else {
     currentUser = null;
+    appLog('session', 'анонимный пользователь');
     refreshAuthUI();
   }
 }
@@ -569,6 +587,7 @@ function closeAuthModal() { document.getElementById('modal-auth').classList.remo
 
 // Telegram callback (global, called by widget)
 window.onTelegramAuth = async function(user) {
+  appLog('auth', 'вход через Telegram', {id: user.id});
   setLoader(true, 'Входим через Telegram...');
   try {
     const res = await fetch('/auth/telegram', {
@@ -589,6 +608,7 @@ window.onTelegramAuth = async function(user) {
 async function requestMagicLink() {
   const email = v('auth-email');
   if (!email.includes('@')) { toast('Введите корректный email', 'err'); return; }
+  appLog('auth', 'запрос magic-ссылки', {email});
   setLoader(true, 'Отправляем ссылку...');
   try {
     const res = await fetch('/auth/email/request', {
@@ -604,6 +624,7 @@ async function requestMagicLink() {
 }
 
 async function doLogout() {
+  appLog('auth', 'выход из аккаунта');
   await fetch('/auth/logout', { method: 'POST' });
   currentUser = null;
   hasProfile  = false;
@@ -649,6 +670,7 @@ async function saveProfile() {
     experience:collectExp(), education:collectEdu()
   };
 
+  appLog('profile', 'сохранение', {опыт: body.experience.length, образование: body.education.length});
   // Всегда сохраняем локально (работает без аккаунта)
   saveLocalProfile(body);
   hasProfile = true;
@@ -663,10 +685,11 @@ async function saveProfile() {
         body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error((await res.json()).detail);
-    } catch(e) { toast('Ошибка синхронизации с сервером', 'err'); return; }
+    } catch(e) { appError('profile', 'синхронизация с сервером не удалась', e); toast('Ошибка синхронизации с сервером', 'err'); return; }
     finally { setLoader(false); }
   }
 
+  appLog('profile', 'сохранён');
   toast('Профиль сохранён!', 'ok');
   switchTab('match');
 }
@@ -714,10 +737,15 @@ function fillProfileForm(p) {
 // ── Match ─────────────────────────────────────────────────────────
 async function doMatch() {
   if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
-  const job = v('job-text');
-  if (job.length < 30) { toast('Вставьте текст вакансии (минимум 30 символов)', 'err'); return; }
+  const job    = v('job-text');
+  const jobUrl = v('job-url');
+  // Достаточно либо текста вакансии, либо ссылки — сервер сам скачает текст по ссылке
+  if (job.length < 30 && !jobUrl) {
+    toast('Вставьте текст вакансии (минимум 30 символов) или ссылку на неё', 'err'); return;
+  }
+  appLog('match', 'старт', {текст: job.length + ' симв.', ссылка: jobUrl || '—', авторизован: !!currentUser});
 
-  setLoader(true, 'Анализирую вакансию и подбираю опыт…');
+  setLoader(true, jobUrl && job.length < 30 ? 'Загружаю вакансию по ссылке и адаптирую…' : 'Анализирую вакансию и подбираю опыт…');
   document.getElementById('btn-match').disabled = true;
   hideGate();
 
@@ -744,7 +772,7 @@ async function doMatch() {
       // Анонимный → только генерируем, не сохраняем
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, hint:v('m-hint') })
+        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint') })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
@@ -759,15 +787,17 @@ async function doMatch() {
     lastResume = d.resume;
     renderResume(d.resume, true);
     show('btn-regen');
+    appLog('match', 'готово', {resume_id: lastResumeId});
     toast(currentUser ? 'Резюме адаптировано и сохранено!' : 'Резюме готово!', 'ok');
     if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+  } catch(e) { appError('match', e.message); toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); document.getElementById('btn-match').disabled=false; }
 }
 
 // ── General ───────────────────────────────────────────────────────
 async function doGeneralResume() {
   if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
+  appLog('general', 'старт', {должность: v('g-role') || '—', авторизован: !!currentUser});
   setLoader(true, 'Создаю универсальное резюме…');
   document.getElementById('btn-general').disabled = true;
   hideGate();
@@ -808,9 +838,10 @@ async function doGeneralResume() {
     lastResume = d.resume;
     renderResume(d.resume, false);
     show('btn-regen');
+    appLog('general', 'готово', {resume_id: lastResumeId});
     toast(currentUser ? 'Резюме создано и сохранено!' : 'Резюме готово!', 'ok');
     if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+  } catch(e) { appError('general', e.message); toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); document.getElementById('btn-general').disabled=false; }
 }
 
@@ -857,13 +888,14 @@ function downloadPDF() {
 function downloadPDFDirect() {
   const el   = document.getElementById('resume-paper');
   const name = (document.getElementById('r-name').textContent||'resume').replace(/\s+/g,'_');
+  appLog('pdf', 'старт', {файл: name + '.pdf'});
   setLoader(true,'Создание PDF…');
   html2pdf().set({
     margin:[10,10,10,10], filename:`${name}.pdf`,
     image:{type:'jpeg',quality:.98},
     html2canvas:{scale:2,useCORS:true,logging:false},
     jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(el).save().then(()=>setLoader(false));
+  }).from(el).save().then(()=>{appLog('pdf','готово');setLoader(false)});
 }
 
 // ── Save to dashboard ─────────────────────────────────────────────
@@ -934,14 +966,16 @@ function updateUsesFromResponse(usesLeft) {
 async function fetchJob() {
   const url = v('job-url');
   if (!url) { toast('Введите URL', 'err'); return; }
+  appLog('fetch-job', 'старт', {url});
   setLoader(true, 'Загружаем вакансию...');
   try {
     const res = await fetch('/api/fetch-job', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url}) });
     if (!res.ok) throw new Error('Не удалось загрузить');
     const d = await res.json();
     document.getElementById('job-text').value = d.text;
+    appLog('fetch-job', 'готово', {символов: d.text.length});
     toast('Вакансия загружена!', 'ok');
-  } catch(e) { toast('Ошибка. Вставьте текст вручную.', 'err'); }
+  } catch(e) { appError('fetch-job', e.message); toast('Ошибка. Вставьте текст вручную.', 'err'); }
   finally { setLoader(false); }
 }
 
@@ -966,13 +1000,14 @@ function openPayModal(reason) {
 }
 function closePayModal(){document.getElementById('modal-pay').classList.remove('on')}
 async function doPay(){
+  appLog('pay', 'создание платежа');
   closePayModal(); setLoader(true,'Создаём платёж...');
   try {
     const res = await fetch('/api/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     const d = await res.json();
-    if(d.url) window.location.href=d.url;
+    if(d.url){appLog('pay','переход на ЮKassa');window.location.href=d.url;}
     else throw new Error('Ошибка');
-  } catch(e){toast('Ошибка: '+e.message,'err');setLoader(false)}
+  } catch(e){appError('pay', e.message);toast('Ошибка: '+e.message,'err');setLoader(false)}
 }
 
 // ── Dynamic entries ───────────────────────────────────────────────
