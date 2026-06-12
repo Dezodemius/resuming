@@ -38,7 +38,7 @@ jobs:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
     defaults:
       run:
-        shell: pwsh
+        shell: powershell
     steps:
       - name: Pull latest code
         run: |
