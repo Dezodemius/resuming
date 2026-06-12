@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
 from dotenv import load_dotenv
+from mcp.server.fastmcp import Context, FastMCP
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -167,12 +168,22 @@ def init_db():
                 uses     INTEGER DEFAULT 0,
                 created  TEXT DEFAULT (datetime('now'))
             );
+
+            -- API-токены для MCP-доступа (один активный токен на пользователя)
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                token      TEXT PRIMARY KEY,
+                user_id    INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
         """)
 
 @asynccontextmanager
 async def lifespan(app):
     init_db()
-    yield
+    # Session manager MCP-сервера должен жить весь срок работы приложения
+    # (mcp_server определён ниже; смонтирован в конце файла)
+    async with mcp_server.session_manager.run():
+        yield
 
 app = FastAPI(title="Резюмирую.рф", lifespan=lifespan)
 os.makedirs("static", exist_ok=True)
@@ -1253,3 +1264,106 @@ def _generate_prompt(r: GenerateReq) -> str:
 Опыт:\n{exp}\nОбразование:\n{edu}
 Навыки: {r.skills} | Языки: {r.languages}
 JSON ТОЛЬКО: {{"name":"...","contact":{{"phone":"...","email":"...","city":"...","linkedin":"..."}},"target_role":"...","summary":"...","experience":[{{"company":"...","role":"...","period":"...","location":"...","bullets":["..."]}}],"education":[{{"institution":"...","degree":"...","year":"..."}}],"skills":{{"Категория":["навык"]}},"languages":["..."]}}"""
+
+# ── MCP server (Model Context Protocol) ────────────────────────────────────
+# Доступ из Claude Desktop/Code к адаптации резюме. Подключение:
+#   claude mcp add --transport http resuming https://xn--e1aedprev8fe.xn--p1ai/mcp \
+#     --header "Authorization: Bearer <токен>"
+# Токен выдаёт POST /api/mcp-token (требует обычной сессии на сайте).
+mcp_server = FastMCP(
+    "Резюмирую.рф",
+    instructions=(
+        "Адаптация резюме под вакансию через сервис Резюмирую.рф. "
+        "Требуется токен: войдите на сайте и вызовите POST /api/mcp-token."
+    ),
+    stateless_http=True,   # каждый запрос независим — не нужны MCP-сессии
+    json_response=True,    # обычный JSON вместо SSE — дружелюбно к nginx/Cloudflare
+)
+
+MCP_TOKEN_HINT = ("Получите токен: войдите на сайте и выполните POST /api/mcp-token, "
+                  "затем подключите MCP с заголовком 'Authorization: Bearer <токен>'.")
+
+def _mcp_user(ctx: Context) -> dict:
+    """Достаёт пользователя по заголовку Authorization: Bearer <token> HTTP-запроса MCP."""
+    http_req = ctx.request_context.request
+    auth = http_req.headers.get("authorization", "") if http_req is not None else ""
+    scheme, _, token = auth.partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        raise ValueError(f"Нет токена авторизации. {MCP_TOKEN_HINT}")
+    with get_db() as db:
+        row = db.execute(
+            "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token=?",
+            (token,)
+        ).fetchone()
+    if not row:
+        raise ValueError(f"Токен недействителен. {MCP_TOKEN_HINT}")
+    return dict(row)
+
+@mcp_server.tool()
+async def get_profile(ctx: Context) -> dict:
+    """Возвращает сохранённый профиль пользователя Резюмирую.рф
+    (имя, контакты, опыт, образование, навыки, языки)."""
+    user = _mcp_user(ctx)
+    with get_db() as db:
+        row = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+    if not row:
+        raise ValueError("Профиль не найден — сначала заполните профиль на сайте.")
+    return json.loads(row["data"])
+
+@mcp_server.tool()
+async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
+    """Адаптирует сохранённое резюме пользователя под текст вакансии.
+    Списывает одну генерацию (как кнопка «Адаптировать» на сайте).
+    Возвращает готовый JSON резюме, id сохранённой версии и остаток генераций."""
+    user = _mcp_user(ctx)
+    # Семантика 1-в-1 с /api/match (но текст вакансии передаётся только текстом)
+    job_text = vacancy_text.strip()
+    if len(job_text) < 30:
+        raise ValueError("Вставьте текст вакансии (минимум 30 символов)")
+    with get_db() as db:
+        p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+    if not p:
+        raise ValueError("Сначала сохраните профиль на сайте")
+    with get_db() as db:
+        ok, col, uses_left = _deduct(db, user["id"])
+        if not ok:
+            raise ValueError("Закончились генерации (no_uses) — купите пакет или Pro на сайте")
+    try:
+        raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, ""))
+        resume = _parse_ai(raw)
+    except Exception as e:
+        with get_db() as db:
+            _refund(db, user["id"], col)
+        detail = getattr(e, "detail", None) or str(e)
+        raise ValueError(f"Ошибка генерации: {detail}")
+    with get_db() as db:
+        try:
+            rid = _save_resume(db, user["id"], resume, "matched", "", "", job_text)
+        except ValueError as e:
+            if "resume_limit" in str(e):
+                raise ValueError("Достигнут лимит хранимых резюме (resume_limit) — "
+                                 "удалите старые резюме на сайте или оформите Pro")
+            raise
+    return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+
+@app.post("/api/mcp-token")
+@rate("10/minute")
+async def create_mcp_token(request: Request):
+    """Выдаёт API-токен для MCP-доступа. Один активный токен на пользователя:
+    старые токены удаляются. Токен показывается только один раз."""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
+    token = str(uuid.uuid4())
+    with get_db() as db:
+        db.execute("DELETE FROM api_tokens WHERE user_id=?", (user["id"],))
+        db.execute("INSERT INTO api_tokens (token, user_id) VALUES (?,?)", (token, user["id"]))
+        db.commit()
+    log.info("mcp-token: issued for user=%s", user["id"])
+    return {"token": token}
+
+# Монтируем streamable-http app в КОНЦЕ файла: FastAPI-роуты, объявленные выше,
+# имеют приоритет, а endpoint MCP оказывается ровно на /mcp
+# (streamable_http_path по умолчанию "/mcp" внутри под-приложения).
+app.mount("/", mcp_server.streamable_http_app())

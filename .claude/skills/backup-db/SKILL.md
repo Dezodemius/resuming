@@ -55,6 +55,17 @@ docker run --rm -v "${dir}:/b" python:3.12-slim python -c "import sqlite3; c=sql
 
 Ожидаемо: `integrity: ok` и ненулевые счётчики хотя бы в `users` / `resumes`. Таблицы соответствуют `init_db()` в `main.py`: **users, sessions, magic_tokens, profiles, resumes, payments, anon_usage**.
 
+## Шаг 5. Обновить указатель для MCP-сервера
+
+MCP-сервер `resume-db` из `.mcp.json` смотрит на фиксированный путь `backups/latest/resume-backup.db`. После проверки целостности обнови его — тогда свежий бэкап можно запрашивать SQL-ем прямо через MCP-инструменты (`query`, `list_tables`):
+
+```powershell
+New-Item -ItemType Directory -Force backups\latest | Out-Null
+Copy-Item $db backups\latest\resume-backup.db -Force
+```
+
+После обновления файла MCP-сервер подхватит его при следующем старте сессии (или после `/mcp` → reconnect).
+
 ## Важно: PII
 
 Бэкап содержит персональные данные пользователей (email, telegram id, тексты резюме, платежи). Хранить **только локально** в `backups/` (каталог в `.gitignore`), не коммитить, не выкладывать, не передавать. Workflow сам удаляет копию из рабочей папки раннера; артефакт в GitHub истекает через 7 дней.
