@@ -14,14 +14,14 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Раскомментируй если есть NVIDIA GPU:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    Раскомментируй если есть NVIDIA GPU:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   # ── FastAPI приложение ────────────────────────────────────────────────
   app:
