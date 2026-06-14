@@ -5,272 +5,290 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Редактор резюме — Резюмирую.рф</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
+<link rel="stylesheet" href="/static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --navy:#0F1C3F;--gold:#F0A520;
-  --bg:#F2F5FA;--card:#fff;
-  --text:#1E293B;--muted:#64748B;--light:#94A3B8;
-  --border:#E2E8F0;--border-d:#CBD5E1;
-  --success:#059669;--danger:#EF4444;
-}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-size:14px;height:100vh;overflow:hidden;display:flex;flex-direction:column}
-
-/* ── Sticky edit header ── */
-.edit-header{background:var(--navy);color:#fff;padding:0 1.25rem;height:54px;display:flex;align-items:center;gap:12px;flex-shrink:0;overflow:hidden}
-.back-btn{color:rgba(255,255,255,.7);text-decoration:none;font-size:13px;white-space:nowrap;padding:4px 0;transition:color .15s;flex-shrink:0}
-.back-btn:hover{color:#fff}
-.header-divider{width:1px;height:20px;background:rgba(255,255,255,.15);flex-shrink:0}
-.header-company{background:none;border:none;color:#fff;font-family:inherit;font-size:14px;font-weight:600;outline:none;flex:1;min-width:0}
-.header-company::placeholder{color:rgba(255,255,255,.4)}
-.header-role{font-size:13px;color:rgba(255,255,255,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
-.header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
-.status-sel{background:rgba(255,255,255,.1);border:none;color:#fff;font-family:inherit;font-size:12px;font-weight:500;padding:5px 10px;border-radius:6px;cursor:pointer;outline:none}
-.status-sel option{background:var(--navy);color:#fff}
-.save-state{font-size:11px;white-space:nowrap;transition:color .25s;color:rgba(255,255,255,.5)}
-.save-state.unsaved{color:#F0A520}
-.save-state.saved{color:#6EE7B7}
-.save-state.saving{color:rgba(255,255,255,.5)}
-.save-state.error{color:#FCA5A5}
-.btn-hdr{padding:6px 12px;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border:none;white-space:nowrap;transition:opacity .15s}
-.btn-hdr:hover{opacity:.85}
-.btn-hdr-pdf{background:rgba(255,255,255,.12);color:#fff}
-.btn-hdr-save{background:var(--gold);color:var(--navy)}
-
-/* ── Two-panel body ── */
-.editor-body{display:grid;grid-template-columns:440px 1fr;flex:1;overflow:hidden}
-@media(max-width:860px){
-  body{overflow:auto;height:auto}
-  .editor-body{grid-template-columns:1fr;overflow:visible}
-  .preview-panel{display:none}
-}
-
-/* ── Left: form panel ── */
-.editor-panel{overflow-y:auto;padding:1.25rem;background:#F8FAFC;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:.875rem}
-
-.sec{background:var(--card);border:0.5px solid var(--border);border-radius:10px;padding:1.1rem}
-.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.sec-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--light)}
-.btn-ai{background:none;border:0.5px solid var(--border);border-radius:6px;padding:4px 9px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s;font-family:inherit}
-.btn-ai:hover{border-color:var(--gold);color:var(--gold);background:#FFFBEB}
-.btn-ai.loading{opacity:.5;cursor:wait}
-
-/* Form fields */
-.field{margin-bottom:10px}.field:last-child{margin-bottom:0}
-.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px}
-.field input,.field textarea{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--text);background:#fff;transition:border-color .15s;line-height:1.5}
-.field input:focus,.field textarea:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 2px rgba(15,28,63,.07)}
-.field textarea{resize:vertical;min-height:70px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.field-hint{font-size:10.5px;color:var(--light);margin-bottom:6px;line-height:1.4}
-
-/* Experience / education entries */
-.exp-entry,.edu-entry{background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;position:relative}
-.entry-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.entry-num{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light)}
-.entry-actions{display:flex;gap:6px;align-items:center}
-.btn-rm-entry{background:none;border:none;cursor:pointer;font-size:12px;color:var(--light);padding:2px 6px;border-radius:4px;transition:all .15s;font-family:inherit}
-.btn-rm-entry:hover{background:#FEE2E2;color:var(--danger)}
-
-/* Bullets */
-.bullets-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
-.bullets-header label{font-size:11px;font-weight:600;color:var(--muted)}
-.bullets-list{display:flex;flex-direction:column;gap:4px;margin-bottom:5px}
-.bullet-row{display:flex;align-items:flex-start;gap:7px}
-.bullet-icon{color:var(--gold);font-size:10px;margin-top:9px;flex-shrink:0}
-.bullet-text{flex:1;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-family:inherit;font-size:12px;color:var(--text);resize:none;overflow:hidden;line-height:1.5;background:#fff;transition:border-color .15s;min-height:30px}
-.bullet-text:focus{outline:none;border-color:var(--navy)}
-.btn-rm-bullet{background:none;border:none;cursor:pointer;color:var(--light);font-size:16px;line-height:1;margin-top:5px;flex-shrink:0;transition:color .15s}
-.btn-rm-bullet:hover{color:var(--danger)}
-.btn-add-bullet,.btn-add-entry{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;padding:7px;background:none;border:1px dashed var(--border-d);border-radius:6px;font-size:11px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s;font-family:inherit}
-.btn-add-bullet{margin-top:2px;font-size:11px}
-.btn-add-bullet:hover,.btn-add-entry:hover{border-color:var(--navy);color:var(--navy)}
-
-/* Main save button */
-.btn-save-main{width:100%;padding:12px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .15s}
-.btn-save-main:hover{opacity:.88}
-.btn-save-main:disabled{opacity:.4;cursor:not-allowed}
-
-/* ── Right: preview panel ── */
-.preview-panel{overflow-y:auto;padding:1.25rem;background:#E8EDF5;display:flex;flex-direction:column;gap:.75rem}
-.preview-label{font-size:11px;color:var(--light);text-align:center}
-.resume-paper{background:#fff;max-width:680px;margin:0 auto;padding:44px 52px;border:1px solid #ddd;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.06);width:100%}
-
-/* Resume typography */
-.r-name{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;margin-bottom:3px;line-height:1.2}
-.r-role-line{font-size:13px;color:var(--gold);font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-.r-contacts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--muted);padding-bottom:14px;border-bottom:2.5px solid var(--navy);margin-bottom:18px}
-.r-sec{margin-bottom:18px}
-.r-sec h2{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--navy);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--border-d)}
-.r-summary{font-size:12.5px;line-height:1.65;color:#334155}
-.r-exp-item{margin-bottom:12px}
-.r-exp-top{display:flex;justify-content:space-between;align-items:baseline}
-.r-exp-role{font-size:13px;font-weight:700}
-.r-exp-period{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:8px}
-.r-exp-co{font-size:11.5px;color:var(--muted);margin:2px 0 6px}
-.r-bullets{list-style:none;padding:0}
-.r-bullets li{font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative}
-.r-bullets li::before{content:"▸";position:absolute;left:0;color:var(--gold);font-size:10px;top:3px}
-.r-edu-item{display:flex;justify-content:space-between;margin-bottom:7px}
-.r-edu-left .deg{font-size:13px;font-weight:600}.r-edu-left .inst{font-size:11.5px;color:var(--muted)}
-.r-edu-year{font-size:11.5px;color:var(--muted)}
-.r-skill-row{display:flex;gap:8px;font-size:12px;margin-bottom:5px}
-.r-skill-cat{font-weight:600;min-width:110px}
-.r-langs{font-size:12px;color:#334155}
-
-/* ── AI result panel ── */
-.ai-sheet{display:none;position:fixed;inset:0;z-index:200;align-items:flex-end;justify-content:center;padding:0}
-.ai-sheet.on{display:flex}
-.ai-backdrop{position:absolute;inset:0;background:rgba(10,20,50,.45)}
-.ai-card{background:#fff;border-radius:14px 14px 0 0;padding:1.5rem;width:100%;max-width:680px;position:relative;z-index:1;max-height:70vh;overflow-y:auto}
-.ai-card-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
-.ai-text{font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px;border:0.5px solid var(--border);min-height:60px}
-.ai-btns{display:flex;gap:8px}
-.ai-btns button{flex:1;padding:10px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s}
-.ai-btns button:hover{opacity:.85}
-.btn-ai-apply{background:var(--navy);color:#fff}
-.btn-ai-cancel{background:var(--bg);color:var(--text);border:0.5px solid var(--border)!important}
-
-/* ── Loader + Toast ── */
-.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:14px}
-.loader.on{display:flex}
-.spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loader-text{font-size:14px;font-weight:500;color:#fff}
-.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:300px;pointer-events:none}
-.toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
-
-/* Hidden PDF area */
-#pdf-src{position:fixed;left:-9999px;top:0;width:700px;padding:44px 52px;background:#fff;font-family:'Inter',sans-serif}
-</style>
 <script src="/static/logger.js"></script>
 </head>
 <body>
 
-<!-- Sticky header -->
-<header class="edit-header">
-  <a class="back-btn" href="/resumes">← Мои резюме</a>
-  <div class="header-divider"></div>
-  <input class="header-company" id="h-company" placeholder="Название компании"
-         oninput="markDirty()" title="Название компании (только для организации)">
-  <span class="header-role" id="h-role"></span>
-  <div class="header-right">
-    <select class="status-sel" id="status-sel" onchange="changeStatus(this.value)">
-      <option value="draft">Черновик</option>
-      <option value="sent">Отправлено</option>
-      <option value="waiting">Ждём ответа</option>
-      <option value="accepted">Приглашение</option>
-      <option value="rejected">Отказ</option>
-    </select>
-    <span class="save-state saved" id="save-state">● Сохранено</span>
-    <button class="btn-hdr btn-hdr-pdf" onclick="downloadPDF()">↓ PDF</button>
-    <button class="btn-hdr btn-hdr-save" onclick="saveResume()" id="btn-save-hdr">Сохранить</button>
+{% with nav_active = 'library' %}{% include '_app_header.html' %}{% endwith %}
+
+<!-- Breadcrumbs -->
+<div class="crumbs">
+  <div class="crumbs__inner">
+    <a class="crumbs__back" href="/resumes">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+      Назад
+    </a>
+    <div class="crumbs__div"></div>
+    <nav class="crumbs__nav">
+      <a class="crumb" href="/resumes">Мои резюме</a>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb" id="crumb-company">Компания</span>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb crumb--current" id="crumb-role">Вакансия</span>
+    </nav>
   </div>
-</header>
+</div>
+
+<!-- Editor sub-header -->
+<div class="ed-subhdr">
+  <div class="ed-subhdr__inner">
+    <!-- Left: company avatar + job title + company·location -->
+    <div class="ed-subhdr__target">
+      <div class="avatar-co ed-co-avatar" id="ed-co-avatar" style="--co:#ef4444">Я</div>
+      <div class="ed-subhdr__info">
+        <div class="ed-subhdr__title" id="h-role">Название вакансии</div>
+        <div class="ed-subhdr__meta"><span id="h-company">Компания</span><span class="ed-subhdr__dot" id="ed-meta-loc"></span></div>
+      </div>
+    </div>
+    <!-- Right: ATS pill, status dropdown, share, PDF -->
+    <div class="ed-subhdr__right">
+      <!-- ATS match mini ring -->
+      <div class="ed-ats-pill" id="ed-ats-pill" style="display:none">
+        <div class="ed-ats-ring" id="ed-ats-ring" style="--deg:0deg">
+          <div class="ed-ats-ring__hole"></div>
+          <span class="ed-ats-ring__num" id="ed-ats-num">0</span>
+        </div>
+        <span class="ed-ats-label">ATS-совпадение</span>
+      </div>
+      <!-- Status dropdown -->
+      <div class="ed-status-wrap" id="ed-status-wrap">
+        <button class="ed-status-btn" id="ed-status-btn" onclick="toggleStatusMenu()" type="button">
+          <span class="ed-status-dot" id="ed-status-dot"></span>
+          <span id="ed-status-label">Черновик</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <div class="ed-status-menu" id="ed-status-menu">
+          <button class="ed-status-opt" data-val="draft"    onclick="pickStatus('draft')"   ><span class="ed-status-dot" style="--st-c:#e0a416"></span>Черновик</button>
+          <button class="ed-status-opt" data-val="sent"     onclick="pickStatus('sent')"    ><span class="ed-status-dot" style="--st-c:#10b981"></span>Отправлено</button>
+          <button class="ed-status-opt" data-val="waiting"  onclick="pickStatus('waiting')" ><span class="ed-status-dot" style="--st-c:#3b82f6"></span>Ждём ответа</button>
+          <button class="ed-status-opt" data-val="accepted" onclick="pickStatus('accepted')"><span class="ed-status-dot" style="--st-c:#a855f7"></span>Приглашение</button>
+          <button class="ed-status-opt" data-val="rejected" onclick="pickStatus('rejected')"><span class="ed-status-dot" style="--st-c:#ef4444"></span>Отказ</button>
+        </div>
+        <!-- hidden select keeps JS contract -->
+        <select id="status-sel" style="display:none" onchange="changeStatus(this.value)">
+          <option value="draft">Черновик</option>
+          <option value="sent">Отправлено</option>
+          <option value="waiting">Ждём ответа</option>
+          <option value="accepted">Приглашение</option>
+          <option value="rejected">Отказ</option>
+        </select>
+      </div>
+      <!-- Share -->
+      <button class="ed-icon-btn" title="Поделиться" onclick="shareResume()" type="button">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+      </button>
+      <!-- Download PDF -->
+      <button class="btn-primary ed-pdf-btn" id="btn-save-hdr" onclick="downloadPDF()" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 3v13M7 11l5 5 5-5"></path><path d="M3 20h18"></path></svg>
+        Скачать PDF
+      </button>
+      <!-- Save state indicator -->
+      <span class="ed-save-state saved" id="save-state">● Сохранено</span>
+    </div>
+  </div>
+</div>
 
 <!-- Editor body -->
-<div class="editor-body">
+<div class="ed-wrap">
+  <div class="ed-body">
 
-  <!-- Left: form editor -->
-  <div class="editor-panel">
+    <!-- LEFT: sidebar -->
+    <div class="ed-sidebar">
 
-    <!-- Contact info -->
-    <div class="sec">
-      <div class="sec-title" style="margin-bottom:12px">Личные данные</div>
-      <div class="field"><label>Полное имя</label><input id="f-name" oninput="markDirty()"></div>
-      <div class="row2">
-        <div class="field"><label>Телефон</label><input id="f-phone" oninput="markDirty()"></div>
-        <div class="field"><label>Город</label><input id="f-city" oninput="markDirty()"></div>
+      <!-- AI summary card -->
+      <div class="ed-ai-card" id="ed-ai-card">
+        <div class="ed-ai-card__top">
+          <span class="ed-ai-icon">✦</span>
+          <div>
+            <div class="ed-ai-card__title">AI адаптировал резюме</div>
+            <div class="ed-ai-card__sub">под вакансию «<span id="ed-ai-vac-name">...</span>»</div>
+          </div>
+        </div>
+        <ul class="ed-ai-checks" id="ed-ai-checks">
+          <li>Заголовок перестроен под роль</li>
+          <li>Добавлены ключевые слова: React, TypeScript, Next.js</li>
+          <li>Релевантный опыт выдвинут наверх</li>
+          <li>Усилены метрики результата</li>
+        </ul>
+        <div class="ed-ai-btns">
+          <button class="ed-ai-btn" onclick="regenResume()" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+            Перегенерировать
+          </button>
+          <button class="ed-ai-btn" onclick="showVersions()" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+            Версии
+          </button>
+        </div>
       </div>
-      <div class="row2">
-        <div class="field"><label>Email</label><input id="f-email" type="email" oninput="markDirty()"></div>
-        <div class="field"><label>LinkedIn / hh.ru</label><input id="f-linkedin" oninput="markDirty()"></div>
+
+      <!-- Sections nav card -->
+      <div class="ed-sections-card">
+        <div class="ed-sections-cap">РАЗДЕЛЫ РЕЗЮМЕ</div>
+        <div class="ed-sections-list">
+          <button class="ed-sec-row" onclick="scrollToSection('sec-contacts')" type="button">
+            <span class="ed-sec-emoji">📇</span>
+            <span class="ed-sec-label">Контакты</span>
+            <span class="ed-sec-meta" id="nav-contacts-meta">5 полей</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" onclick="scrollToSection('sec-summary')" type="button">
+            <span class="ed-sec-emoji">✍️</span>
+            <span class="ed-sec-label">О себе</span>
+            <span class="ed-sec-meta ed-sec-meta--adapted">адаптировано</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" onclick="scrollToSection('sec-exp')" type="button">
+            <span class="ed-sec-emoji">💼</span>
+            <span class="ed-sec-label">Опыт работы</span>
+            <span class="ed-sec-meta" id="nav-exp-meta">...</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" onclick="scrollToSection('sec-skills')" type="button">
+            <span class="ed-sec-emoji">🛠️</span>
+            <span class="ed-sec-label">Навыки</span>
+            <span class="ed-sec-meta" id="nav-skills-meta">...</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" onclick="scrollToSection('sec-edu')" type="button">
+            <span class="ed-sec-emoji">🎓</span>
+            <span class="ed-sec-label">Образование</span>
+            <span class="ed-sec-meta" id="nav-edu-meta">...</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+        </div>
       </div>
-      <div class="field"><label>Желаемая должность</label>
-        <input id="f-role" oninput="markDirty();syncHeaderRole()"></div>
-    </div>
 
-    <!-- Summary -->
-    <div class="sec">
-      <div class="sec-head">
-        <span class="sec-title">Профессиональный профиль</span>
-        <button class="btn-ai" id="ai-btn-summary" onclick="aiImprove('summary')">✨ Улучшить</button>
+    </div><!-- .ed-sidebar -->
+
+    <!-- RIGHT: form + preview -->
+    <div class="ed-main">
+
+      <!-- Form panel (scrollable) -->
+      <div class="ed-form">
+
+        <!-- Contact info -->
+        <div class="ed-card" id="sec-contacts">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Личные данные</span>
+          </div>
+          <div class="ed-field"><label>Полное имя</label><input id="f-name" oninput="markDirty()"></div>
+          <div class="ed-row2">
+            <div class="ed-field"><label>Телефон</label><input id="f-phone" oninput="markDirty()"></div>
+            <div class="ed-field"><label>Город</label><input id="f-city" oninput="markDirty()"></div>
+          </div>
+          <div class="ed-row2">
+            <div class="ed-field"><label>Email</label><input id="f-email" type="email" oninput="markDirty()"></div>
+            <div class="ed-field"><label>LinkedIn / hh.ru</label><input id="f-linkedin" oninput="markDirty()"></div>
+          </div>
+          <div class="ed-field"><label>Желаемая должность</label>
+            <input id="f-role" oninput="markDirty();syncHeaderRole()"></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="ed-card" id="sec-summary">
+          <div class="ed-card__head">
+            <span class="ed-card__title">О себе</span>
+            <button class="ed-btn-ai" id="ai-btn-summary" onclick="aiImprove('summary')" type="button">✨ Улучшить</button>
+          </div>
+          <div class="ed-field">
+            <textarea id="f-summary" rows="4" placeholder="2–3 предложения о профессиональном опыте и ключевых навыках..." oninput="markDirty()"></textarea>
+          </div>
+        </div>
+
+        <!-- Experience -->
+        <div class="ed-card" id="sec-exp">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Опыт работы</span>
+          </div>
+          <div id="exp-list"></div>
+          <button class="ed-btn-add-entry" onclick="addExpEntry()" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Добавить место работы
+          </button>
+        </div>
+
+        <!-- Education -->
+        <div class="ed-card" id="sec-edu">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Образование</span>
+          </div>
+          <div id="edu-list"></div>
+          <button class="ed-btn-add-entry" onclick="addEduEntry()" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Добавить учебное заведение
+          </button>
+        </div>
+
+        <!-- Skills -->
+        <div class="ed-card" id="sec-skills">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Навыки</span>
+            <button class="ed-btn-ai" id="ai-btn-skills" onclick="aiImprove('skills')" type="button">✨ Улучшить</button>
+          </div>
+          <div class="ed-field-hint">Формат: «Категория: навык1, навык2» — по одной строке на категорию</div>
+          <div class="ed-field">
+            <textarea id="f-skills" rows="5" placeholder="Языки программирования: Python, SQL&#10;CRM-системы: Bitrix24, amoCRM&#10;Soft skills: переговоры, управление командой" oninput="markDirty()"></textarea>
+          </div>
+        </div>
+
+        <!-- Languages -->
+        <div class="ed-card">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Языки</span>
+          </div>
+          <div class="ed-field">
+            <input id="f-langs" placeholder="Русский — родной, Английский — B2" oninput="markDirty()">
+          </div>
+        </div>
+
+        <button class="btn-primary ed-save-main" id="btn-save-main" onclick="saveResume()" type="button">Сохранить изменения</button>
+        <div style="height:1rem"></div>
+
+      </div><!-- .ed-form -->
+
+      <!-- Preview panel -->
+      <div class="ed-preview">
+        <div class="ed-preview__label">Предпросмотр · обновляется автоматически</div>
+        <div class="ed-paper" id="resume-preview"></div>
       </div>
-      <div class="field">
-        <textarea id="f-summary" rows="4" placeholder="2–3 предложения о профессиональном опыте и ключевых навыках..." oninput="markDirty()"></textarea>
-      </div>
-    </div>
 
-    <!-- Experience -->
-    <div class="sec">
-      <div class="sec-title" style="margin-bottom:12px">Опыт работы</div>
-      <div id="exp-list"></div>
-      <button class="btn-add-entry" onclick="addExpEntry()">+ Добавить место работы</button>
-    </div>
+    </div><!-- .ed-main -->
+  </div><!-- .ed-body -->
+</div><!-- .ed-wrap -->
 
-    <!-- Education -->
-    <div class="sec">
-      <div class="sec-title" style="margin-bottom:12px">Образование</div>
-      <div id="edu-list"></div>
-      <button class="btn-add-entry" onclick="addEduEntry()">+ Добавить учебное заведение</button>
-    </div>
-
-    <!-- Skills -->
-    <div class="sec">
-      <div class="sec-head">
-        <span class="sec-title">Навыки</span>
-        <button class="btn-ai" id="ai-btn-skills" onclick="aiImprove('skills')">✨ Улучшить</button>
-      </div>
-      <div class="field-hint">Формат: «Категория: навык1, навык2» — по одной строке на категорию</div>
-      <div class="field">
-        <textarea id="f-skills" rows="5" placeholder="Языки программирования: Python, SQL&#10;CRM-системы: Bitrix24, amoCRM&#10;Soft skills: переговоры, управление командой" oninput="markDirty()"></textarea>
-      </div>
-    </div>
-
-    <!-- Languages -->
-    <div class="sec">
-      <div class="sec-title" style="margin-bottom:12px">Языки</div>
-      <div class="field"><input id="f-langs" placeholder="Русский — родной, Английский — B2" oninput="markDirty()"></div>
-    </div>
-
-    <button class="btn-save-main" id="btn-save-main" onclick="saveResume()">Сохранить изменения</button>
-    <div style="height:.5rem"></div>
-
-  </div><!-- .editor-panel -->
-
-  <!-- Right: live preview -->
-  <div class="preview-panel">
-    <div class="preview-label">Превью · обновляется автоматически</div>
-    <div class="resume-paper" id="resume-preview"></div>
-  </div>
-
-</div><!-- .editor-body -->
+{% include '_app_footer.html' %}
 
 <!-- AI improvement sheet -->
-<div class="ai-sheet" id="ai-sheet">
-  <div class="ai-backdrop" onclick="closeAI()"></div>
-  <div class="ai-card">
-    <div class="ai-card-title">
+<div class="ed-ai-sheet" id="ai-sheet">
+  <div class="ed-ai-backdrop" onclick="closeAI()"></div>
+  <div class="ed-ai-modal">
+    <div class="ed-ai-modal__head">
       <span>✨ <span id="ai-sheet-title">Улучшение</span></span>
-      <button onclick="closeAI()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted)">×</button>
+      <button onclick="closeAI()" class="ed-ai-close" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+      </button>
     </div>
-    <div class="ai-text" id="ai-text"></div>
-    <div class="ai-btns">
-      <button class="btn-ai-apply" onclick="applyAI()">Применить</button>
-      <button class="btn-ai-cancel" onclick="closeAI()">Отмена</button>
+    <div class="ed-ai-text" id="ai-text"></div>
+    <div class="ed-ai-modal__btns">
+      <button class="btn-primary" onclick="applyAI()" type="button" style="flex:1">Применить</button>
+      <button class="ed-ai-cancel" onclick="closeAI()" type="button" style="flex:1">Отмена</button>
     </div>
   </div>
 </div>
 
 <!-- Hidden PDF render area -->
-<div id="pdf-src"></div>
+<div id="pdf-src" style="position:fixed;left:-9999px;top:0;width:700px;padding:44px 52px;background:#fff;font-family:'Manrope',sans-serif"></div>
 
 <!-- Loader -->
 <div class="loader" id="loader">
@@ -280,6 +298,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
 
 <div class="toast" id="toast"></div>
 
+<script src="/static/app.js"></script>
 <script>
 // ── Config ──────────────────────────────────────────────────────────────
 const RESUME_ID = {{ resume_id }};
@@ -287,18 +306,38 @@ const STATUS_LABELS = {
   draft:'Черновик', sent:'Отправлено', waiting:'Ждём ответа',
   accepted:'Приглашение', rejected:'Отказ'
 };
+const STATUS_COLORS = {
+  draft:   {c:'#e0a416', bg:'rgba(224,164,22,0.15)'},
+  sent:    {c:'#10b981', bg:'rgba(16,185,129,0.15)'},
+  waiting: {c:'#3b82f6', bg:'rgba(59,130,246,0.15)'},
+  accepted:{c:'#a855f7', bg:'rgba(168,85,247,0.15)'},
+  rejected:{c:'#ef4444', bg:'rgba(239,68,68,0.15)'},
+};
+const CO_COLORS = {
+  'яндекс':'#ef4444','авито':'#7c3aed','т-банк':'#f4c20d','тинькофф':'#f4c20d','тбанк':'#f4c20d',
+  'озон':'#2563eb','ozon':'#2563eb','vk':'#0ea5e9','вконтакте':'#0ea5e9',
+  'сбер':'#21a038','сбербанк':'#21a038','wildberries':'#cb11ab','wb':'#cb11ab',
+};
+const PALETTE=['#ef4444','#7c3aed','#2563eb','#0ea5e9','#f4c20d','#0ea372','#f97316','#ec4899'];
 
 // ── State ──────────────────────────────────────────────────────────────
 let expCnt = 0, eduCnt = 0;
 let saveTimer = null;
 let isDirty = false;
 let aiTarget = null;    // { kind, expIdx }
+let _currentStatus = 'draft';
+let _matchScore = null;
 
 // ── Boot ───────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   await loadResume();
-  // Auto-resize all existing bullet textareas
   document.querySelectorAll('.bullet-text').forEach(autoResize);
+  // Close status menu on outside click
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#ed-status-wrap')) {
+      document.getElementById('ed-status-menu').classList.remove('on');
+    }
+  });
 });
 
 async function loadResume() {
@@ -318,10 +357,21 @@ function fillForm(d) {
   const r = d.resume_data || {};
   const c = r.contact || {};
 
-  // Header
-  sv('h-company', d.company_name || '');
-  syncHeaderRole(r.target_role || '');
-  document.getElementById('status-sel').value = d.status || 'draft';
+  // Header / breadcrumbs
+  const company = d.company_name || '';
+  const role    = r.target_role  || '';
+  syncHeaderCompany(company, c.city || '');
+  syncHeaderRole(role);
+  setStatus(d.status || 'draft');
+
+  // Store match for ATS ring
+  if (d.match != null) {
+    _matchScore = d.match;
+    renderATSRing(d.match);
+  }
+
+  // AI card vacancy name
+  document.getElementById('ed-ai-vac-name').textContent = role || company || 'вакансию';
 
   // Contact section
   sv('f-name',    r.name || '');
@@ -329,7 +379,7 @@ function fillForm(d) {
   sv('f-city',    c.city || '');
   sv('f-email',   c.email || '');
   sv('f-linkedin',c.linkedin || '');
-  sv('f-role',    r.target_role || '');
+  sv('f-role',    role);
   sv('f-summary', r.summary || '');
 
   // Experience
@@ -342,9 +392,29 @@ function fillForm(d) {
   eduCnt = 0;
   (r.education || []).forEach(edu => addEduEntry(edu));
 
-  // Skills: convert object → "Cat: s1, s2" lines
+  // Skills
   sv('f-skills', formatSkills(r.skills));
   sv('f-langs',  (r.languages || []).join(', '));
+
+  // Update section nav metas
+  updateNavMetas(r);
+}
+
+function updateNavMetas(r) {
+  const expCount = (r.experience || []).length;
+  const skillCount = Object.values(r.skills || {}).reduce((a, arr) => a + (arr || []).length, 0);
+  const eduCount = (r.education || []).length;
+  document.getElementById('nav-exp-meta').textContent    = expCount + ' ' + pluralMest(expCount);
+  document.getElementById('nav-skills-meta').textContent = skillCount || '—';
+  document.getElementById('nav-edu-meta').textContent    = eduCount || '—';
+}
+
+function pluralMest(n) {
+  const a = Math.abs(n) % 100, b = n % 10;
+  if (a > 10 && a < 20) return 'мест';
+  if (b > 1 && b < 5)   return 'места';
+  if (b === 1)           return 'место';
+  return 'мест';
 }
 
 // ── Collect form → resume JSON ─────────────────────────────────────────
@@ -405,26 +475,26 @@ function addExpEntry(exp = {}) {
     <div class="entry-head">
       <span class="entry-num">Место работы ${i + 1}</span>
       <div class="entry-actions">
-        <button class="btn-ai" onclick="aiImproveBullets(${i})">✨ Улучшить</button>
-        <button class="btn-rm-entry" onclick="removeEntry('exp-${i}');markDirty()">Удалить</button>
+        <button class="ed-btn-ai" onclick="aiImproveBullets(${i})" type="button">✨ Улучшить</button>
+        <button class="btn-rm-entry" onclick="removeEntry('exp-${i}');markDirty()" type="button">Удалить</button>
       </div>
     </div>
-    <div class="row2">
-      <div class="field"><label>Компания</label>
+    <div class="ed-row2">
+      <div class="ed-field"><label>Компания</label>
         <input id="exp-co-${i}" value="${esc(exp.company||'')}" oninput="markDirty()"></div>
-      <div class="field"><label>Должность</label>
+      <div class="ed-field"><label>Должность</label>
         <input id="exp-role-${i}" value="${esc(exp.role||'')}" oninput="markDirty()"></div>
     </div>
-    <div class="row2">
-      <div class="field"><label>Период</label>
+    <div class="ed-row2">
+      <div class="ed-field"><label>Период</label>
         <input id="exp-period-${i}" value="${esc(exp.period||'')}" oninput="markDirty()"></div>
-      <div class="field"><label>Город</label>
+      <div class="ed-field"><label>Город</label>
         <input id="exp-loc-${i}" value="${esc(exp.location||'')}" oninput="markDirty()"></div>
     </div>
-    <div class="field">
+    <div class="ed-field">
       <div class="bullets-header"><label>Достижения</label></div>
       <div class="bullets-list" id="bullets-${i}">${bullets}</div>
-      <button class="btn-add-bullet" onclick="addBullet(${i})">+ строка</button>
+      <button class="btn-add-bullet" onclick="addBullet(${i})" type="button">+ строка</button>
     </div>`;
 
   document.getElementById('exp-list').appendChild(el);
@@ -438,13 +508,12 @@ function bulletRowHtml(text, expIdx, bulletIdx) {
       oninput="autoResize(this);markDirty()"
       onkeydown="bulletKey(event,this,${expIdx})"
     >${esc(text)}</textarea>
-    <button class="btn-rm-bullet" onclick="this.closest('.bullet-row').remove();markDirty()">×</button>
+    <button class="btn-rm-bullet" onclick="this.closest('.bullet-row').remove();markDirty()" type="button">×</button>
   </div>`;
 }
 
 function addBullet(expIdx) {
   const list = document.getElementById(`bullets-${expIdx}`);
-  const n    = list.children.length;
   const div  = document.createElement('div');
   div.innerHTML = bulletRowHtml('', expIdx, Date.now());
   const row = div.firstElementChild;
@@ -481,14 +550,14 @@ function addEduEntry(edu = {}) {
   el.innerHTML = `
     <div class="entry-head">
       <span class="entry-num">Учебное заведение ${i + 1}</span>
-      <button class="btn-rm-entry" onclick="removeEntry('edu-${i}');markDirty()">Удалить</button>
+      <button class="btn-rm-entry" onclick="removeEntry('edu-${i}');markDirty()" type="button">Удалить</button>
     </div>
-    <div class="field"><label>Университет / колледж</label>
+    <div class="ed-field"><label>Университет / колледж</label>
       <input id="edu-inst-${i}" value="${esc(edu.institution||'')}" oninput="markDirty()"></div>
-    <div class="row2">
-      <div class="field"><label>Специальность / степень</label>
+    <div class="ed-row2">
+      <div class="ed-field"><label>Специальность / степень</label>
         <input id="edu-deg-${i}" value="${esc(edu.degree||'')}" oninput="markDirty()"></div>
-      <div class="field"><label>Год окончания</label>
+      <div class="ed-field"><label>Год окончания</label>
         <input id="edu-year-${i}" value="${esc(edu.year||'')}" oninput="markDirty()"></div>
     </div>`;
   document.getElementById('edu-list').appendChild(el);
@@ -524,6 +593,7 @@ function updatePreview() {
   const r = collectResume();
   document.getElementById('resume-preview').innerHTML = buildResumeHtml(r);
   syncHeaderRole(r.target_role);
+  updateNavMetas(r);
 }
 
 function buildResumeHtml(r) {
@@ -533,43 +603,41 @@ function buildResumeHtml(r) {
     c.phone    && `📞 ${esc(c.phone)}`,
     c.email    && `✉️ ${esc(c.email)}`,
     c.linkedin && `🔗 ${esc(c.linkedin)}`,
-  ].filter(Boolean).map(p=>`<span style="margin-right:14px;font-size:11px;color:#64748B">${p}</span>`).join('');
+  ].filter(Boolean).map(p=>`<span style="margin-right:14px;font-size:11px;color:var(--page-2)">${p}</span>`).join('');
 
-  const sh = t => `<h2 class="r-sec-h">${t}</h2>`;
-  /* inline h2 style so PDF looks right without external stylesheet */
-  const secHead = t => `<h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#0F1C3F;margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid #E2E8F0">${t}</h2>`;
+  const secHead = t => `<h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">${t}</h2>`;
 
   const exp = (r.experience||[]).map(e=>`
     <div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <b style="font-size:13px;color:#1E293B">${esc(e.role||'')}</b>
-        <span style="font-size:11px;color:#94A3B8;margin-left:8px;white-space:nowrap">${esc(e.period||'')}</span>
+        <b style="font-size:13px;color:var(--page-ink)">${esc(e.role||'')}</b>
+        <span style="font-size:11px;color:var(--page-2);margin-left:8px;white-space:nowrap">${esc(e.period||'')}</span>
       </div>
-      <div style="font-size:11.5px;color:#94A3B8;margin:2px 0 6px">${esc(e.company||'')}${e.location?' · '+esc(e.location):''}</div>
-      <ul style="list-style:none;padding:0">${(e.bullets||[]).map(b=>`<li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative"><span style="position:absolute;left:0;color:#F0A520;font-size:10px;top:3px">▸</span>${esc(b)}</li>`).join('')}</ul>
+      <div style="font-size:11.5px;color:var(--page-2);margin:2px 0 6px">${esc(e.company||'')}${e.location?' · '+esc(e.location):''}</div>
+      <ul style="list-style:none;padding:0">${(e.bullets||[]).map(b=>`<li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative"><span style="position:absolute;left:0;color:#10b981;font-size:10px;top:3px">▸</span>${esc(b)}</li>`).join('')}</ul>
     </div>`).join('');
 
   const edu = (r.education||[]).map(e=>`
     <div style="display:flex;justify-content:space-between;margin-bottom:7px">
-      <div><div style="font-size:13px;font-weight:600">${esc(e.degree||'')}</div><div style="font-size:11.5px;color:#94A3B8">${esc(e.institution||'')}</div></div>
-      <div style="font-size:11.5px;color:#94A3B8;white-space:nowrap">${esc(e.year||'')}</div>
+      <div><div style="font-size:13px;font-weight:600;color:var(--page-ink)">${esc(e.degree||'')}</div><div style="font-size:11.5px;color:var(--page-2)">${esc(e.institution||'')}</div></div>
+      <div style="font-size:11.5px;color:var(--page-2);white-space:nowrap">${esc(e.year||'')}</div>
     </div>`).join('');
 
   const skills = Object.entries(r.skills||{}).map(([cat,items])=>`
     <div style="display:flex;gap:8px;margin-bottom:5px;font-size:12px">
-      <b style="min-width:110px">${esc(cat)}</b>
+      <b style="min-width:110px;color:var(--page-ink)">${esc(cat)}</b>
       <span style="color:#334155">${(items||[]).map(esc).join(', ')}</span>
     </div>`).join('');
 
   return `
-    <p class="r-name">${esc(r.name||'')}</p>
-    <p class="r-role-line">${esc(r.target_role||'')}</p>
-    <div class="r-contacts">${contacts}</div>
-    ${r.summary?`<div class="r-sec">${secHead('Профессиональный профиль')}<p class="r-summary">${esc(r.summary)}</p></div>`:''}
-    ${exp?`<div class="r-sec">${secHead('Опыт работы')}${exp}</div>`:''}
-    ${edu?`<div class="r-sec">${secHead('Образование')}${edu}</div>`:''}
-    ${skills?`<div class="r-sec">${secHead('Навыки')}${skills}</div>`:''}
-    ${(r.languages||[]).length?`<div class="r-sec">${secHead('Языки')}<p class="r-langs">${r.languages.map(esc).join(' · ')}</p></div>`:''}
+    <p style="font-size:26px;font-weight:800;color:var(--page-ink);letter-spacing:-.5px;margin:0 0 3px;line-height:1.2">${esc(r.name||'')}</p>
+    <p style="font-size:13px;color:#10b981;font-weight:600;margin:0 0 12px;text-transform:uppercase;letter-spacing:.04em">${esc(r.target_role||'')}</p>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;padding-bottom:14px;border-bottom:2.5px solid var(--page-ink);margin-bottom:18px">${contacts}</div>
+    ${r.summary?`<div style="margin-bottom:18px">${secHead('Профессиональный профиль')}<p style="font-size:12.5px;line-height:1.65;color:#334155;margin:0">${esc(r.summary)}</p></div>`:''}
+    ${exp?`<div style="margin-bottom:18px">${secHead('Опыт работы')}${exp}</div>`:''}
+    ${edu?`<div style="margin-bottom:18px">${secHead('Образование')}${edu}</div>`:''}
+    ${skills?`<div style="margin-bottom:18px">${secHead('Навыки')}${skills}</div>`:''}
+    ${(r.languages||[]).length?`<div style="margin-bottom:18px">${secHead('Языки')}<p style="font-size:12px;color:#334155;margin:0">${r.languages.map(esc).join(' · ')}</p></div>`:''}
   `;
 }
 
@@ -592,7 +660,7 @@ function setSaveState(s) {
   };
   const [text, cls] = map[s] || map.saved;
   el.textContent = text;
-  el.className = `save-state ${cls}`;
+  el.className = `ed-save-state ${cls}`;
 }
 
 async function saveResume() {
@@ -601,7 +669,9 @@ async function saveResume() {
   setSaveState('saving');
   const resume_data  = collectResume();
   const company_name = gv('h-company') || resume_data.target_role;
-  const status       = document.getElementById('status-sel').value;
+  const status       = _currentStatus;
+  // keep hidden select in sync
+  document.getElementById('status-sel').value = status;
   try {
     const res = await fetch(`/api/resumes/${RESUME_ID}`, {
       method: 'PUT',
@@ -617,14 +687,90 @@ async function saveResume() {
   }
 }
 
-// ── Status + header sync ──────────────────────────────────────────────
+// ── Status ────────────────────────────────────────────────────────────
+function setStatus(val) {
+  _currentStatus = val;
+  const st = STATUS_COLORS[val] || STATUS_COLORS.draft;
+  const label = STATUS_LABELS[val] || val;
+  document.getElementById('ed-status-dot').style.cssText = `--st-c:${st.c}`;
+  document.getElementById('ed-status-label').textContent = label;
+  document.getElementById('status-sel').value = val;
+  // highlight active option
+  document.querySelectorAll('.ed-status-opt').forEach(btn => {
+    btn.classList.toggle('ed-status-opt--active', btn.dataset.val === val);
+  });
+}
+
+function toggleStatusMenu() {
+  document.getElementById('ed-status-menu').classList.toggle('on');
+}
+
+function pickStatus(val) {
+  setStatus(val);
+  document.getElementById('ed-status-menu').classList.remove('on');
+  // sync hidden select → triggers changeStatus
+  const sel = document.getElementById('status-sel');
+  sel.value = val;
+  changeStatus(val);
+}
+
 async function changeStatus(newVal) {
+  _currentStatus = newVal;
   markDirty();
+}
+
+// ── Header sync ───────────────────────────────────────────────────────
+function syncHeaderCompany(company, city) {
+  const coEl  = document.getElementById('h-company');
+  const locEl = document.getElementById('ed-meta-loc');
+  const crumb = document.getElementById('crumb-company');
+  const avatarEl = document.getElementById('ed-co-avatar');
+  if (coEl) coEl.textContent = company || 'Компания';
+  if (crumb) crumb.textContent = company || 'Компания';
+  if (locEl) {
+    locEl.textContent = city ? ' · ' + city : '';
+  }
+  // Color avatar
+  if (avatarEl && company) {
+    const key = company.toLowerCase().trim();
+    let color = CO_COLORS[key];
+    if (!color) {
+      let h = 0;
+      for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      color = PALETTE[h % PALETTE.length];
+    }
+    avatarEl.style.setProperty('--co', color);
+    const n = company.trim();
+    avatarEl.textContent = n.length <= 3 ? n.toUpperCase() : n[0].toUpperCase();
+  }
 }
 
 function syncHeaderRole(role) {
   const val = role !== undefined ? role : gv('f-role');
-  document.getElementById('h-role').textContent = val ? `· ${val}` : '';
+  const roleEl = document.getElementById('h-role');
+  const crumb  = document.getElementById('crumb-role');
+  if (roleEl) roleEl.textContent = val || 'Вакансия';
+  if (crumb)  crumb.textContent  = val || 'Вакансия';
+  // Update AI card
+  const aiVac = document.getElementById('ed-ai-vac-name');
+  if (aiVac && val) aiVac.textContent = val;
+}
+
+// ── ATS ring ──────────────────────────────────────────────────────────
+function renderATSRing(match) {
+  const pill = document.getElementById('ed-ats-pill');
+  const ring = document.getElementById('ed-ats-ring');
+  const num  = document.getElementById('ed-ats-num');
+  if (!pill) return;
+  pill.style.display = 'flex';
+  num.textContent = match;
+  ring.style.setProperty('--deg', (match * 3.6) + 'deg');
+}
+
+// ── Section navigation ────────────────────────────────────────────────
+function scrollToSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 // ── PDF ───────────────────────────────────────────────────────────────
@@ -643,6 +789,23 @@ async function downloadPDF() {
   }).from(el).save();
   el.innerHTML = '';
   setLoader(false);
+}
+
+// ── Share ─────────────────────────────────────────────────────────────
+function shareResume() {
+  if (navigator.share) {
+    navigator.share({ title: gv('f-role') || 'Резюме', url: window.location.href }).catch(() => {});
+  } else {
+    navigator.clipboard?.writeText(window.location.href).then(() => toast('Ссылка скопирована', 'ok'));
+  }
+}
+
+// ── Regenerate / Versions stubs ────────────────────────────────────────
+function regenResume() {
+  toast('Перегенерация запущена…', '');
+}
+function showVersions() {
+  toast('История версий пока недоступна', '');
 }
 
 // ── AI improvements ───────────────────────────────────────────────────
@@ -718,7 +881,6 @@ function applyAI() {
   } else if (aiTarget.kind === 'bullets') {
     const idx  = aiTarget.expIdx;
     const list = document.getElementById(`bullets-${idx}`);
-    // Parse improved text → bullets (lines starting with •, -, or plain lines)
     const lines = text.split('\n')
       .map(l => l.replace(/^[•\-–]\s*/, '').trim())
       .filter(Boolean);
@@ -753,6 +915,5 @@ window.addEventListener('beforeunload', e => {
   if (isDirty) { saveResume(); e.preventDefault(); e.returnValue = ''; }
 });
 </script>
-{% include '_footer.html' %}
 </body>
 </html>

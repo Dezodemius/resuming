@@ -1,0 +1,25 @@
+{# Общая шапка приложения. Ожидает в контексте: nav_active ('library'|'generate'), user (опц.) #}
+<header class="appbar">
+  <a class="appbar__logo" href="/resumes" aria-label="Резюмирую — мои резюме">
+    <span class="logo-mark">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+    </span>
+    <span class="brand" data-logotext>Резюмирую</span>
+  </a>
+
+  <nav class="nav">
+    <a class="nav__btn {% if nav_active == 'library' %}nav__btn--active{% endif %}" href="/resumes">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+      <span data-navlabel>Мои резюме</span>
+    </a>
+    <a class="nav__cta {% if nav_active == 'generate' %}nav__cta--active{% endif %}" href="/">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span data-navlabel>Создать</span>
+    </a>
+  </nav>
+
+  <div class="appbar__right">
+    <button id="theme-btn" class="theme-btn" type="button" aria-label="Сменить тему">🌙</button>
+    <a id="app-avatar" class="avatar-user" href="/settings" aria-label="Профиль и настройки">U</a>
+  </div>
+</header>

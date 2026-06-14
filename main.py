@@ -1,12 +1,10 @@
 import asyncio
 import ipaddress
-import logging
 import os
 import json
 import re
 import socket
 import uuid
-import sqlite3
 import hashlib
 import hmac
 import time
@@ -15,16 +13,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import httpx
-from dotenv import load_dotenv
 from mcp.server.fastmcp import Context, FastMCP
 
 try:
@@ -35,51 +31,18 @@ try:
 except ImportError:
     _RATE_LIMIT = False
 
-load_dotenv()
-
-# База данных: в Docker используем volume /app/data, локально — текущая папка
-_data_dir = os.getenv("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
-os.makedirs(_data_dir, exist_ok=True)
-DB_PATH = os.path.join(_data_dir, "resume.db")
-
-load_dotenv()
-
-# ── Logging ─────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
+# Конфигурация вынесена в config.py. Импортируем имена в пространство main —
+# существующий код и тесты обращаются к ним как к main.* (в т.ч. monkeypatch).
+from config import (  # noqa: E402
+    log,
+    OLLAMA_URL, MODEL, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
+    TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
+    SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
+    YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
+    FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    PAID_PACK, PACK_PRICE, SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
+    SECRET_KEY,
 )
-log = logging.getLogger("resuming")
-
-# ── Config ──────────────────────────────────────────────────────────────
-OLLAMA_URL          = os.getenv("OLLAMA_URL", "http://localhost:11434")
-MODEL               = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
-YOKASSA_SHOP        = os.getenv("YOKASSA_SHOP_ID", "")
-YOKASSA_SECRET      = os.getenv("YOKASSA_SECRET_KEY", "")
-APP_URL             = os.getenv("APP_URL", "http://localhost:8000")
-TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_BOT_NAME   = os.getenv("TELEGRAM_BOT_NAME", "")
-SMTP_HOST           = os.getenv("SMTP_HOST", "smtp.yandex.ru")
-SMTP_PORT           = int(os.getenv("SMTP_PORT", "465"))
-SMTP_USER           = os.getenv("SMTP_USER", "")
-SMTP_PASS           = os.getenv("SMTP_PASS", "")
-SMTP_FROM           = os.getenv("SMTP_FROM", SMTP_USER)
-YANDEX_CLIENT_ID    = os.getenv("YANDEX_CLIENT_ID", "")
-YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
-
-FREE_USES         = 3
-FREE_RESUMES      = 5
-PRO_PRICE         = "399.00"
-PRO_DAYS          = 30
-ANON_LIMIT_CONST  = 2
-PAID_PACK         = 20
-PACK_PRICE        = PRO_PRICE
-SESSION_DAYS      = 30
-MAGIC_MINUTES     = 15
-AI_CONCURRENCY    = 2   # max одновременных вызовов Ollama
-
-# Секрет для подписи anon-cookie. ОБЯЗАТЕЛЬНО задайте в .env!
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production-" + os.urandom(16).hex())
 
 # Семафор: не более AI_CONCURRENCY параллельных генераций.
 # Создаём здесь — asyncio инициализирует при первом await.
@@ -93,91 +56,8 @@ def get_ai_sem() -> asyncio.Semaphore:
 
 tpl = Jinja2Templates(directory="templates")
 
-# ── Database ────────────────────────────────────────────────────────────
-def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")       # параллельные чтения без блокировок
-    conn.execute("PRAGMA synchronous=NORMAL")     # баланс скорость/надёжность
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA cache_size=10000")
-    return conn
-
-def init_db():
-    with get_db() as db:
-        db.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                email       TEXT UNIQUE,
-                telegram_id INTEGER UNIQUE,
-                tg_name     TEXT,
-                tg_photo    TEXT,
-                display_name TEXT,
-                free_left    INTEGER NOT NULL DEFAULT 3,
-                paid_left    INTEGER NOT NULL DEFAULT 0,
-                is_pro       INTEGER NOT NULL DEFAULT 0,
-                pro_expires_at TEXT,
-                created      TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                id         TEXT PRIMARY KEY,
-                user_id    INTEGER NOT NULL,
-                expires_at TEXT NOT NULL,
-                created    TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS magic_tokens (
-                token      TEXT PRIMARY KEY,
-                email      TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                used       INTEGER DEFAULT 0,
-                created    TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS profiles (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER UNIQUE NOT NULL,
-                data    TEXT NOT NULL,
-                updated TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS resumes (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id      INTEGER NOT NULL,
-                company_name TEXT,
-                job_url      TEXT,
-                job_snippet  TEXT,
-                resume_data  TEXT NOT NULL,
-                kind         TEXT DEFAULT 'matched',
-                status       TEXT DEFAULT 'draft',
-                created      TEXT DEFAULT (datetime('now')),
-                updated      TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS payments (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id  INTEGER NOT NULL,
-                pay_id   TEXT,
-                idem_key TEXT UNIQUE,
-                status   TEXT DEFAULT 'pending',
-                created  TEXT DEFAULT (datetime('now'))
-            );
-
-            -- Анонимные превью: ограничиваем по cookie-id, без привязки к аккаунту
-            CREATE TABLE IF NOT EXISTS anon_usage (
-                anon_id  TEXT PRIMARY KEY,
-                uses     INTEGER DEFAULT 0,
-                created  TEXT DEFAULT (datetime('now'))
-            );
-
-            -- API-токены для MCP-доступа (один активный токен на пользователя)
-            CREATE TABLE IF NOT EXISTS api_tokens (
-                token      TEXT PRIMARY KEY,
-                user_id    INTEGER NOT NULL,
-                created_at TEXT DEFAULT (datetime('now'))
-            );
-        """)
+# ── Database ── слой БД вынесен в db.py (get_db/init_db).
+from db import get_db, init_db  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app):
@@ -352,69 +232,11 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
             reason += " — нет сетевого маршрута до SMTP-сервера (порт блокирует хостер/VPN)"
         return reason
 
-# ── Pydantic models ────────────────────────────────────────────────────────
-class TgAuthData(BaseModel):
-    id: int
-    first_name: Optional[str] = ""
-    last_name: Optional[str] = ""
-    username: Optional[str] = None
-    photo_url: Optional[str] = None
-    auth_date: int
-    hash: str
-
-class EmailReq(BaseModel):
-    email: str
-
-class ProfileData(BaseModel):
-    email:      Optional[str] = None
-    name:       str
-    phone:      str
-    city:       str
-    linkedin:   str = ""
-    experience: List[Dict[str, Any]]
-    education:  List[Dict[str, Any]]
-    skills:     str
-    languages:  str
-
-class MatchReq(BaseModel):
-    email:       Optional[str] = None
-    job_text:    str
-    company:     str = ""
-    job_url:     str = ""
-    extra_hint:  str = ""
-
-class GenerateFromProfileReq(BaseModel):
-    email:       Optional[str] = None
-    target_role: str = ""
-    hint:        str = ""
-
-class GenerateReq(BaseModel):
-    email:      Optional[str] = None
-    name:       str
-    phone:      str
-    city:       str
-    linkedin:   str = ""
-    target:     str
-    hint:       str = ""
-    experience: List[Dict[str, Any]]
-    education:  List[Dict[str, Any]]
-    skills:     str
-    languages:  str
-
-class PayReq(BaseModel):
-    email: Optional[str] = None
-
-class ResumeStatusReq(BaseModel):
-    status: str
-
-class AnonymousPreviewReq(BaseModel):
-    """Генерация без аккаунта — профиль передаётся инлайн, ничего не сохраняется."""
-    kind:        str        # "match" | "general"
-    profile:     dict
-    job_text:    str = ""
-    job_url:     str = ""
-    target_role: str = ""
-    hint:        str = ""
+# Pydantic-схемы вынесены в schemas.py.
+from schemas import (  # noqa: E402
+    TgAuthData, EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
+    GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
+)
 
 ANON_LIMIT = ANON_LIMIT_CONST
 
@@ -500,8 +322,7 @@ async def healthz():
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     user = await get_current_user(request)
-    return tpl.TemplateResponse("index.html", {
-        "request": request,
+    return tpl.TemplateResponse(request, "index.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "yandex_enabled": bool(YANDEX_CLIENT_ID),
         "user": user,
@@ -518,18 +339,13 @@ async def resume_edit_page(resume_id: int, request: Request):
         ).fetchone()
     if not exists:
         return RedirectResponse(url="/resumes", status_code=303)
-    return tpl.TemplateResponse("resume_edit.html", {
-        "request":    request,
+    return tpl.TemplateResponse(request, "resume_edit.html", {
         "resume_id":  resume_id,
         "telegram_bot_name": TELEGRAM_BOT_NAME,
+        "user": user,
     })
 
 # ── AI section improvement ────────────────────────────────────────────────
-class ImproveReq(BaseModel):
-    kind:    str        # "summary" | "bullets" | "skills"
-    text:    str
-    context: str = ""
-
 @app.post("/api/improve-text")
 async def improve_text(req: ImproveReq, request: Request):
     """Per-section AI improvement, used from the resume editor."""
@@ -564,8 +380,7 @@ async def resumes_page(request: Request):
     user = await get_current_user(request)
     if not user:
         return RedirectResponse(url="/?auth_required=1", status_code=303)
-    return tpl.TemplateResponse("resumes.html", {
-        "request": request,
+    return tpl.TemplateResponse(request, "resumes.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
     })
@@ -575,27 +390,27 @@ async def settings_page(request: Request):
     user = await get_current_user(request)
     if not user:
         return RedirectResponse(url="/?auth_required=1", status_code=303)
-    return tpl.TemplateResponse("settings.html", {
-        "request": request,
+    return tpl.TemplateResponse(request, "settings.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
+        "user": user,
     })
 
 # ── Public / legal pages (no auth required) ───────────────────────────────
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page(request: Request):
-    return tpl.TemplateResponse("pricing.html", {"request": request})
+    return tpl.TemplateResponse(request, "pricing.html")
 
 @app.get("/offer", response_class=HTMLResponse)
 async def offer_page(request: Request):
-    return tpl.TemplateResponse("offer.html", {"request": request})
+    return tpl.TemplateResponse(request, "offer.html")
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page(request: Request):
-    return tpl.TemplateResponse("privacy.html", {"request": request})
+    return tpl.TemplateResponse(request, "privacy.html")
 
 @app.get("/contacts", response_class=HTMLResponse)
 async def contacts_page(request: Request):
-    return tpl.TemplateResponse("contacts.html", {"request": request})
+    return tpl.TemplateResponse(request, "contacts.html")
 
 @app.get("/api/billing")
 async def billing_info(request: Request):
@@ -884,8 +699,20 @@ async def call_ai(prompt: str) -> str:
             raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 def _parse_ai(raw: str) -> dict:
-    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(raw)
+    cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Модель иногда добавляет пояснения вокруг JSON или обрывает ответ
+        # (например при упоре в num_predict). Пытаемся вытащить объект {...}.
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+        log.warning("AI returned non-JSON (len=%d): %s", len(raw), raw[:500])
+        raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
 
 def _save_resume(db, user_id: int, resume: dict, kind: str,
                  company: str = "", job_url: str = "", job_snippet: str = "") -> int:
@@ -943,9 +770,16 @@ async def list_resumes(request: Request):
     if not user:
         raise HTTPException(401, "Требуется авторизация")
     with get_db() as db:
+        # Дополнительные поля вытаскиваем прямо из resume_data JSON (json_extract),
+        # чтобы библиотека рендерилась одним запросом без N+1. Эти поля
+        # опциональны — где их нет, вернётся NULL и UI деградирует аккуратно.
         rows = db.execute(
-            "SELECT id, company_name, kind, status, created, updated FROM resumes"
-            " WHERE user_id=? ORDER BY updated DESC",
+            "SELECT id, company_name, kind, status, created, updated,"
+            " json_extract(resume_data,'$.target_role') AS title,"
+            " json_extract(resume_data,'$.salary')      AS salary,"
+            " json_extract(resume_data,'$.location')    AS location,"
+            " json_extract(resume_data,'$.ats_match')   AS match"
+            " FROM resumes WHERE user_id=? ORDER BY updated DESC",
             (user["id"],)
         ).fetchall()
     return {"resumes": [dict(r) for r in rows]}
@@ -1186,35 +1020,63 @@ async def fetch_job(request: Request):
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments ───────────────────────────────────────────────────────────────
+def _drop_payment(idem: str) -> None:
+    """Удаляет «висячую» строку платежа, если создать платёж в ЮKassa не удалось."""
+    try:
+        with get_db() as db:
+            db.execute("DELETE FROM payments WHERE idem_key=? AND pay_id IS NULL", (idem,))
+            db.commit()
+    except Exception:
+        log.exception("pay: не удалось удалить висячую строку платежа idem=%s", idem)
+
+
 @app.post("/api/pay")
 async def create_payment(req: PayReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
+
+    # ЮKassa ещё не подключена (нет ключей) — не дёргаем API впустую,
+    # отдаём понятную ошибку и явно пишем причину в лог.
+    if not YOKASSA_SHOP or not YOKASSA_SECRET:
+        log.warning("pay: ЮKassa не настроена (YOKASSA_SHOP_ID/SECRET_KEY пусты), user=%s", user["id"])
+        raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
+
     idem = str(uuid.uuid4())
     with get_db() as db:
         db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
         db.commit()
-    async with httpx.AsyncClient() as http:
-        r = await http.post(
-            "https://api.yookassa.ru/v3/payments",
-            headers={"Idempotence-Key": idem},
-            auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-            json={
-                "amount": {"value": PACK_PRICE, "currency": "RUB"},
-                "confirmation": {"type": "redirect",
-                                 "return_url": f"{APP_URL}/?paid=1"},
-                "capture": True,
-                "description": f"{PAID_PACK} адаптаций резюме",
-                "metadata": {"user_id": user["id"], "idem": idem},
-            },
-        )
-    data = r.json()
-    if "id" not in data:
-        raise HTTPException(502, "ЮKassa недоступна")
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as http:
+            r = await http.post(
+                "https://api.yookassa.ru/v3/payments",
+                headers={"Idempotence-Key": idem},
+                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
+                json={
+                    "amount": {"value": PACK_PRICE, "currency": "RUB"},
+                    "confirmation": {"type": "redirect",
+                                     "return_url": f"{APP_URL}/?paid=1"},
+                    "capture": True,
+                    "description": f"{PAID_PACK} адаптаций резюме",
+                    "metadata": {"user_id": user["id"], "idem": idem},
+                },
+            )
+        data = r.json()
+    except Exception:
+        log.exception("pay: ошибка обращения к ЮKassa (user=%s, idem=%s)", user["id"], idem)
+        _drop_payment(idem)
+        raise HTTPException(502, "Не удалось создать платёж. Попробуйте позже.")
+
+    if "id" not in data or "confirmation" not in data:
+        log.error("pay: неожиданный ответ ЮKassa (status=%s): %s", r.status_code, str(data)[:500])
+        _drop_payment(idem)
+        raise HTTPException(502, "Платёжная система отклонила запрос. Попробуйте позже.")
+
     with get_db() as db:
         db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (data["id"], idem))
         db.commit()
+    log.info("pay: платёж создан user=%s pay_id=%s", user["id"], data["id"])
     return {"url": data["confirmation"]["confirmation_url"]}
 
 @app.post("/api/pay/webhook")
@@ -1239,9 +1101,11 @@ async def payment_webhook(request: Request):
                     if r.status_code == 200 and r.json().get("status") == "succeeded":
                         confirmed = True
             except Exception:
+                log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
                 confirmed = False  # не выдаём Pro при ошибке проверки
 
             if not confirmed:
+                log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
                 return {"ok": False, "reason": "payment_not_confirmed"}
 
             with get_db() as db:
@@ -1269,50 +1133,13 @@ async def payment_webhook(request: Request):
                         (new_exp, user_id)
                     )
                     db.commit()
+                    log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
+                else:
+                    log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
     return {"ok": True}
 
-# ── Prompts ────────────────────────────────────────────────────────────────
-def _match_prompt(profile: dict, job_text: str, extra: str = "") -> str:
-    exp = "\n".join(f"  - {e.get('role','')} в {e.get('company','')} ({e.get('period','')}): {e.get('desc','')}" for e in profile.get("experience", [])) or "  не указан"
-    edu = "\n".join(f"  - {e.get('degree','')} — {e.get('institution','')} ({e.get('year','')})" for e in profile.get("education", [])) or "  не указано"
-    return f"""Ты — ведущий HR-консультант. Адаптируй резюме под конкретную вакансию.
-
-ПРОФИЛЬ: {profile.get('name','')} | {profile.get('city','')} | {profile.get('phone','')}
-Опыт:\n{exp}\nОбразование:\n{edu}
-Навыки: {profile.get('skills','')} | Языки: {profile.get('languages','')}
-Пожелания: {extra}
-
-ВАКАНСИЯ:\n{job_text[:3500]}
-
-ЗАДАЧИ: извлеки ключевые требования, выбери релевантный опыт, вплети ключевые слова ATS, напиши точный summary.
-НЕ выдумывай навыков которых нет в профиле.
-
-JSON ТОЛЬКО (без markdown):
-{{"name":"...","contact":{{"phone":"...","email":"...","city":"...","linkedin":"..."}},"target_role":"...","summary":"...","experience":[{{"company":"...","role":"...","period":"...","location":"...","bullets":["..."]}}],"education":[{{"institution":"...","degree":"...","year":"..."}}],"skills":{{"Категория":["навык"]}},"languages":["..."],"ats_keywords":["..."]}}"""
-
-def _general_prompt(profile: dict, target_role: str = "", hint: str = "") -> str:
-    exp = "\n".join(f"  - {e.get('role','')} в {e.get('company','')} ({e.get('period','')}): {e.get('desc','')}" for e in profile.get("experience", [])) or "  не указан"
-    edu = "\n".join(f"  - {e.get('degree','')} — {e.get('institution','')} ({e.get('year','')})" for e in profile.get("education", [])) or "  не указано"
-    role_line = f"Желаемая должность: {target_role}" if target_role else "Желаемая должность: определи сам по опыту"
-    return f"""Ты — ведущий HR-консультант. Создай универсальное профессиональное резюме.
-
-ПРОФИЛЬ: {profile.get('name','')} | {profile.get('city','')}
-{role_line} | Пожелания: {hint}
-Опыт:\n{exp}\nОбразование:\n{edu}
-Навыки: {profile.get('skills','')} | Языки: {profile.get('languages','')}
-
-Включи весь опыт, 3–5 bullet-points с достижениями, широкий summary, сгруппируй навыки.
-
-JSON ТОЛЬКО: {{"name":"...","contact":{{"phone":"...","email":"...","city":"...","linkedin":"..."}},"target_role":"...","summary":"...","experience":[{{"company":"...","role":"...","period":"...","location":"...","bullets":["..."]}}],"education":[{{"institution":"...","degree":"...","year":"..."}}],"skills":{{"Категория":["навык"]}},"languages":["..."]}}"""
-
-def _generate_prompt(r: GenerateReq) -> str:
-    exp = "\n".join(f"  - {e.get('role','')} в {e.get('company','')} ({e.get('period','')}): {e.get('desc','')}" for e in r.experience) or "  не указан"
-    edu = "\n".join(f"  - {e.get('degree','')} — {e.get('institution','')} ({e.get('year','')})" for e in r.education) or "  не указано"
-    return f"""Ты — HR-консультант. Создай резюме.
-Имя: {r.name} | Должность: {r.target} | Пожелания: {r.hint}
-Опыт:\n{exp}\nОбразование:\n{edu}
-Навыки: {r.skills} | Языки: {r.languages}
-JSON ТОЛЬКО: {{"name":"...","contact":{{"phone":"...","email":"...","city":"...","linkedin":"..."}},"target_role":"...","summary":"...","experience":[{{"company":"...","role":"...","period":"...","location":"...","bullets":["..."]}}],"education":[{{"institution":"...","degree":"...","year":"..."}}],"skills":{{"Категория":["навык"]}},"languages":["..."]}}"""
+# Промпты вынесены в prompts.py.
+from prompts import _match_prompt, _general_prompt, _generate_prompt  # noqa: E402,F401
 
 # ── MCP server (Model Context Protocol) ────────────────────────────────────
 # Доступ из Claude Desktop/Code к адаптации резюме. Подключение:

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>preview · editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+</head>
+<body>
+
+<!-- App header (static mock) -->
+<header class="appbar">
+  <a class="appbar__logo" href="#">
+    <span class="logo-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span>
+    <span class="brand">Резюмирую</span>
+  </a>
+  <nav class="nav">
+    <a class="nav__btn nav__btn--active" href="#">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+      <span data-navlabel>Мои резюме</span>
+    </a>
+    <a class="nav__cta" href="#">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span data-navlabel>Создать</span>
+    </a>
+  </nav>
+  <div class="appbar__right">
+    <button id="theme-btn" class="theme-btn" type="button"
+      onclick="(function(){var d=document.documentElement;if(d.getAttribute('data-theme')==='light'){d.removeAttribute('data-theme');this.textContent='🌙';}else{d.setAttribute('data-theme','light');this.textContent='☀️';}}).call(this)">🌙</button>
+    <span class="avatar-user">АИ</span>
+  </div>
+</header>
+
+<!-- Breadcrumbs -->
+<div class="crumbs">
+  <div class="crumbs__inner">
+    <a class="crumbs__back" href="#">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+      Назад
+    </a>
+    <div class="crumbs__div"></div>
+    <nav class="crumbs__nav">
+      <a class="crumb" href="#">Мои резюме</a>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb">Яндекс</span>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb crumb--current">Senior Frontend Developer</span>
+    </nav>
+  </div>
+</div>
+
+<!-- Sub-header -->
+<div class="ed-subhdr">
+  <div class="ed-subhdr__inner">
+    <div class="ed-subhdr__target">
+      <div class="avatar-co ed-co-avatar" style="--co:#ef4444">Я</div>
+      <div class="ed-subhdr__info">
+        <div class="ed-subhdr__title">Senior Frontend Developer</div>
+        <div class="ed-subhdr__meta"><span>Яндекс</span><span class="ed-subhdr__dot"> · Москва · гибрид</span></div>
+      </div>
+    </div>
+    <div class="ed-subhdr__right">
+      <!-- ATS pill -->
+      <div class="ed-ats-pill">
+        <div class="ed-ats-ring" style="--deg:327.6deg">
+          <div class="ed-ats-ring__hole"></div>
+          <span class="ed-ats-ring__num">91</span>
+        </div>
+        <span class="ed-ats-label">ATS-совпадение</span>
+      </div>
+      <!-- Status dropdown (static open) -->
+      <div class="ed-status-wrap">
+        <button class="ed-status-btn" type="button" onclick="this.nextElementSibling.classList.toggle('on')">
+          <span class="ed-status-dot" style="--st-c:#3b82f6"></span>
+          <span>Ждём ответа</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <div class="ed-status-menu" id="preview-status-menu">
+          <button class="ed-status-opt" type="button"><span class="ed-status-dot" style="--st-c:#e0a416"></span>Черновик</button>
+          <button class="ed-status-opt" type="button"><span class="ed-status-dot" style="--st-c:#10b981"></span>Отправлено</button>
+          <button class="ed-status-opt ed-status-opt--active" type="button"><span class="ed-status-dot" style="--st-c:#3b82f6"></span>Ждём ответа</button>
+          <button class="ed-status-opt" type="button"><span class="ed-status-dot" style="--st-c:#a855f7"></span>Приглашение</button>
+          <button class="ed-status-opt" type="button"><span class="ed-status-dot" style="--st-c:#ef4444"></span>Отказ</button>
+        </div>
+      </div>
+      <!-- Share -->
+      <button class="ed-icon-btn" type="button" title="Поделиться">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+      </button>
+      <!-- PDF -->
+      <button class="btn-primary ed-pdf-btn" type="button">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 3v13M7 11l5 5 5-5"></path><path d="M3 20h18"></path></svg>
+        Скачать PDF
+      </button>
+      <span class="ed-save-state saved">● Сохранено</span>
+    </div>
+  </div>
+</div>
+
+<!-- Editor body -->
+<div class="ed-wrap">
+  <div class="ed-body">
+
+    <!-- LEFT sidebar -->
+    <div class="ed-sidebar">
+
+      <!-- AI card -->
+      <div class="ed-ai-card">
+        <div class="ed-ai-card__top">
+          <span class="ed-ai-icon">✦</span>
+          <div>
+            <div class="ed-ai-card__title">AI адаптировал резюме</div>
+            <div class="ed-ai-card__sub">под вакансию «Senior Frontend Developer»</div>
+          </div>
+        </div>
+        <ul class="ed-ai-checks">
+          <li>Заголовок перестроен под роль</li>
+          <li>Добавлены ключевые слова: React, TypeScript, Next.js</li>
+          <li>Релевантный опыт выдвинут наверх</li>
+          <li>Усилены метрики результата</li>
+        </ul>
+        <div class="ed-ai-btns">
+          <button class="ed-ai-btn" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+            Перегенерировать
+          </button>
+          <button class="ed-ai-btn" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>
+            Версии
+          </button>
+        </div>
+      </div>
+
+      <!-- Sections nav -->
+      <div class="ed-sections-card">
+        <div class="ed-sections-cap">РАЗДЕЛЫ РЕЗЮМЕ</div>
+        <div class="ed-sections-list">
+          <button class="ed-sec-row" type="button">
+            <span class="ed-sec-emoji">📇</span>
+            <span class="ed-sec-label">Контакты</span>
+            <span class="ed-sec-meta">5 полей</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" type="button">
+            <span class="ed-sec-emoji">✍️</span>
+            <span class="ed-sec-label">О себе</span>
+            <span class="ed-sec-meta ed-sec-meta--adapted">адаптировано</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" type="button">
+            <span class="ed-sec-emoji">💼</span>
+            <span class="ed-sec-label">Опыт работы</span>
+            <span class="ed-sec-meta">3 места</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" type="button">
+            <span class="ed-sec-emoji">🛠️</span>
+            <span class="ed-sec-label">Навыки</span>
+            <span class="ed-sec-meta">9</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+          <button class="ed-sec-row" type="button">
+            <span class="ed-sec-emoji">🎓</span>
+            <span class="ed-sec-label">Образование</span>
+            <span class="ed-sec-meta">1</span>
+            <svg class="ed-sec-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- .ed-sidebar -->
+
+    <!-- RIGHT -->
+    <div class="ed-main">
+
+      <!-- Form -->
+      <div class="ed-form">
+
+        <!-- Contacts -->
+        <div class="ed-card">
+          <div class="ed-card__head"><span class="ed-card__title">Личные данные</span></div>
+          <div class="ed-field"><label>Полное имя</label><input value="Алексей Иванов" readonly></div>
+          <div class="ed-row2">
+            <div class="ed-field"><label>Телефон</label><input value="+7 (999) 123-45-67" readonly></div>
+            <div class="ed-field"><label>Город</label><input value="Москва" readonly></div>
+          </div>
+          <div class="ed-row2">
+            <div class="ed-field"><label>Email</label><input value="alexey@example.com" readonly></div>
+            <div class="ed-field"><label>LinkedIn / hh.ru</label><input value="linkedin.com/in/alexey" readonly></div>
+          </div>
+          <div class="ed-field"><label>Желаемая должность</label><input value="Senior Frontend Developer" readonly></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="ed-card">
+          <div class="ed-card__head">
+            <span class="ed-card__title">О себе</span>
+            <button class="ed-btn-ai" type="button">✨ Улучшить</button>
+          </div>
+          <div class="ed-field">
+            <textarea rows="4" readonly>Frontend-разработчик с 7+ лет опыта, специализируюсь на React, TypeScript и Next.js. Опыт построения высоконагруженных UI, оптимизации Core Web Vitals и тимлидства команд до 6 человек.</textarea>
+          </div>
+        </div>
+
+        <!-- Experience -->
+        <div class="ed-card">
+          <div class="ed-card__head"><span class="ed-card__title">Опыт работы</span></div>
+          <div class="exp-entry">
+            <div class="entry-head">
+              <span class="entry-num">Место работы 1</span>
+              <div class="entry-actions">
+                <button class="ed-btn-ai" type="button">✨ Улучшить</button>
+                <button class="btn-rm-entry" type="button">Удалить</button>
+              </div>
+            </div>
+            <div class="ed-row2">
+              <div class="ed-field"><label>Компания</label><input value="Авито" readonly></div>
+              <div class="ed-field"><label>Должность</label><input value="Senior Frontend Developer" readonly></div>
+            </div>
+            <div class="ed-row2">
+              <div class="ed-field"><label>Период</label><input value="2021 — наст. время" readonly></div>
+              <div class="ed-field"><label>Город</label><input value="Удалённо" readonly></div>
+            </div>
+            <div class="ed-field">
+              <div class="bullets-header"><label>Достижения</label></div>
+              <div class="bullets-list">
+                <div class="bullet-row">
+                  <span class="bullet-icon">▸</span>
+                  <textarea class="bullet-text" rows="1" readonly>Разработал новый компонент поиска, ускорив отклик UI на 40% (Lighthouse score 94→98)</textarea>
+                </div>
+                <div class="bullet-row">
+                  <span class="bullet-icon">▸</span>
+                  <textarea class="bullet-text" rows="1" readonly>Внедрил TypeScript в монорепо из 120k строк, сократив количество runtime-ошибок на 65%</textarea>
+                </div>
+                <div class="bullet-row">
+                  <span class="bullet-icon">▸</span>
+                  <textarea class="bullet-text" rows="1" readonly>Руководил командой из 5 фронтенд-разработчиков, выстроив процесс code review и CI/CD пайплайны</textarea>
+                </div>
+              </div>
+              <button class="btn-add-bullet" type="button">+ строка</button>
+            </div>
+          </div>
+          <button class="ed-btn-add-entry" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Добавить место работы
+          </button>
+        </div>
+
+        <!-- Skills -->
+        <div class="ed-card">
+          <div class="ed-card__head">
+            <span class="ed-card__title">Навыки</span>
+            <button class="ed-btn-ai" type="button">✨ Улучшить</button>
+          </div>
+          <div class="ed-field-hint">Формат: «Категория: навык1, навык2» — по одной строке на категорию</div>
+          <div class="ed-field">
+            <textarea rows="5" readonly>Языки: TypeScript, JavaScript, HTML, CSS
+Фреймворки: React, Next.js, Vue.js
+Инструменты: Webpack, Vite, Docker, CI/CD
+Soft skills: тимлидство, code review, менторство</textarea>
+          </div>
+        </div>
+
+        <!-- Education -->
+        <div class="ed-card">
+          <div class="ed-card__head"><span class="ed-card__title">Образование</span></div>
+          <div class="edu-entry">
+            <div class="entry-head">
+              <span class="entry-num">Учебное заведение 1</span>
+              <button class="btn-rm-entry" type="button">Удалить</button>
+            </div>
+            <div class="ed-field"><label>Университет / колледж</label><input value="МГУ им. Ломоносова" readonly></div>
+            <div class="ed-row2">
+              <div class="ed-field"><label>Специальность / степень</label><input value="Прикладная математика и информатика" readonly></div>
+              <div class="ed-field"><label>Год окончания</label><input value="2016" readonly></div>
+            </div>
+          </div>
+          <button class="ed-btn-add-entry" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            Добавить учебное заведение
+          </button>
+        </div>
+
+        <!-- Languages -->
+        <div class="ed-card">
+          <div class="ed-card__head"><span class="ed-card__title">Языки</span></div>
+          <div class="ed-field"><input value="Русский — родной, Английский — B2" readonly></div>
+        </div>
+
+        <button class="btn-primary ed-save-main" type="button">Сохранить изменения</button>
+        <div style="height:1rem"></div>
+      </div><!-- .ed-form -->
+
+      <!-- Preview -->
+      <div class="ed-preview">
+        <div class="ed-preview__label">Предпросмотр · обновляется автоматически</div>
+        <div class="ed-paper">
+          <p style="font-size:26px;font-weight:800;color:var(--page-ink);letter-spacing:-.5px;margin:0 0 3px;line-height:1.2">Алексей Иванов</p>
+          <p style="font-size:13px;color:#10b981;font-weight:600;margin:0 0 12px;text-transform:uppercase;letter-spacing:.04em">Senior Frontend Developer</p>
+          <div style="display:flex;flex-wrap:wrap;gap:14px;padding-bottom:14px;border-bottom:2.5px solid var(--page-ink);margin-bottom:18px">
+            <span style="font-size:11px;color:var(--page-2)">📍 Москва</span>
+            <span style="font-size:11px;color:var(--page-2)">📞 +7 (999) 123-45-67</span>
+            <span style="font-size:11px;color:var(--page-2)">✉️ alexey@example.com</span>
+            <span style="font-size:11px;color:var(--page-2)">🔗 linkedin.com/in/alexey</span>
+          </div>
+          <!-- Summary -->
+          <div style="margin-bottom:18px">
+            <h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">Профессиональный профиль</h2>
+            <p style="font-size:12.5px;line-height:1.65;color:#334155;margin:0">Frontend-разработчик с 7+ лет опыта, специализируюсь на React, TypeScript и Next.js. Опыт построения высоконагруженных UI, оптимизации Core Web Vitals и тимлидства команд до 6 человек.</p>
+          </div>
+          <!-- Experience -->
+          <div style="margin-bottom:18px">
+            <h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">Опыт работы</h2>
+            <div style="margin-bottom:12px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline">
+                <b style="font-size:13px;color:var(--page-ink)">Senior Frontend Developer</b>
+                <span style="font-size:11px;color:var(--page-2);margin-left:8px;white-space:nowrap">2021 — наст. время</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--page-2);margin:2px 0 6px">Авито · Удалённо</div>
+              <ul style="list-style:none;padding:0">
+                <li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative"><span style="position:absolute;left:0;color:#10b981;font-size:10px;top:3px">▸</span>Разработал новый компонент поиска, ускорив отклик UI на 40% (Lighthouse 94→98)</li>
+                <li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative"><span style="position:absolute;left:0;color:#10b981;font-size:10px;top:3px">▸</span>Внедрил TypeScript в монорепо из 120k строк, сократив runtime-ошибки на 65%</li>
+                <li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative"><span style="position:absolute;left:0;color:#10b981;font-size:10px;top:3px">▸</span>Руководил командой из 5 разработчиков, выстроив code review и CI/CD пайплайны</li>
+              </ul>
+            </div>
+          </div>
+          <!-- Skills -->
+          <div style="margin-bottom:18px">
+            <h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">Навыки</h2>
+            <div style="display:flex;gap:8px;margin-bottom:5px;font-size:12px"><b style="min-width:110px;color:var(--page-ink)">Языки</b><span style="color:#334155">TypeScript, JavaScript, HTML, CSS</span></div>
+            <div style="display:flex;gap:8px;margin-bottom:5px;font-size:12px"><b style="min-width:110px;color:var(--page-ink)">Фреймворки</b><span style="color:#334155">React, Next.js, Vue.js</span></div>
+            <div style="display:flex;gap:8px;margin-bottom:5px;font-size:12px"><b style="min-width:110px;color:var(--page-ink)">Инструменты</b><span style="color:#334155">Webpack, Vite, Docker, CI/CD</span></div>
+          </div>
+          <!-- Education -->
+          <div style="margin-bottom:18px">
+            <h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">Образование</h2>
+            <div style="display:flex;justify-content:space-between;margin-bottom:7px">
+              <div>
+                <div style="font-size:13px;font-weight:600;color:var(--page-ink)">Прикладная математика и информатика</div>
+                <div style="font-size:11.5px;color:var(--page-2)">МГУ им. Ломоносова</div>
+              </div>
+              <div style="font-size:11.5px;color:var(--page-2);white-space:nowrap">2016</div>
+            </div>
+          </div>
+          <!-- Languages -->
+          <div>
+            <h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--page-line)">Языки</h2>
+            <p style="font-size:12px;color:#334155;margin:0">Русский — родной · Английский — B2</p>
+          </div>
+        </div>
+      </div><!-- .ed-preview -->
+
+    </div><!-- .ed-main -->
+  </div><!-- .ed-body -->
+</div><!-- .ed-wrap -->
+
+<!-- Footer (static mock) -->
+<footer class="foot">
+  <div class="foot__top">
+    <div class="foot__brand">
+      <span class="logo-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span>
+      <div><div class="foot__brand-name">Резюмирую</div><div class="foot__brand-sub">AI-резюме под каждую вакансию</div></div>
+    </div>
+    <nav class="foot__nav">
+      <a href="#">Тарифы</a>
+      <a href="#">Публичная оферта</a>
+      <a href="#">Политика конфиденциальности</a>
+      <a href="#">Контакты</a>
+    </nav>
+  </div>
+  <div class="foot__bottom"><div class="foot__bottom-in">© 2025 Резюмирую.рф</div></div>
+</footer>
+
+<script>
+// Close status dropdown on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.ed-status-wrap')) {
+    document.getElementById('preview-status-menu').classList.remove('on');
+  }
+});
+</script>
+</body>
+</html>

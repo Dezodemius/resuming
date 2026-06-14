@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  @keyframes rsmspin{to{transform:rotate(360deg)}}
+  @keyframes rsmpulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes rsmrise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:9px;border:3px solid transparent;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:var(--text-3)}
+  ::selection{background:var(--accent-tint);color:var(--text)}
+  /* ── Tablet ≤960: side panels stop being sticky, two-up stats, single-column flows ── */
+  @media (max-width:960px){
+    [data-statgrid]{grid-template-columns:repeat(2,1fr)!important}
+    [data-gengrid]{grid-template-columns:1fr!important}
+    [data-editgrid]{grid-template-columns:1fr!important}
+    [data-explorer]{grid-template-columns:1fr!important}
+    [data-credits]{display:none!important}
+    [data-gensummary],[data-edleft],[data-exploreraside]{position:static!important;top:auto!important}
+  }
+  /* ── Icon-only primary nav ≤760 ── */
+  @media (max-width:760px){ [data-navlabel]{display:none!important} }
+  :root{--bg:#0a0d0c;--bg-2:#0c100e;--surface:#141917;--surface-2:#1a201d;--surface-3:#232a26;--border:rgba(255,255,255,0.08);--border-2:rgba(255,255,255,0.15);--text:#f1f4f3;--text-2:#99a59f;--text-3:#69736e;--accent:#10b981;--accent-2:#34d399;--accent-ink:#04130d;--accent-tint:rgba(16,185,129,0.14);--accent-line:rgba(16,185,129,0.32);--ring-track:#262e2a;--header:rgba(10,13,12,0.78);--shadow:0 1px 2px rgba(0,0,0,0.4);--shadow-lg:0 30px 60px -20px rgba(0,0,0,0.6);--page:#fbfbf8;--page-ink:#1b201d;--page-2:#5d6661;--page-line:rgba(0,0,0,0.09);--glow-a:rgba(16,185,129,0.20);--glow-b:rgba(99,102,241,0.16);--glow-c:rgba(52,211,153,0.10);--dot:rgba(255,255,255,0.028);}
+  :root[data-theme="light"]{--bg:#eef2ef;--bg-2:#e7ece9;--surface:#ffffff;--surface-2:#f6f9f7;--surface-3:#eaefeb;--border:rgba(13,35,27,0.10);--border-2:rgba(13,35,27,0.17);--text:#0d1714;--text-2:#586259;--text-3:#889089;--accent:#0ea372;--accent-2:#10b981;--accent-ink:#ffffff;--accent-tint:rgba(16,185,129,0.13);--accent-line:rgba(16,185,129,0.40);--ring-track:#e3e9e5;--header:rgba(255,255,255,0.82);--shadow:0 1px 2px rgba(16,40,30,0.06);--shadow-lg:0 30px 60px -24px rgba(16,40,30,0.22);--page:#ffffff;--page-ink:#1b201d;--page-2:#5d6661;--page-line:rgba(0,0,0,0.09);--glow-a:rgba(16,185,129,0.12);--glow-b:rgba(99,102,241,0.08);--glow-c:rgba(16,185,129,0.05);--dot:rgba(13,35,27,0.03);}
+  /* ── Mobile ≤640: tighter gutters, stacked cards, full-width resume sheet ── */
+  @media (max-width:640px){
+    [data-appheader]{padding:0 14px!important;gap:10px!important}
+    [data-logotext]{display:none!important}
+    [data-main]{padding-left:16px!important;padding-right:16px!important}
+    [data-mainlib]{padding-top:22px!important}
+    [data-greeting]{font-size:25px!important}
+    [data-statgrid]{grid-template-columns:1fr 1fr!important;gap:10px!important}
+    [data-veccards]{grid-template-columns:1fr!important}
+    [data-profiles]{grid-template-columns:1fr!important}
+    [data-resume]{grid-template-columns:1fr!important}
+    [data-resume] [data-rsidebar]{border-right:none!important;border-bottom:1px solid #e4ebe7!important;padding:22px 20px!important}
+    [data-resumemat]{padding:12px!important}
+    [data-rsmain]{padding:22px 20px!important}
+    [data-edtitle]{white-space:normal!important}
+    [data-edspacer]{display:none!important}
+  }
+  /* ── Small phone ≤400: single-column stats, full-width download ── */
+  @media (max-width:400px){
+    [data-greeting]{font-size:23px!important}
+    [data-edpdf]{flex:1 1 100%!important;justify-content:center!important}
+  }
+</style>
+</helmet>
+<div data-rsmroot="" style="min-height:100vh;background-color:var(--bg,#0a0d0c);background-image:radial-gradient(820px 460px at 8% -6%,var(--glow-a),transparent 62%),radial-gradient(720px 440px at 102% -4%,var(--glow-b),transparent 60%),radial-gradient(620px 520px at 50% 118%,var(--glow-c),transparent 62%),radial-gradient(var(--dot) 1px,transparent 1px);background-size:auto,auto,auto,24px 24px;background-attachment:fixed,fixed,fixed,fixed;color:var(--text,#f1f4f3);font-family:'Manrope',system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;">
+
+  <header data-appheader="" style="position:sticky;top:0;z-index:50;height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 22px;background:var(--header);border-bottom:1px solid var(--border);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);">
+    <button onClick="{{ goLibrary }}" style="display:flex;align-items:center;gap:10px;background:none;border:none;cursor:pointer;padding:6px;border-radius:10px;flex-shrink:0;">
+      <div style="position:relative;width:30px;height:30px;border-radius:9px;background:linear-gradient(140deg,var(--accent-2),var(--accent));display:grid;place-items:center;box-shadow:0 4px 14px var(--accent-tint);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--accent-ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+      </div>
+      <span data-logotext="" style="font-family:'Manrope';font-weight:800;font-size:17px;letter-spacing:-0.03em;color:var(--text);">Резюмирую</span>
+    </button>
+
+    <nav style="display:flex;align-items:center;gap:5px;padding:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:13px;">
+      <button onClick="{{ goLibrary }}" style="{{ navLibStyle }}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+        <span data-navlabel="">Мои резюме</span>
+      </button>
+      <button onClick="{{ goGenerate }}" style="{{ navGenStyle }}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+        <span data-navlabel="">Создать</span>
+      </button>
+    </nav>
+
+    <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <button onClick="{{ toggleTheme }}" aria-label="Сменить тему" style="width:40px;height:40px;border-radius:11px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);cursor:pointer;display:grid;place-items:center;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverBtn }}">
+        <span>{{ themeIcon }}</span>
+      </button>
+      <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(140deg,#2563eb,#7c3aed);color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:700;font-size:13px;">АИ</div>
+    </div>
+  </header>
+
+  <div style="position:sticky;top:62px;z-index:40;background:var(--header);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--border);">
+    <div style="max-width:1320px;margin:0 auto;padding:9px 24px;display:flex;align-items:center;gap:11px;">
+      <sc-if value="{{ canBack }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ goBack }}" style="display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 9px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg>Назад
+        </button>
+        <span style="width:1px;height:18px;background:var(--border);flex-shrink:0;"></span>
+      </sc-if>
+      <nav style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;">
+        <sc-for list="{{ crumbs }}" as="cr" hint-placeholder-count="2">
+          <sc-if value="{{ cr.showSep }}" hint-placeholder-val="{{ false }}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.2" stroke-linecap="round" style="flex-shrink:0;"><path d="M9 6l6 6-6 6"></path></svg>
+          </sc-if>
+          <button onClick="{{ cr.onClick }}" style="{{ cr.style }}" style-hover="{{ cr.hover }}">{{ cr.label }}</button>
+        </sc-for>
+      </nav>
+    </div>
+  </div>
+
+  <sc-if value="{{ isLibrary }}" hint-placeholder-val="{{ true }}">
+  <main data-main="" data-mainlib="" style="max-width:1240px;margin:0 auto;padding:34px 24px 90px;">
+
+    <!-- greeting -->
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:26px;">
+      <div>
+        <div style="font-size:13px;color:var(--accent);font-weight:700;letter-spacing:0.01em;margin-bottom:6px;">{{ stats.today }}</div>
+        <h1 data-greeting="" style="font-family:'Manrope';font-size:32px;font-weight:800;letter-spacing:-0.03em;margin:0;line-height:1.1;">С возвращением, Алексей <span>👋</span></h1>
+        <p style="color:var(--text-2);font-size:15px;margin:10px 0 0;max-width:560px;">{{ stats.summary }}</p>
+      </div>
+      <button onClick="{{ goGenerate }}" style="display:flex;align-items:center;gap:9px;height:46px;padding:0 20px;border-radius:13px;background:var(--accent);color:var(--accent-ink);border:none;font-family:'Manrope';font-weight:700;font-size:14.5px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;box-shadow:0 8px 22px var(--accent-tint);" style-hover="{{ hoverPrimary }}">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+        Создать резюме
+      </button>
+    </div>
+
+    <!-- stat cards -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px;" data-statgrid="">
+      <sc-for list="{{ statCards }}" as="s" hint-placeholder-count="4">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:17px;padding:18px 18px;position:relative;overflow:hidden;">
+          <div style="display:flex;align-items:center;gap:8px;color:var(--text-2);font-size:12.5px;font-weight:600;margin-bottom:12px;">
+            <span style="display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--accent-tint);color:var(--accent);">{{ s.icon }}</span>
+            {{ s.label }}
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <div style="font-family:'Manrope';font-size:30px;font-weight:800;letter-spacing:-0.03em;line-height:1;">{{ s.value }}</div>
+            <div style="font-size:12px;font-weight:600;color:var(--accent);">{{ s.delta }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- toolbar -->
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px;">
+      <div style="position:relative;flex:1;min-width:200px;">
+        <svg style="position:absolute;left:14px;top:50%;transform:translateY(-50%);" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4-4"></path></svg>
+        <input value="{{ query }}" onInput="{{ onSearch }}" placeholder="Поиск по компаниям и вакансиям…" style="width:100%;height:44px;padding:0 14px 0 40px;background:var(--surface);border:1px solid var(--border);border-radius:13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:transform .15s,box-shadow .15s,filter .15s;" style-focus="{{ focusInput }}">
+      </div>
+      <sc-if value="{{ showChips }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <sc-for list="{{ filterChips }}" as="c" hint-placeholder-count="5">
+          <button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}<span style="{{ c.countStyle }}">{{ c.count }}</span></button>
+        </sc-for>
+      </div>
+      </sc-if>
+      <div style="display:flex;gap:4px;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;">
+        <button onClick="{{ setBoard }}" aria-label="Доска" style="{{ boardBtnStyle }}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="14" rx="1.5"></rect></svg>
+        </button>
+        <button onClick="{{ setFeed }}" aria-label="Лента" style="{{ feedBtnStyle }}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+        </button>
+        <button onClick="{{ setExplorer }}" aria-label="Проводник" style="{{ explorerBtnStyle }}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1.5"></rect><rect x="13" y="4" width="8" height="7" rx="1.5"></rect><rect x="13" y="14" width="8" height="6" rx="1.5"></rect></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- VARIANT C: KANBAN BOARD -->
+    <sc-if value="{{ isKanban }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,1fr);gap:14px;overflow-x:auto;padding-bottom:10px;align-items:start;" data-board="">
+      <sc-for list="{{ boardColumns }}" as="col" hint-placeholder-count="4">
+        <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:18px;padding:11px;display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 6px 2px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:{{ col.color }};box-shadow:0 0 0 4px {{ col.bg }};flex-shrink:0;"></span>
+            <span style="font-weight:700;font-size:13.5px;color:var(--text);flex:1;">{{ col.label }}</span>
+            <span style="font-size:12px;font-weight:700;color:var(--text-3);background:var(--surface-3);border-radius:7px;padding:1px 8px;">{{ col.count }}</span>
+          </div>
+          <sc-for list="{{ col.items }}" as="vac" hint-placeholder-count="2">
+            <button onClick="{{ vac.onOpen }}" style="text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:11px;cursor:pointer;transition:transform .16s,box-shadow .16s,filter .16s;font-family:inherit;color:var(--text);" style-hover="{{ hoverCard }}">
+              <div style="display:flex;align-items:center;gap:9px;">
+                <div style="width:27px;height:27px;border-radius:8px;background:{{ vac.companyColor }};color:#fff;display:grid;place-items:center;font-weight:800;font-size:11.5px;flex-shrink:0;">{{ vac.companyInitial }}</div>
+                <span style="font-size:12.5px;color:var(--text-2);font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ vac.company }}</span>
+                <div style="position:relative;width:30px;height:30px;border-radius:50%;background:{{ vac.matchBg }};display:grid;place-items:center;flex-shrink:0;"><div style="position:absolute;inset:2.5px;border-radius:50%;background:var(--surface);"></div><span style="position:relative;font-size:10px;font-weight:800;">{{ vac.match }}</span></div>
+              </div>
+              <div style="font-weight:700;font-size:14px;letter-spacing:-0.01em;line-height:1.3;">{{ vac.title }}</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--border);">
+                <span style="font-size:12px;color:var(--text-2);font-weight:600;">{{ vac.salary }}</span>
+                <span style="font-size:11px;color:var(--text-3);white-space:nowrap;">{{ vac.loc }}</span>
+              </div>
+            </button>
+          </sc-for>
+          <button onClick="{{ goGenerate }}" style="display:flex;align-items:center;justify-content:center;gap:6px;height:38px;border-radius:12px;background:none;border:1px dashed var(--border-2);color:var(--text-3);font-family:inherit;font-weight:600;font-size:12.5px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Добавить</button>
+        </div>
+      </sc-for>
+    </div>
+    </sc-if>
+
+    <!-- VARIANT A: FEED -->
+    <sc-if value="{{ isFeed }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <sc-for list="{{ feedCompanies }}" as="co" hint-placeholder-count="3">
+        <section style="background:var(--surface);border:1px solid var(--border);border-radius:22px;padding:18px 18px 20px;">
+          <div style="display:flex;align-items:center;gap:13px;margin-bottom:16px;">
+            <div style="width:42px;height:42px;border-radius:12px;background:{{ co.color }};color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:16px;flex-shrink:0;">{{ co.initial }}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-family:'Manrope';font-weight:700;font-size:16.5px;letter-spacing:-0.01em;">{{ co.name }}</div>
+              <div style="font-size:12.5px;color:var(--text-2);margin-top:2px;">{{ co.meta }}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);padding:6px 11px;border-radius:10px;">
+              <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);"></span>ATS {{ co.avgMatch }}%
+            </div>
+            <button onClick="{{ co.onAdd }}" style="display:flex;align-items:center;gap:6px;height:36px;padding:0 13px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px;" data-veccards="">
+            <sc-for list="{{ co.vacancies }}" as="vac" hint-placeholder-count="2">
+              <button onClick="{{ vac.onOpen }}" style="text-align:left;background:var(--surface-2);border:1px solid var(--border);border-radius:16px;padding:15px 15px 13px;display:flex;flex-direction:column;gap:13px;cursor:pointer;transition:transform .18s,box-shadow .18s,filter .18s;font-family:inherit;color:var(--text);" style-hover="{{ hoverCard }}">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">
+                  <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;font-size:11.5px;font-weight:700;color:{{ vac.statusColor }};background:{{ vac.statusBg }};"><span style="width:6px;height:6px;border-radius:50%;background:{{ vac.statusColor }};"></span>{{ vac.statusLabel }}</span>
+                  <div style="position:relative;width:42px;height:42px;border-radius:50%;background:{{ vac.matchBg }};display:grid;place-items:center;flex-shrink:0;">
+                    <div style="position:absolute;inset:3px;border-radius:50%;background:var(--surface-2);"></div>
+                    <span style="position:relative;font-family:'Manrope';font-size:12px;font-weight:800;color:var(--text);">{{ vac.match }}</span>
+                  </div>
+                </div>
+                <div style="font-family:'Manrope';font-weight:700;font-size:15px;letter-spacing:-0.01em;line-height:1.3;">{{ vac.title }}</div>
+                <div style="font-size:12.5px;color:var(--text-2);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                  <span>{{ vac.salary }}</span><span style="color:var(--text-3);">·</span><span>{{ vac.loc }}</span>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;padding-top:11px;border-top:1px solid var(--border);">
+                  <span style="font-size:11.5px;color:var(--text-3);">{{ vac.updated }}</span>
+                  <span style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--accent);">Открыть<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+                </div>
+              </button>
+            </sc-for>
+          </div>
+        </section>
+      </sc-for>
+    </div>
+    </sc-if>
+
+    <!-- VARIANT B: EXPLORER -->
+    <sc-if value="{{ isExplorer }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start;" data-explorer="">
+      <div data-exploreraside="" style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:10px;position:sticky;top:112px;">
+        <div style="padding:10px 12px 12px;font-size:11.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-3);">Компании · {{ explorerList.length }}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <sc-for list="{{ explorerList }}" as="co" hint-placeholder-count="5">
+            <button onClick="{{ co.onSelect }}" style="{{ co.rowStyle }}">
+              <div style="width:34px;height:34px;border-radius:10px;background:{{ co.color }};color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:13px;flex-shrink:0;">{{ co.initial }}</div>
+              <div style="flex:1;min-width:0;text-align:left;">
+                <div style="font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ co.name }}</div>
+                <div style="font-size:11.5px;color:var(--text-2);">{{ co.count }} · ATS {{ co.avgMatch }}%</div>
+              </div>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="opacity:.5;"><path d="M9 6l6 6-6 6"></path></svg>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:22px;overflow:hidden;">
+        <div style="display:flex;align-items:center;gap:14px;padding:20px 22px;border-bottom:1px solid var(--border);background:var(--surface-2);">
+          <div style="width:50px;height:50px;border-radius:14px;background:{{ activeCompany.color }};color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:19px;flex-shrink:0;">{{ activeCompany.initial }}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-family:'Manrope';font-weight:800;font-size:20px;letter-spacing:-0.02em;">{{ activeCompany.name }}</div>
+            <div style="font-size:13px;color:var(--text-2);margin-top:2px;">{{ activeCompany.site }} · {{ activeCompany.meta }}</div>
+          </div>
+          <button onClick="{{ activeCompany.onAdd }}" style="display:flex;align-items:center;gap:7px;height:40px;padding:0 16px;border-radius:11px;background:var(--accent);color:var(--accent-ink);border:none;font-family:'Manrope';font-weight:700;font-size:13.5px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverPrimary }}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме под вакансию
+          </button>
+        </div>
+        <div style="padding:8px;">
+          <sc-for list="{{ activeCompany.vacancies }}" as="vac" hint-placeholder-count="3">
+            <button onClick="{{ vac.onOpen }}" style="width:100%;text-align:left;display:flex;align-items:center;gap:16px;padding:15px 16px;border-radius:15px;background:none;border:1px solid transparent;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;font-family:inherit;color:var(--text);" style-hover="{{ hoverRow }}">
+              <div style="position:relative;width:46px;height:46px;border-radius:50%;background:{{ vac.matchBg }};display:grid;place-items:center;flex-shrink:0;">
+                <div style="position:absolute;inset:3px;border-radius:50%;background:var(--surface);"></div>
+                <span style="position:relative;font-family:'Manrope';font-size:13px;font-weight:800;">{{ vac.match }}</span>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-family:'Manrope';font-weight:700;font-size:15.5px;letter-spacing:-0.01em;">{{ vac.title }}</div>
+                <div style="font-size:12.5px;color:var(--text-2);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;"><span>{{ vac.salary }}</span><span style="color:var(--text-3);">·</span><span>{{ vac.loc }}</span><span style="color:var(--text-3);">·</span><span>{{ vac.updated }}</span></div>
+              </div>
+              <span style="display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:9px;font-size:12px;font-weight:700;color:{{ vac.statusColor }};background:{{ vac.statusBg }};flex-shrink:0;"><span style="width:6px;height:6px;border-radius:50%;background:{{ vac.statusColor }};"></span>{{ vac.statusLabel }}</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.2" stroke-linecap="round" style="flex-shrink:0;"><path d="M9 6l6 6-6 6"></path></svg>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ isGenerate }}" hint-placeholder-val="{{ true }}">
+  <main data-main="" style="max-width:1080px;margin:0 auto;padding:26px 24px 90px;">
+    <div style="margin-bottom:18px;">
+      <div style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:999px;background:var(--accent-tint);color:var(--accent);font-size:12px;font-weight:700;margin-bottom:11px;"><span>✨</span>AI собирает резюме под конкретную вакансию</div>
+      <h1 style="font-family:'Manrope';font-size:27px;font-weight:800;letter-spacing:-0.03em;margin:0;line-height:1.1;">Новое резюме под вакансию</h1>
+      <p style="color:var(--text-2);font-size:13.5px;margin:7px 0 0;max-width:560px;">Дайте вакансию и выберите профиль — AI подчеркнёт нужный опыт, добавит ключевые слова и соберёт резюме под требования работодателя.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 348px;gap:18px;align-items:start;" data-gengrid="">
+      <!-- LEFT: steps -->
+      <div style="display:flex;flex-direction:column;gap:12px;">
+
+        <!-- step 1 -->
+        <section style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:11px;margin-bottom:16px;">
+            <div style="width:28px;height:28px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:13px;">1</div>
+            <div style="font-family:'Manrope';font-weight:700;font-size:16px;">Вакансия</div>
+          </div>
+          <div style="display:flex;gap:5px;padding:5px;background:var(--surface-2);border:1px solid var(--border);border-radius:13px;margin-bottom:14px;">
+            <sc-for list="{{ gen.tabs }}" as="t" hint-placeholder-count="3">
+              <button onClick="{{ t.onClick }}" style="{{ t.style }}">{{ t.label }}</button>
+            </sc-for>
+          </div>
+          <sc-if value="{{ gen.isLink }}" hint-placeholder-val="{{ true }}">
+            <div style="position:relative;">
+              <svg style="position:absolute;left:15px;top:18px;" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"></path><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"></path></svg>
+              <input value="{{ gen.value }}" onInput="{{ gen.onValue }}" placeholder="hh.ru/vacancy/...  или  career.avito.com/..." style="width:100%;height:52px;padding:0 16px 0 42px;background:var(--surface-2);border:1px solid var(--border);border-radius:13px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:transform .15s,box-shadow .15s,filter .15s;" style-focus="{{ focusInput }}">
+            </div>
+          </sc-if>
+          <sc-if value="{{ gen.isText }}" hint-placeholder-val="{{ true }}">
+            <textarea placeholder="Вставьте описание вакансии целиком — требования, обязанности, стек…" style="width:100%;min-height:120px;padding:14px 16px;background:var(--surface-2);border:1px solid var(--border);border-radius:13px;color:var(--text);font-family:inherit;font-size:14px;line-height:1.55;outline:none;resize:vertical;transition:transform .15s,box-shadow .15s,filter .15s;" style-focus="{{ focusInput }}"></textarea>
+          </sc-if>
+          <sc-if value="{{ gen.isFile }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px;border:1.5px dashed var(--border-2);border-radius:14px;background:var(--surface-2);text-align:center;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}">
+              <div style="width:42px;height:42px;border-radius:12px;background:var(--accent-tint);color:var(--accent);display:grid;place-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M5 20h14"></path></svg></div>
+              <div style="font-weight:600;font-size:14px;color:var(--text);">Перетащите PDF/скрин вакансии</div>
+              <div style="font-size:12.5px;color:var(--text-3);">или нажмите, чтобы выбрать файл</div>
+            </div>
+          </sc-if>
+
+          <!-- AI insight -->
+          <div style="margin-top:16px;padding:16px;border-radius:15px;background:linear-gradient(160deg,var(--accent-tint),transparent 70%);border:1px solid var(--accent-line);">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--accent);margin-bottom:13px;"><span style="display:grid;place-items:center;width:20px;height:20px;border-radius:6px;background:var(--accent);color:var(--accent-ink);">✦</span>AI разобрал вакансию</div>
+            <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:14px;">
+              <div><div style="font-size:11px;color:var(--text-3);margin-bottom:3px;">Компания</div><div style="font-weight:700;font-size:14px;">Авито</div></div>
+              <div><div style="font-size:11px;color:var(--text-3);margin-bottom:3px;">Роль</div><div style="font-weight:700;font-size:14px;">Frontend-разработчик</div></div>
+              <div><div style="font-size:11px;color:var(--text-3);margin-bottom:3px;">Уровень</div><div style="font-weight:700;font-size:14px;">Senior</div></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:8px;">Ключевые требования</div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;">
+              <sc-for list="{{ gen.keywords }}" as="k" hint-placeholder-count="6">
+                <span style="padding:5px 11px;border-radius:8px;background:var(--surface);border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-2);">{{ k }}</span>
+              </sc-for>
+            </div>
+          </div>
+        </section>
+
+        <!-- step 2 -->
+        <section style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:11px;margin-bottom:16px;">
+            <div style="width:28px;height:28px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:13px;">2</div>
+            <div style="font-family:'Manrope';font-weight:700;font-size:16px;white-space:nowrap;">На основе чего</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;" data-profiles="">
+            <sc-for list="{{ gen.profiles }}" as="p" hint-placeholder-count="3">
+              <button onClick="{{ p.onClick }}" style="{{ p.style }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                  <div style="width:38px;height:38px;border-radius:11px;background:var(--surface-3);display:grid;place-items:center;font-size:18px;">{{ p.icon }}</div>
+                  <sc-if value="{{ p.active }}" hint-placeholder-val="{{ false }}">
+                    <div style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></div>
+                  </sc-if>
+                </div>
+                <div style="font-family:'Manrope';font-weight:700;font-size:14px;margin-top:12px;">{{ p.title }}</div>
+                <div style="font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.4;">{{ p.desc }}</div>
+              </button>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- step 3 -->
+        <section style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:11px;margin-bottom:6px;">
+            <div style="width:28px;height:28px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:13px;">3</div>
+            <div style="font-family:'Manrope';font-weight:700;font-size:16px;">Акценты <span style="color:var(--text-3);font-weight:500;font-size:13px;">— необязательно</span></div>
+          </div>
+          <p style="color:var(--text-2);font-size:13px;margin:0 0 14px 39px;">Подскажите AI, на чём сделать упор</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+            <sc-for list="{{ gen.emphasis }}" as="e" hint-placeholder-count="5">
+              <button onClick="{{ e.onClick }}" style="{{ e.style }}"><sc-if value="{{ e.active }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></sc-if>{{ e.label }}</button>
+            </sc-for>
+          </div>
+          <textarea placeholder="Например: упор на управление командой, упомянуть запуск маркетплейса, тон — деловой…" style="width:100%;min-height:80px;padding:13px 15px;background:var(--surface-2);border:1px solid var(--border);border-radius:13px;color:var(--text);font-family:inherit;font-size:14px;line-height:1.55;outline:none;resize:vertical;transition:transform .15s,box-shadow .15s,filter .15s;" style-focus="{{ focusInput }}"></textarea>
+        </section>
+      </div>
+
+      <!-- RIGHT: summary -->
+      <div data-gensummary="" style="position:sticky;top:112px;background:var(--surface);border:1px solid var(--border);border-radius:20px;overflow:hidden;">
+        <div style="padding:20px;border-bottom:1px solid var(--border);">
+          <div style="font-size:11.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-3);margin-bottom:14px;">Что получится</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+            <div style="width:42px;height:42px;border-radius:12px;background:#7c3aed;color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:16px;flex-shrink:0;">А</div>
+            <div style="min-width:0;"><div style="font-family:'Manrope';font-weight:700;font-size:15px;">Frontend-разработчик</div><div style="font-size:12.5px;color:var(--text-2);">Авито · Удалённо</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;padding:14px;border-radius:14px;background:var(--surface-2);">
+            <div style="position:relative;width:64px;height:64px;border-radius:50%;background:{{ gen.estBg }};display:grid;place-items:center;flex-shrink:0;">
+              <div style="position:absolute;inset:4px;border-radius:50%;background:var(--surface-2);"></div>
+              <div style="position:relative;text-align:center;"><div style="font-family:'Manrope';font-weight:800;font-size:18px;line-height:1;">{{ gen.estMatch }}%</div></div>
+            </div>
+            <div><div style="font-weight:700;font-size:13.5px;color:var(--accent);">Прогноз ATS-совпадения</div><div style="font-size:12px;color:var(--text-2);margin-top:2px;">Высокий шанс пройти отбор</div></div>
+          </div>
+        </div>
+        <div style="padding:18px 20px;">
+          <div style="font-size:11.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-3);margin-bottom:12px;">Совпадение по навыкам</div>
+          <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:18px;">
+            <sc-for list="{{ gen.matched }}" as="m" hint-placeholder-count="6">
+              <div style="display:flex;align-items:center;gap:9px;font-size:13px;">
+                <sc-if value="{{ m.ok }}" hint-placeholder-val="{{ true }}"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-tint);color:var(--accent);display:grid;place-items:center;flex-shrink:0;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span></sc-if>
+                <sc-if value="{{ m.miss }}" hint-placeholder-val="{{ false }}"><span style="width:18px;height:18px;border-radius:50%;background:var(--surface-3);color:var(--text-3);display:grid;place-items:center;flex-shrink:0;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"></path></svg></span></sc-if>
+                <span style="color:{{ m.color }};font-weight:600;">{{ m.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <button onClick="{{ gen.onGenerate }}" style="width:100%;height:50px;border-radius:14px;background:var(--accent);color:var(--accent-ink);border:none;font-family:'Manrope';font-weight:800;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;transition:transform .15s,box-shadow .15s,filter .15s;box-shadow:0 8px 22px var(--accent-tint);" style-hover="{{ hoverPrimary }}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3l1.9 5.8H20l-5 3.6 1.9 5.8L12 14.6 7.1 18.2 9 12.4 4 8.8h6.1z"></path></svg>
+            Собрать резюме
+          </button>
+          <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:11px;font-size:12px;color:var(--text-3);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Готово примерно за 30 секунд · 1 генерация</div>
+        </div>
+      </div>
+    </div>
+  </main>
+  </sc-if>
+
+  <sc-if value="{{ isEditor }}" hint-placeholder-val="{{ true }}">
+  <div data-main="" style="max-width:1320px;margin:0 auto;padding:18px 24px 80px;">
+    <!-- subheader -->
+    <div data-edsubhead="" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px;">
+<div style="display:flex;align-items:center;gap:11px;min-width:0;">
+        <div style="width:38px;height:38px;border-radius:11px;background:{{ ed.target.color }};color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:15px;flex-shrink:0;">{{ ed.target.initial }}</div>
+        <div style="min-width:0;">
+          <div data-edtitle="" style="font-family:'Manrope';font-weight:700;font-size:16px;letter-spacing:-0.01em;white-space:nowrap;">{{ ed.target.title }}</div>
+          <div style="font-size:12.5px;color:var(--text-2);">{{ ed.target.company }} · {{ ed.target.loc }}</div>
+        </div>
+      </div>
+      <div data-edspacer="" style="flex:1;"></div>
+      <div style="display:flex;align-items:center;gap:7px;padding:6px 12px 6px 8px;border-radius:11px;background:var(--accent-tint);border:1px solid var(--accent-line);">
+        <div style="position:relative;width:30px;height:30px;border-radius:50%;background:{{ ed.matchBg }};display:grid;place-items:center;flex-shrink:0;"><div style="position:absolute;inset:2.5px;border-radius:50%;background:var(--bg);"></div><span style="position:relative;font-family:'Manrope';font-size:10px;font-weight:800;">{{ ed.target.match }}</span></div>
+        <span style="font-size:12.5px;font-weight:700;color:var(--accent);">ATS-совпадение</span>
+      </div>
+      <div style="position:relative;">
+        <button onClick="{{ ed.toggleStatus }}" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 13px;background:var(--surface);border:1px solid var(--border);border-radius:11px;color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ ed.curColor }};"></span>{{ ed.curLabel }}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <sc-if value="{{ ed.statusOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:46px;right:0;z-index:30;width:200px;padding:6px;background:var(--surface);border:1px solid var(--border-2);border-radius:13px;box-shadow:var(--shadow-lg);">
+            <div style="font-size:10.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-3);padding:7px 12px 5px;">Статус отклика</div>
+            <sc-for list="{{ ed.statuses }}" as="st" hint-placeholder-count="4">
+              <button onClick="{{ st.onClick }}" style="{{ st.rowStyle }}"><span style="width:8px;height:8px;border-radius:50%;background:{{ st.color }};"></span>{{ st.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+      <button style="width:40px;height:40px;border-radius:11px;background:var(--surface);border:1px solid var(--border);color:var(--text-2);cursor:pointer;display:grid;place-items:center;transition:transform .15s,box-shadow .15s,filter .15s;" style-hover="{{ hoverSoft }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="M8.2 10.8l7.6-4.6M8.2 13.2l7.6 4.6"></path></svg></button>
+      <button data-edpdf="" style="display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 17px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:11px;font-family:'Manrope';font-weight:700;font-size:13.5px;white-space:nowrap;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;box-shadow:0 6px 18px var(--accent-tint);" style-hover="{{ hoverPrimary }}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 3v12M7 11l5 4 5-4"></path><path d="M5 20h14"></path></svg>Скачать PDF
+      </button>
+    </div>
+
+    <!-- body -->
+    <div style="display:grid;grid-template-columns:352px 1fr;gap:20px;align-items:start;" data-editgrid="">
+
+      <!-- LEFT controls -->
+      <div data-edleft="" style="position:sticky;top:112px;display:flex;flex-direction:column;gap:14px;">
+
+        <div style="border-radius:18px;padding:18px;background:linear-gradient(165deg,var(--accent-tint),transparent 75%);border:1px solid var(--accent-line);">
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:13px;">
+            <div style="width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;">✦</div>
+            <div><div style="font-family:'Manrope';font-weight:700;font-size:14.5px;color:var(--text);">AI адаптировал резюме</div><div style="font-size:12px;color:var(--accent);font-weight:600;">под вакансию «{{ ed.target.title }}»</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
+            <div style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--text-2);"><span style="margin-top:1px;width:16px;height:16px;flex-shrink:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span>Заголовок перестроен под роль</div>
+            <div style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--text-2);"><span style="margin-top:1px;width:16px;height:16px;flex-shrink:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span>Добавлены ключевые слова: React, TypeScript, Next.js</div>
+            <div style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--text-2);"><span style="margin-top:1px;width:16px;height:16px;flex-shrink:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span>Релевантный опыт выдвинут наверх</div>
+            <div style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--text-2);"><span style="margin-top:1px;width:16px;height:16px;flex-shrink:0;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span>Усилены метрики результата</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button style="flex:1;height:38px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:inherit;font-weight:600;font-size:12.5px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="{{ hoverSoft }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.3 2.6L3 8"></path><path d="M3 3v5h5"></path></svg>Перегенерировать</button>
+            <button style="flex:1;height:38px;border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:inherit;font-weight:600;font-size:12.5px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="{{ hoverSoft }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4l3 2"></path></svg>Версии</button>
+          </div>
+        </div>
+
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:8px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-3);padding:10px 12px 8px;">Разделы резюме</div>
+          <sc-for list="{{ edSections }}" as="sec" hint-placeholder-count="5">
+            <button style="display:flex;align-items:center;gap:11px;width:100%;padding:11px 12px;border-radius:12px;background:none;border:none;cursor:pointer;font-family:inherit;color:var(--text);transition:transform .12s,box-shadow .12s,filter .12s;" style-hover="{{ hoverRow }}">
+              <span style="display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--surface-2);font-size:15px;flex-shrink:0;">{{ sec.icon }}</span>
+              <span style="flex:1;text-align:left;font-weight:600;font-size:13.5px;">{{ sec.name }}</span>
+              <span style="font-size:12px;color:var(--text-3);">{{ sec.meta }}</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"></path></svg>
+            </button>
+          </sc-for>
+        </div>
+
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px;">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-3);margin-bottom:12px;">Стиль</div>
+          <div style="font-size:12.5px;color:var(--text-2);margin-bottom:7px;font-weight:600;">Тон</div>
+          <div style="display:flex;gap:5px;padding:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:11px;margin-bottom:14px;">
+            <span style="flex:1;text-align:center;padding:8px;border-radius:8px;background:var(--surface);box-shadow:var(--shadow);font-size:12.5px;font-weight:600;color:var(--text);">Деловой</span>
+            <span style="flex:1;text-align:center;padding:8px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-2);">Тёплый</span>
+            <span style="flex:1;text-align:center;padding:8px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-2);">Краткий</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-2);margin-bottom:7px;font-weight:600;">Объём</div>
+          <div style="display:flex;gap:5px;padding:4px;background:var(--surface-2);border:1px solid var(--border);border-radius:11px;">
+            <span style="flex:1;text-align:center;padding:8px;border-radius:8px;background:var(--surface);box-shadow:var(--shadow);font-size:12.5px;font-weight:600;color:var(--text);">1 страница</span>
+            <span style="flex:1;text-align:center;padding:8px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--text-2);">2 страницы</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: resume page -->
+      <div data-resumemat="" style="background:var(--bg-2);border:1px solid var(--border);border-radius:20px;padding:26px;display:flex;justify-content:center;">
+        <div data-resume="" style="width:100%;max-width:730px;background:#ffffff;color:#1b2420;border-radius:7px;box-shadow:var(--shadow-lg);overflow:hidden;display:grid;grid-template-columns:236px 1fr;font-size:12.5px;line-height:1.55;">
+          <!-- resume sidebar -->
+          <div data-rsidebar="" style="background:#f2f6f3;padding:30px 22px;border-right:1px solid #e4ebe7;">
+            <div style="width:84px;height:84px;border-radius:50%;background:linear-gradient(140deg,#34d399,#0ea372);color:#fff;display:grid;place-items:center;font-family:'Manrope';font-weight:800;font-size:30px;margin-bottom:18px;">АИ</div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:10px;">Контакты</div>
+            <div style="display:flex;flex-direction:column;gap:7px;color:#3a443f;margin-bottom:22px;">
+              <div>alexey.ivanov<span>@</span>mail.ru</div>
+              <div>+7 999 123-45-67</div>
+              <div>Москва, Россия</div>
+              <div>t.me/aivanov_dev</div>
+              <div>github.com/aivanov</div>
+            </div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:11px;">Навыки</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:22px;">
+              <span style="padding:4px 9px;border-radius:6px;background:#e3efe9;color:#0c7a55;font-weight:600;font-size:11px;">React</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#e3efe9;color:#0c7a55;font-weight:600;font-size:11px;">TypeScript</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#e3efe9;color:#0c7a55;font-weight:600;font-size:11px;">Next.js</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">Redux</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">Node.js</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">Vite</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">Jest</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">CI/CD</span>
+              <span style="padding:4px 9px;border-radius:6px;background:#eef1ef;color:#48524d;font-weight:600;font-size:11px;">A/B-тесты</span>
+            </div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:11px;">Языки</div>
+            <div style="display:flex;flex-direction:column;gap:5px;color:#3a443f;margin-bottom:22px;">
+              <div style="display:flex;justify-content:space-between;"><span>Русский</span><span style="color:#8a948e;">Родной</span></div>
+              <div style="display:flex;justify-content:space-between;"><span>English</span><span style="color:#8a948e;">B2</span></div>
+            </div>
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:11px;">Образование</div>
+            <div style="color:#3a443f;"><div style="font-weight:700;color:#1b2420;">МГТУ им. Баумана</div><div>Прикладная математика</div><div style="color:#8a948e;">2015 — 2019</div></div>
+          </div>
+
+          <!-- resume main -->
+          <div data-rsmain="" style="padding:32px 30px;">
+            <h2 style="font-family:'Manrope';font-size:27px;font-weight:800;letter-spacing:-0.02em;margin:0;color:#15201b;">Алексей Иванов</h2>
+            <div style="font-size:14px;font-weight:600;color:#0ea372;margin:4px 0 20px;">Frontend-разработчик · Senior</div>
+
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:9px;">О себе</div>
+            <p style="margin:0 0 22px;color:#3a443f;">Frontend-разработчик с 6 годами опыта на <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">React</mark> и <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">TypeScript</mark>. Запускал высоконагруженные маркетплейс-интерфейсы, <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">руководил командой из 5 инженеров</mark> и ускорял загрузку продуктов на десятки процентов через грамотную архитектуру и перформанс-оптимизацию.</p>
+
+            <div style="font-size:10px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:#0ea372;margin-bottom:13px;">Опыт работы</div>
+
+            <div style="margin-bottom:18px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+                <div style="font-family:'Manrope';font-weight:700;font-size:14px;color:#15201b;">Senior Frontend Developer</div>
+                <div style="font-size:11px;color:#8a948e;white-space:nowrap;">2021 — наст. время</div>
+              </div>
+              <div style="font-size:12px;font-weight:600;color:#0ea372;margin-bottom:7px;">Озон · Москва</div>
+              <ul style="margin:0;padding-left:16px;color:#3a443f;display:flex;flex-direction:column;gap:4px;">
+                <li>Вёл фронтенд маркетплейса с аудиторией <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">12M+ пользователей</mark> в месяц на React и Next.js.</li>
+                <li>Ускорил загрузку каталога на <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">38%</mark> за счёт code-splitting и SSR.</li>
+                <li>Руководил командой из 5 инженеров, внедрил процессы код-ревью и дизайн-систему.</li>
+              </ul>
+            </div>
+
+            <div style="margin-bottom:18px;">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+                <div style="font-family:'Manrope';font-weight:700;font-size:14px;color:#15201b;">Frontend Developer</div>
+                <div style="font-size:11px;color:#8a948e;white-space:nowrap;">2019 — 2021</div>
+              </div>
+              <div style="font-size:12px;font-weight:600;color:#0ea372;margin-bottom:7px;">Т-Банк · Москва</div>
+              <ul style="margin:0;padding-left:16px;color:#3a443f;display:flex;flex-direction:column;gap:4px;">
+                <li>Разрабатывал интерфейсы интернет-банка на <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">React</mark> и Redux.</li>
+                <li>Запустил <mark style="background:rgba(16,185,129,0.18);color:#0c7a55;padding:0 3px;border-radius:3px;">A/B-тесты</mark>, повысившие конверсию ключевого флоу на 14%.</li>
+                <li>Покрыл критичную логику тестами, снизив число регрессий на 30%.</li>
+              </ul>
+            </div>
+
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+                <div style="font-family:'Manrope';font-weight:700;font-size:14px;color:#15201b;">Junior Frontend Developer</div>
+                <div style="font-size:11px;color:#8a948e;white-space:nowrap;">2018 — 2019</div>
+              </div>
+              <div style="font-size:12px;font-weight:600;color:#0ea372;margin-bottom:7px;">Студия Red Collar · Воронеж</div>
+              <ul style="margin:0;padding-left:16px;color:#3a443f;display:flex;flex-direction:column;gap:4px;">
+                <li>Вёрстка и интерактив промо-сайтов, получивших награды Awwwards.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <footer style="border-top:1px solid var(--border);background:linear-gradient(180deg,transparent,var(--surface));margin-top:32px;">
+    <div style="max-width:1240px;margin:0 auto;padding:30px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:28px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:11px;">
+        <div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(140deg,var(--accent-2),var(--accent));display:grid;place-items:center;box-shadow:0 4px 14px var(--accent-tint);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent-ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+        </div>
+        <div>
+          <div style="font-weight:800;font-size:15px;letter-spacing:-0.02em;color:var(--text);">Резюмирую</div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:1px;">AI-резюме под каждую вакансию</div>
+        </div>
+      </div>
+      <nav style="display:flex;flex-wrap:wrap;gap:8px 26px;">
+        <a href="#" style="font-size:13.5px;font-weight:600;color:var(--text-2);text-decoration:none;transition:color .15s;" style-hover="{{ hoverBtn }}">Тарифы</a>
+        <a href="#" style="font-size:13.5px;font-weight:600;color:var(--text-2);text-decoration:none;transition:color .15s;" style-hover="{{ hoverBtn }}">Публичная оферта</a>
+        <a href="#" style="font-size:13.5px;font-weight:600;color:var(--text-2);text-decoration:none;transition:color .15s;" style-hover="{{ hoverBtn }}">Политика конфиденциальности</a>
+        <a href="#" style="font-size:13.5px;font-weight:600;color:var(--text-2);text-decoration:none;transition:color .15s;" style-hover="{{ hoverBtn }}">Контакты</a>
+      </nav>
+    </div>
+    <div style="border-top:1px solid var(--border);">
+      <div style="max-width:1240px;margin:0 auto;padding:16px 24px;font-size:12.5px;color:var(--text-3);">© 2025 Резюмирую.рф</div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  rootRef = React.createRef();
+  state = {
+    screen: 'library', theme: 'dark', libView: 'feed',
+    filter: 'all', query: '', selectedCompany: 0,
+    target: null, editStatus: 'sent', editTab: 'content',
+    gen: { tab: 'link', value: '', profile: 'base', emphasis: ['lead'] }
+  };
+
+  themes = {
+    dark: {
+      '--bg':'#0a0d0c','--bg-2':'#0c100e','--surface':'#141917','--surface-2':'#1a201d','--surface-3':'#232a26',
+      '--border':'rgba(255,255,255,0.08)','--border-2':'rgba(255,255,255,0.15)',
+      '--text':'#f1f4f3','--text-2':'#99a59f','--text-3':'#69736e',
+      '--accent':'#10b981','--accent-2':'#34d399','--accent-ink':'#04130d',
+      '--accent-tint':'rgba(16,185,129,0.14)','--accent-line':'rgba(16,185,129,0.32)',
+      '--ring-track':'#262e2a','--header':'rgba(10,13,12,0.78)',
+      '--shadow':'0 1px 2px rgba(0,0,0,0.4)','--shadow-lg':'0 30px 60px -20px rgba(0,0,0,0.6)',
+      '--page':'#fbfbf8','--page-ink':'#1b201d','--page-2':'#5d6661','--page-line':'rgba(0,0,0,0.09)'
+    },
+    light: {
+      '--bg':'#eef2ef','--bg-2':'#e7ece9','--surface':'#ffffff','--surface-2':'#f6f9f7','--surface-3':'#eaefeb',
+      '--border':'rgba(13,35,27,0.10)','--border-2':'rgba(13,35,27,0.17)',
+      '--text':'#0d1714','--text-2':'#586259','--text-3':'#889089',
+      '--accent':'#0ea372','--accent-2':'#10b981','--accent-ink':'#ffffff',
+      '--accent-tint':'rgba(16,185,129,0.13)','--accent-line':'rgba(16,185,129,0.40)',
+      '--ring-track':'#e3e9e5','--header':'rgba(255,255,255,0.82)',
+      '--shadow':'0 1px 2px rgba(16,40,30,0.06)','--shadow-lg':'0 30px 60px -24px rgba(16,40,30,0.22)',
+      '--page':'#ffffff','--page-ink':'#1b201d','--page-2':'#5d6661','--page-line':'rgba(0,0,0,0.09)'
+    }
+  };
+
+  ST = {
+    draft:     { label:'Черновик',      color:'#e0a416', bg:'rgba(224,164,22,0.15)' },
+    sent:      { label:'Отправлено',    color:'#10b981', bg:'rgba(16,185,129,0.15)' },
+    interview: { label:'Собеседование', color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
+    offer:     { label:'Оффер',         color:'#a855f7', bg:'rgba(168,85,247,0.15)' }
+  };
+
+  data = [
+    { id:'ya', name:'Яндекс', initial:'Я', color:'#ef4444', site:'yandex.ru', vacancies:[
+      { id:1, title:'Senior Frontend Developer', status:'interview', match:91, salary:'350–450k ₽', loc:'Москва · гибрид', updated:'обновлено 2 дня назад' },
+      { id:2, title:'Team Lead, Фронтенд', status:'sent', match:84, salary:'от 450k ₽', loc:'Москва', updated:'отправлено 5 дней назад' }
+    ]},
+    { id:'av', name:'Авито', initial:'А', color:'#7c3aed', site:'avito.tech', vacancies:[
+      { id:3, title:'Frontend-разработчик (React)', status:'sent', match:88, salary:'300–400k ₽', loc:'Удалённо', updated:'отправлено вчера' },
+      { id:4, title:'Старший инженер интерфейсов', status:'draft', match:79, salary:'по договорённости', loc:'СПб · офис', updated:'черновик · 3 дня назад' }
+    ]},
+    { id:'tb', name:'Т-Банк', initial:'Т', color:'#f4c20d', site:'tbank.ru', vacancies:[
+      { id:5, title:'Ведущий Frontend-инженер', status:'interview', match:86, salary:'380–500k ₽', loc:'Москва · гибрид', updated:'обновлено сегодня' }
+    ]},
+    { id:'oz', name:'Озон', initial:'О', color:'#2563eb', site:'ozon.tech', vacancies:[
+      { id:6, title:'Senior React Developer', status:'offer', match:90, salary:'400–520k ₽', loc:'Удалённо', updated:'оффер получен' },
+      { id:7, title:'Фронтенд-разработчик (Маркетплейс)', status:'sent', match:82, salary:'280–360k ₽', loc:'Москва', updated:'отправлено 4 дня назад' }
+    ]},
+    { id:'vk', name:'VK', initial:'VK', color:'#0ea5e9', site:'vk.company', vacancies:[
+      { id:8, title:'Фронтенд-разработчик', status:'draft', match:77, salary:'250–340k ₽', loc:'СПб · гибрид', updated:'черновик · неделю назад' }
+    ]}
+  ];
+
+  componentDidMount(){ this.applyTheme(this.state.theme); }
+  applyTheme(t){ if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', t); }
+
+  buildVac(co, v){
+    const m = this.ST[v.status];
+    return Object.assign({}, v, {
+      company: co.name, companyInitial: co.initial, companyColor: co.color, companySite: co.site,
+      statusLabel: m.label, statusColor: m.color, statusBg: m.bg,
+      matchBg: `conic-gradient(var(--accent) ${v.match*3.6}deg, var(--ring-track) 0)`,
+      onOpen: () => this.openEditor(co, v)
+    });
+  }
+  avg(co){ return Math.round(co.vacancies.reduce((a,x)=>a+x.match,0)/co.vacancies.length); }
+
+  openEditor(co, v){ this.setState({ screen:'editor', editStatus:v.status, editTab:'content',
+    target:{ company:co.name, initial:co.initial, color:co.color, site:co.site, title:v.title, match:v.match, salary:v.salary, loc:v.loc } });
+    window.scrollTo(0,0); }
+  goLibrary  = () => { this.setState({ screen:'library' }); window.scrollTo(0,0); };
+  goGenerate = () => { this.setState({ screen:'generate' }); window.scrollTo(0,0); };
+  goBack = () => { this.setState({ screen:'library' }); window.scrollTo(0,0); };
+  toggleTheme = () => { const t = this.state.theme==='dark'?'light':'dark'; this.applyTheme(t); this.setState({ theme:t }); };
+  onSearch = (e) => this.setState({ query: e.target.value });
+  setFilter = (f) => this.setState({ filter:f });
+  setFeed = () => this.setState({ libView:'feed' });
+  setExplorer = () => this.setState({ libView:'explorer' });
+  setBoard = () => this.setState({ libView:'board' });
+  selectCompany = (i) => this.setState({ selectedCompany:i });
+  setGenTab = (t) => this.setState(s => ({ gen:{...s.gen, tab:t} }));
+  setProfile = (p) => this.setState(s => ({ gen:{...s.gen, profile:p} }));
+  toggleEmphasis = (k) => this.setState(s => { const e=s.gen.emphasis; return { gen:{...s.gen, emphasis: e.includes(k)? e.filter(x=>x!==k): [...e,k]} }; });
+  doGenerate = () => { this.setState({ screen:'editor', editStatus:'draft', editTab:'content',
+    target:{ company:'Авито', initial:'А', color:'#7c3aed', site:'avito.tech', title:'Frontend-разработчик (React)', match:89, salary:'300–400k ₽', loc:'Удалённо' } });
+    window.scrollTo(0,0); };
+
+  segStyle(active){ return `flex:1;padding:10px 12px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-weight:600;font-size:13px;transition:transform .15s,box-shadow .15s,filter .15s;background:${active?'var(--surface)':'transparent'};color:${active?'var(--text)':'var(--text-2)'};box-shadow:${active?'var(--shadow)':'none'};`; }
+  emphStyle(active){ return `display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;font-family:inherit;border:1px solid ${active?'var(--accent-line)':'var(--border)'};background:${active?'var(--accent-tint)':'var(--surface-2)'};color:${active?'var(--accent)':'var(--text-2)'};`; }
+  profileStyle(active){ return `display:flex;flex-direction:column;align-items:stretch;padding:13px;border-radius:14px;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;text-align:left;width:100%;font-family:inherit;border:1.5px solid ${active?'var(--accent)':'var(--border)'};background:${active?'var(--accent-tint)':'var(--surface-2)'};color:var(--text);`; }
+
+  buildEditor(){
+    const t = this.state.target || { company:'Авито', initial:'А', color:'#7c3aed', site:'avito.tech', title:'Frontend-разработчик (React)', match:89, salary:'300–400k ₽', loc:'Удалённо' };
+    const st = this.state.editStatus, cur = this.ST[st];
+    const statuses = ['draft','sent','interview','offer'].map(k => { const m=this.ST[k]; return {
+      key:k, label:m.label, color:m.color,
+      rowStyle:`display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;border-radius:10px;border:none;background:${k===st?'var(--surface-2)':'transparent'};color:var(--text);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;text-align:left;transition:transform .12s,box-shadow .12s,filter .12s;`,
+      onClick:()=>this.setState({ editStatus:k, statusOpen:false }) }; });
+    return {
+      target:t, statusOpen: !!this.state.statusOpen,
+      toggleStatus: () => this.setState(s => ({ statusOpen:!s.statusOpen })),
+      curLabel:cur.label, curColor:cur.color, curBg:cur.bg,
+      matchBg:`conic-gradient(var(--accent) ${t.match*3.6}deg, var(--ring-track) 0)`,
+      statuses
+    };
+  }
+  buildGen(){
+    const g = this.state.gen;
+    const tabs = [['link','Ссылка'],['text','Текст вакансии'],['file','Файл']];
+    const emph = [['lead','Подчеркнуть лидерство'],['hide','Скрыть нерелевантное'],['ats','Ключевые слова ATS'],['metrics','Добавить метрики'],['onepage','Уместить в 1 страницу']];
+    const profiles = [
+      ['base','Базовый профиль','Алексей Иванов · Frontend · 6 лет опыта','👤'],
+      ['upload','Загрузить старое резюме','PDF или DOCX — AI извлечёт опыт','📄'],
+      ['hh','Импорт с hh.ru','Подтянуть данные из профиля','🔗']
+    ];
+    return {
+      value: g.value,
+      onValue: (e) => this.setState(s => ({ gen:{...s.gen, value:e.target.value} })),
+      tabs: tabs.map(([k,l]) => ({ key:k, label:l, style:this.segStyle(g.tab===k), onClick:()=>this.setGenTab(k) })),
+      isLink: g.tab==='link', isText: g.tab==='text', isFile: g.tab==='file',
+      emphasis: emph.map(([k,l]) => ({ key:k, label:l, active:g.emphasis.includes(k), style:this.emphStyle(g.emphasis.includes(k)), onClick:()=>this.toggleEmphasis(k) })),
+      profiles: profiles.map(([k,t,d,ic]) => ({ key:k, title:t, desc:d, icon:ic, active:g.profile===k, style:this.profileStyle(g.profile===k), onClick:()=>this.setProfile(k) })),
+      keywords: ['React','TypeScript','Next.js','Тимлид 5+','A/B-тесты','Performance','CI/CD'],
+      matched: [
+        { label:'React', ok:true, miss:false, color:'var(--text)' }, { label:'TypeScript', ok:true, miss:false, color:'var(--text)' }, { label:'Next.js', ok:true, miss:false, color:'var(--text)' },
+        { label:'Лидерство команды', ok:true, miss:false, color:'var(--text)' }, { label:'GraphQL', ok:false, miss:true, color:'var(--text-3)' }, { label:'Highload', ok:false, miss:true, color:'var(--text-3)' }
+      ],
+      estMatch: 89, estBg: `conic-gradient(var(--accent) ${89*3.6}deg, var(--ring-track) 0)`,
+      onGenerate: this.doGenerate
+    };
+  }
+
+  chipStyle(active){
+    return `display:inline-flex;align-items:center;gap:7px;padding:9px 13px;border-radius:11px;font-size:13px;font-weight:600;cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;font-family:inherit;border:1px solid ${active?'var(--accent-line)':'var(--border)'};background:${active?'var(--accent-tint)':'var(--surface)'};color:${active?'var(--accent)':'var(--text-2)'};`;
+  }
+  countStyle(active){
+    return `font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;background:${active?'var(--accent)':'var(--surface-3)'};color:${active?'var(--accent-ink)':'var(--text-3)'};`;
+  }
+  viewBtnStyle(active){
+    return `width:34px;height:34px;border-radius:9px;border:none;cursor:pointer;display:grid;place-items:center;transition:transform .15s,box-shadow .15s,filter .15s;background:${active?'var(--accent-tint)':'transparent'};color:${active?'var(--accent)':'var(--text-3)'};`;
+  }
+  rowStyle(active){
+    return `display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:13px;border:1px solid ${active?'var(--accent-line)':'transparent'};background:${active?'var(--accent-tint)':'transparent'};color:var(--text);cursor:pointer;transition:transform .15s,box-shadow .15s,filter .15s;font-family:inherit;width:100%;`;
+  }
+  navTab(active){
+    return `display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-weight:700;font-size:13.5px;white-space:nowrap;transition:transform .15s,box-shadow .15s,filter .15s,background .15s,color .15s;background:${active?'var(--surface)':'transparent'};color:${active?'var(--text)':'var(--text-2)'};box-shadow:${active?'var(--shadow)':'none'};`;
+  }
+  navCreate(active){
+    return `display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-weight:700;font-size:13.5px;white-space:nowrap;transition:transform .15s,box-shadow .15s,filter .15s,background .15s,color .15s;background:${active?'var(--accent)':'var(--accent-tint)'};color:${active?'var(--accent-ink)':'var(--accent)'};box-shadow:${active?'0 4px 14px var(--accent-tint)':'none'};`;
+  }
+  crumbStyle(current){
+    return current
+      ? `background:none;border:none;color:var(--text);font-family:inherit;font-weight:700;font-size:13.5px;cursor:default;padding:4px 3px;white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis;`
+      : `background:none;border:none;color:var(--text-2);font-family:inherit;font-weight:600;font-size:13.5px;cursor:pointer;padding:4px 3px;white-space:nowrap;transition:color .15s;`;
+  }
+  buildCrumbs(){
+    const s = this.state;
+    let arr;
+    if (s.screen==='generate'){
+      arr = [{label:'Мои резюме', onClick:this.goLibrary, current:false}, {label:'Новое резюме', onClick:null, current:true}];
+    } else if (s.screen==='editor'){
+      const t = s.target || {};
+      arr = [{label:'Мои резюме', onClick:this.goLibrary, current:false}, {label:(t.company||'Компания'), onClick:this.goLibrary, current:false}, {label:(t.title||'Редактор'), onClick:null, current:true}];
+    } else {
+      const v = s.libView==='board' ? 'Доска' : s.libView==='explorer' ? 'Проводник' : 'Лента';
+      arr = [{label:'Мои резюме', onClick:this.goLibrary, current:false}, {label:v, onClick:null, current:true}];
+    }
+    return arr.map((c,i) => Object.assign({}, c, { showSep:i>0, style:this.crumbStyle(c.current), hover: c.current ? {} : {color:'var(--text)'} }));
+  }
+
+  renderVals(){
+    const s = this.state;
+    const q = s.query.trim().toLowerCase();
+    const f = s.filter;
+    const matchVac = (v, co) => (f==='all' || v.status===f) &&
+      (!q || v.title.toLowerCase().includes(q) || co.name.toLowerCase().includes(q));
+
+    const companies = this.data.map((co, i) => {
+      const vacs = co.vacancies.filter(v => matchVac(v, co)).map(v => this.buildVac(co, v));
+      const avgMatch = this.avg(co);
+      return Object.assign({}, co, {
+        vacancies: vacs, count: co.vacancies.length + ' ' + this.plural(co.vacancies.length),
+        avgMatch, meta: co.vacancies.length + ' ' + this.plural(co.vacancies.length) + ' · средний ATS ' + avgMatch + '%',
+        onAdd: this.goGenerate, onSelect: () => this.selectCompany(i)
+      });
+    });
+
+    const feedCompanies = companies.filter(c => c.vacancies.length > 0);
+    const explorerList = companies.map((c,i) => Object.assign({}, c, {
+      rowStyle: this.rowStyle(i===s.selectedCompany)
+    }));
+    const idx = Math.min(s.selectedCompany, companies.length-1);
+    const activeCompany = companies[idx];
+
+    const all = this.data.flatMap(c => c.vacancies);
+    const interviews = all.filter(v=>v.status==='interview').length;
+    const offers = all.filter(v=>v.status==='offer').length;
+    const avgATS = Math.round(all.reduce((a,x)=>a+x.match,0)/all.length);
+
+    const filters = [
+      ['all','Все'], ['draft','Черновики'], ['sent','Отправлено'], ['interview','Собес'], ['offer','Офферы']
+    ];
+    const boardStatuses = ['draft','sent','interview','offer'];
+    const boardColumns = boardStatuses.map(k => {
+      const m = this.ST[k];
+      const items = [];
+      this.data.forEach(co => co.vacancies.forEach(v => {
+        if (v.status===k && (!q || v.title.toLowerCase().includes(q) || co.name.toLowerCase().includes(q)))
+          items.push(this.buildVac(co, v));
+      }));
+      return { key:k, label:m.label, color:m.color, bg:m.bg, count:items.length, items };
+    });
+
+    const filterChips = filters.map(([key,label]) => {
+      const cnt = key==='all' ? all.length : all.filter(v=>v.status===key).length;
+      const active = f===key;
+      return { key, label, count: cnt, active,
+        style: this.chipStyle(active), countStyle: this.countStyle(active),
+        onClick: () => this.setFilter(key) };
+    });
+
+    return {
+      rootRef: this.rootRef,
+      isLibrary: s.screen==='library', isGenerate: s.screen==='generate', isEditor: s.screen==='editor',
+      isFeed: s.libView==='feed', isExplorer: s.libView==='explorer', isKanban: s.libView==='board',
+      showChips: s.libView!=='board', boardColumns,
+      boardBtnStyle: this.viewBtnStyle(s.libView==='board'),
+      themeIcon: s.theme==='dark' ? '🌙' : '☀️',
+      goLibrary: this.goLibrary, goGenerate: this.goGenerate, toggleTheme: this.toggleTheme,
+      navLibStyle: this.navTab(s.screen==='library'||s.screen==='editor'),
+      navGenStyle: this.navCreate(s.screen==='generate'),
+      canBack: s.screen!=='library', goBack: this.goBack, crumbs: this.buildCrumbs(),
+      query: s.query, onSearch: this.onSearch,
+      filterChips, feedCompanies, explorerList, activeCompany,
+      gen: this.buildGen(),
+      ed: this.buildEditor(),
+      edSections: [
+        { icon:'📇', name:'Контакты', meta:'5 полей' },
+        { icon:'✍️', name:'О себе', meta:'адаптировано' },
+        { icon:'💼', name:'Опыт работы', meta:'3 места' },
+        { icon:'🛠️', name:'Навыки', meta:'9' },
+        { icon:'🎓', name:'Образование', meta:'1' }
+      ],
+      target: s.target,
+      setFeed: this.setFeed, setExplorer: this.setExplorer, setBoard: this.setBoard,
+      feedBtnStyle: this.viewBtnStyle(s.libView==='feed'),
+      explorerBtnStyle: this.viewBtnStyle(s.libView==='explorer'),
+      statCards: [
+        { icon:'📨', label:'Активные отклики', value: all.filter(v=>v.status!=='draft').length, delta:'+3' },
+        { icon:'🎯', label:'Собеседования', value: interviews, delta:'эта неделя' },
+        { icon:'⚡', label:'Средний ATS', value: avgATS+'%', delta:'отлично' },
+        { icon:'🏆', label:'Офферы', value: offers, delta:'в работе' }
+      ],
+      stats: {
+        today: 'Понедельник, 8 июня',
+        summary: all.length + ' резюме под ' + this.data.length + ' компаний · ' + interviews + ' на собеседовании · средний ATS ' + avgATS + '%'
+      },
+      hoverBtn:{ borderColor:'var(--border-2)', color:'var(--text)' },
+      hoverSoft:{ borderColor:'var(--border-2)', background:'var(--surface-3)' },
+      hoverPrimary:{ filter:'brightness(1.06)', transform:'translateY(-1px)' },
+      hoverCard:{ borderColor:'var(--accent-line)', transform:'translateY(-3px)', boxShadow:'var(--shadow-lg)' },
+      hoverRow:{ background:'var(--surface-2)', borderColor:'var(--border)' },
+      focusInput:{ borderColor:'var(--accent-line)', boxShadow:'0 0 0 3px var(--accent-tint)' }
+    };
+  }
+  plural(n){ const a=Math.abs(n)%100, b=n%10; if(a>10&&a<20)return'вакансий'; if(b>1&&b<5)return'вакансии'; if(b===1)return'вакансия'; return'вакансий'; }
+}
+</script>
+</body>
+</html>

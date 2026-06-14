@@ -18,8 +18,9 @@ def test_init_db_creates_all_tables(db):
 
 
 def test_init_db_idempotent(tmp_path, monkeypatch):
+    import config
     db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(main, "DB_PATH", db_path)
+    monkeypatch.setattr(config, "DB_PATH", db_path)
     main.init_db()
     main.init_db()  # second call must not raise
     conn = main.get_db()

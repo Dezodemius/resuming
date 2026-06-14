@@ -5,12 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Резюмирую.рф — резюме под каждую вакансию</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
+<link rel="stylesheet" href="/static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 {% if telegram_bot_name %}
 <script async src="https://telegram.org/js/telegram-widget.js?22"
@@ -20,385 +23,365 @@
   data-onauth="onTelegramAuth(user)"
   data-request-access="write"></script>
 {% endif %}
+<script src="/static/logger.js"></script>
+<script src="/static/app.js"></script>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --navy:#0F1C3F;--navy-l:#1a3060;
-  --gold:#F0A520;--gold-d:#c88a18;
-  --bg:#F2F5FA;--card:#fff;
-  --text:#1E293B;--muted:#64748B;--light:#94A3B8;
-  --border:#E2E8F0;--border-d:#CBD5E1;
-  --danger:#EF4444;--success:#059669;
-}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;font-size:14px}
+/* ── index-specific bits (caркас и общие компоненты — в /static/app.css) ── */
+.user-chip{display:flex;align-items:center;gap:10px}
+.user-chip .avatar-user{width:36px;height:36px;font-size:13px}
+.user-name{font-size:13px;font-weight:600;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.btn-logout{background:none;border:none;cursor:pointer;color:var(--text-3);font-size:14px;padding:4px;line-height:1;transition:color .15s}
+.btn-logout:hover{color:var(--text)}
 
-/* ── Header ── */
-header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px}
-.logo{display:flex;align-items:center;text-decoration:none}
-.header-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.btn-login{padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:background .15s;white-space:nowrap}
-.btn-login:hover{background:rgba(255,255,255,.2)}
-.user-chip{display:flex;align-items:center;gap:8px}
-.user-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,.3)}
-.user-avatar-init{width:28px;height:28px;border-radius:50%;background:var(--gold);color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
-.user-name{font-size:13px;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.uses-chip{font-size:11px;background:rgba(255,255,255,.12);padding:3px 8px;border-radius:12px;white-space:nowrap}
-.uses-chip.low{background:rgba(240,165,32,.25);color:var(--gold)}
-.btn-logout{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.5);font-size:13px;padding:4px;transition:color .15s}
-.btn-logout:hover{color:#fff}
+/* notices */
+.notice{border-radius:12px;padding:11px 14px;margin-bottom:12px;font-size:13px;line-height:1.5}
+.notice-warn{background:rgba(224,164,22,.12);border:1px solid rgba(224,164,22,.4);color:#e0a416}
+.notice-ok{display:none;background:var(--accent-tint);border:1px solid var(--accent-line);color:var(--accent);align-items:center;gap:8px}
+.notice-ok.on{display:flex}
 
-/* ── Tabs ── */
-.tabs{display:flex;background:var(--navy);padding:0 1.5rem;border-bottom:1px solid rgba(255,255,255,.1)}
-.tab{padding:10px 18px;font-size:13px;font-weight:500;color:rgba(255,255,255,.5);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
-.tab.active{color:#fff;border-color:var(--gold)}
-
-/* ── Layout ── */
-.layout{display:grid;grid-template-columns:460px 1fr;min-height:calc(100vh - 94px)}
-@media(max-width:860px){.layout{grid-template-columns:1fr}}
-
-/* ── Panels ── */
-.form-panel{padding:1.5rem;overflow-y:auto;border-right:1px solid var(--border);background:#F8FAFC}
-.preview-panel{padding:1.5rem;background:#E8EDF5;overflow-y:auto}
-
-/* ── Cards / Fields ── */
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1.1rem;margin-bottom:.875rem}
-.card-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--light);margin-bottom:12px}
-.field{margin-bottom:10px}.field:last-child{margin-bottom:0}
-.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:3px}
-.field input,.field textarea{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--text);background:#fff;transition:border-color .15s}
-.field input:focus,.field textarea:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 2px rgba(15,28,63,.08)}
-.field textarea{resize:vertical;min-height:58px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-
-/* ── Buttons ── */
-.btn{width:100%;padding:12px;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:opacity .15s;margin-top:4px}
-.btn:hover{opacity:.88}.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn-navy{background:var(--navy);color:#fff}
-.btn-gold{background:var(--gold);color:var(--navy)}
-.btn-outline{background:#fff;color:var(--navy);border:1.5px solid var(--navy)}
-.btn-sm{padding:7px 14px;width:auto;font-size:13px;margin-top:0;border-radius:6px;border:none}
-
-/* ── Entries ── */
-.entry{background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:11px;margin-bottom:8px}
+/* profile form fields (used by panel-profile + dynamic addExp/addEdu) */
+.field{margin-bottom:12px}
+.field>label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:5px}
+.field input,.field textarea{width:100%;padding:11px 13px;background:var(--surface-2);border:1px solid var(--border);border-radius:11px;color:var(--text);font-family:inherit;font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field textarea:focus{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-tint)}
+.field textarea{resize:vertical;min-height:64px;line-height:1.55}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.entry{background:var(--surface-2);border:1px solid var(--border);border-radius:13px;padding:13px;margin-bottom:10px}
 .entry-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-.entry-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light)}
-.btn-rm{background:none;border:none;cursor:pointer;color:var(--light);font-size:17px;line-height:1}
-.btn-rm:hover{color:var(--danger)}
-.btn-add{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:8px;background:none;border:1px dashed var(--border-d);border-radius:6px;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;transition:all .15s}
-.btn-add:hover{border-color:var(--navy);color:var(--navy)}
+.entry-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)}
+.btn-rm{background:none;border:none;cursor:pointer;color:var(--text-3);font-size:18px;line-height:1;transition:color .15s}
+.btn-rm:hover{color:#ef4444}
+.btn-add{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:40px;background:none;border:1px dashed var(--border-2);border-radius:11px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-2);cursor:pointer;transition:border-color .15s,color .15s;margin-top:4px}
+.btn-add:hover{border-color:var(--accent-line);color:var(--accent)}
 
-/* ── Status / notices ── */
-.status-bar{display:none;align-items:center;justify-content:space-between;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:8px;padding:9px 14px;margin-bottom:1rem;font-size:13px}
-.status-bar.warn{background:#FFFBEB;border-color:#FCD34D}
-.status-count{font-weight:700;color:#3730A3;font-size:15px}
-.status-bar.warn .status-count{color:#92400E}
-.notice{border-radius:8px;padding:10px 14px;margin-bottom:.875rem;font-size:12px}
-.notice-warn{background:#FFFBEB;border:1px solid #FCD34D;color:#92400E}
-.notice-ok{background:#EAF3DE;border:1px solid #C0DD97;color:#3B6D11;display:none}
-.notice-ok.on{display:flex;align-items:center;gap:8px}
+/* "на основе чего" mini card */
+.based{display:flex;align-items:center;gap:12px;padding:13px;border-radius:13px;border:1.5px solid var(--accent);background:var(--accent-tint)}
+.based__icon{width:38px;height:38px;border-radius:11px;background:var(--surface);display:grid;place-items:center;font-size:18px;flex-shrink:0}
+.based__t{font-weight:700;font-size:14px}
+.based__d{font-size:12.5px;color:var(--text-2);margin-top:2px}
 
-/* ── Job toolbar ── */
-.job-toolbar{display:flex;gap:7px;margin-bottom:8px}
-.job-toolbar input{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;background:#fff;color:var(--text)}
-.job-toolbar button{padding:7px 12px;background:var(--navy);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-.job-area{min-height:140px;font-size:13px;line-height:1.6}
+/* summary "осталось" line */
+.summary__uses{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--text-2);padding:0 0 12px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+.summary__uses b{color:var(--text);font-weight:800;font-size:14px}
+.summary__uses.warn b{color:#e0a416}
 
-/* ── Preview ── */
-.preview-toolbar{display:flex;gap:8px;margin-bottom:1rem}
-.preview-toolbar button{flex:1;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit}
-#resume-paper{background:#fff;max-width:680px;margin:0 auto;padding:44px 52px;border:1px solid #ddd;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,.06)}
-.r-empty{text-align:center;padding:4rem 2rem;color:var(--light)}
-.r-empty svg{opacity:.3;margin:0 auto 1rem;display:block}
-.r-empty p{font-size:13px;line-height:1.6}
-.r-name{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;margin-bottom:3px;line-height:1.2}
-.r-role{font-size:13px;color:var(--gold);font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-.r-contacts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--muted);padding-bottom:14px;border-bottom:2.5px solid var(--navy);margin-bottom:18px}
+.panel-single{max-width:660px;margin:0 auto}
+
+/* results */
+.results{margin-top:24px}
+.preview-toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.preview-toolbar button{display:none;align-items:center;justify-content:center;gap:7px;height:42px;padding:0 18px;border-radius:12px;font-family:inherit;font-weight:700;font-size:13.5px;cursor:pointer;border:none;transition:transform .15s,filter .15s}
+.preview-toolbar button:hover{filter:brightness(1.06);transform:translateY(-1px)}
+.btn-pdf-act{background:var(--accent);color:var(--accent-ink);box-shadow:0 8px 22px var(--accent-tint)}
+.btn-regen-act{background:var(--surface-2);border:1px solid var(--border)!important;color:var(--text)}
+
+/* gate buttons */
+.gate__btns .g-pdf{background:var(--accent);color:var(--accent-ink);border:none}
+.gate__btns .g-save{background:var(--surface);border:1px solid var(--border-2);color:var(--text)}
+.g-pdf2{height:38px;padding:0 16px;border-radius:10px;background:var(--accent);color:var(--accent-ink);border:none;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap}
+.gate__msg{font-size:13px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:7px}
+
+/* ats panel */
+.ats-panel{display:none;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px 16px;margin-bottom:14px;max-width:720px}
+.ats-panel__label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:8px}
+.ats-tags{display:flex;flex-wrap:wrap;gap:6px}
+.ats-tag{background:var(--accent-tint);color:var(--accent);font-size:12px;padding:3px 10px;border-radius:8px;font-weight:600}
+
+/* resume "бумага" (всегда светлая, токены --page*) */
+#resume-paper{background:var(--page);color:var(--page-ink);max-width:720px;border:1px solid var(--page-line);border-radius:14px;padding:42px 50px;box-shadow:var(--shadow-lg)}
+.r-empty{text-align:center;padding:56px 20px;color:var(--page-2)}
+.r-empty svg{opacity:.22;margin:0 auto 14px;display:block;stroke:var(--page-ink)}
+.r-empty p{font-size:13.5px;line-height:1.6}
+.r-name{font-size:27px;font-weight:800;letter-spacing:-.02em;margin:0 0 3px;line-height:1.15}
+.r-role{font-size:13px;color:var(--accent);font-weight:700;margin-bottom:13px;text-transform:uppercase;letter-spacing:.05em}
+.r-contacts{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--page-2);padding-bottom:14px;border-bottom:2px solid var(--page-ink);margin-bottom:18px}
 .r-contacts span{display:flex;align-items:center;gap:4px}
 .r-section{margin-bottom:18px}
-.r-section h2{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--navy);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--border-d)}
-.r-summary{font-size:12.5px;line-height:1.65;color:#334155}
-.r-exp{margin-bottom:12px}
-.r-exp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
-.r-exp-role{font-size:13px;font-weight:700;color:var(--text)}
-.r-exp-period{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:8px}
-.r-exp-co{font-size:11.5px;color:var(--muted);margin-bottom:6px}
-.r-bullets{list-style:none;padding:0}
-.r-bullets li{font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative}
-.r-bullets li::before{content:"▸";position:absolute;left:0;color:var(--gold);font-size:10px;top:3px}
-.r-edu-item{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
-.r-edu-item .deg{font-size:13px;font-weight:600}.r-edu-item .inst{font-size:11.5px;color:var(--muted)}
-.r-edu-year{font-size:11.5px;color:var(--muted)}
-.r-skills-row{display:flex;gap:10px;margin-bottom:5px;font-size:12px}
-.r-skill-cat{font-weight:600;color:var(--text);min-width:110px}
-.r-skill-items{color:#334155}
-.ats-panel{display:none;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:1rem;max-width:680px}
-.ats-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--light);margin-bottom:6px}
-.ats-tags{display:flex;flex-wrap:wrap;gap:5px}
-.ats-tag{background:#EEF2FF;color:#3730A3;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:500}
+.r-section h2{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--page-ink);margin-bottom:9px;padding-bottom:5px;border-bottom:1px solid var(--page-line)}
+.r-summary{font-size:13px;line-height:1.65;color:var(--page-ink)}
+.r-exp{margin-bottom:13px}
+.r-exp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px;gap:8px}
+.r-exp-role{font-size:13.5px;font-weight:700;color:var(--page-ink)}
+.r-exp-period{font-size:11.5px;color:var(--page-2);white-space:nowrap}
+.r-exp-co{font-size:12px;color:var(--page-2);margin-bottom:6px}
+.r-bullets{list-style:none;padding:0;margin:0}
+.r-bullets li{font-size:12.5px;color:var(--page-ink);line-height:1.55;padding:2px 0 2px 15px;position:relative}
+.r-bullets li::before{content:"▸";position:absolute;left:0;color:var(--accent);font-size:10px;top:3px}
+.r-edu-item{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px;gap:8px}
+.r-edu-item .deg{font-size:13px;font-weight:700;color:var(--page-ink)}
+.r-edu-item .inst{font-size:12px;color:var(--page-2)}
+.r-edu-year{font-size:12px;color:var(--page-2);white-space:nowrap}
+.r-skills-row{display:flex;gap:10px;margin-bottom:5px;font-size:12.5px}
+.r-skill-cat{font-weight:700;color:var(--page-ink);min-width:120px}
+.r-skill-items{color:var(--page-ink)}
 
-/* ── Save banner (shown after generation if logged in) ── */
-.save-banner{display:none;background:#EAF3DE;border:1px solid #C0DD97;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:12px;color:#3B6D11;max-width:680px;align-items:center;justify-content:space-between;gap:8px}
-.save-banner.on{display:flex}
-.save-banner button{padding:5px 12px;background:#3B6D11;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-
-/* ── Auth modal ── */
-.modal-wrap{display:none;position:fixed;inset:0;z-index:300;align-items:center;justify-content:center;padding:16px}
-.modal-wrap.on{display:flex}
-.modal-backdrop{position:absolute;inset:0;background:rgba(10,20,50,.65)}
-.modal{background:#fff;border-radius:14px;padding:2rem;width:100%;max-width:380px;position:relative;z-index:1}
-.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;cursor:pointer;font-size:20px;color:var(--muted);line-height:1}
-.modal h2{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px}
-.modal-sub{font-size:13px;color:var(--muted);margin-bottom:1.5rem;line-height:1.5}
-.auth-divider{display:flex;align-items:center;gap:10px;margin:16px 0;font-size:12px;color:var(--light)}
-.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
-.auth-email-row{display:flex;gap:7px}
-.auth-email-row input{flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--text);background:#fff}
-.auth-email-row input:focus{outline:none;border-color:var(--navy)}
-.auth-email-row button{padding:9px 14px;background:var(--navy);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
-.magic-sent{display:none;text-align:center;padding:1rem 0}
-.magic-sent .icon{font-size:36px;margin-bottom:.5rem}
-.magic-sent p{font-size:13px;color:var(--muted);line-height:1.6}
-.tg-widget-wrap{min-height:56px;display:flex;align-items:center;justify-content:center}
-
-/* ── Pay modal ── */
-.pay-modal{background:#fff;border-radius:14px;padding:2rem;width:100%;max-width:360px;position:relative;z-index:1;text-align:center}
-.pay-modal h2{font-size:19px;font-weight:700;color:var(--navy);margin-bottom:6px}
-.pay-modal-p{font-size:13px;color:var(--muted);margin-bottom:1.25rem;line-height:1.5}
-.pay-price{font-size:36px;font-weight:800;color:var(--navy);line-height:1}
-.pay-pack{font-size:12px;color:var(--muted);margin-bottom:1.5rem;margin-top:4px}
-
-/* ── Loader ── */
-.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:200;align-items:center;justify-content:center;flex-direction:column;gap:14px}
-.loader.on{display:flex}
-.spinner{width:40px;height:40px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loader-text{font-size:14px;font-weight:500;color:#fff}
-.loader-sub{font-size:12px;color:rgba(255,255,255,.55)}
-
-/* ── Gate banner ── */
-.gate-banner{display:none;max-width:680px;margin:0 auto 1rem;border-radius:10px;overflow:hidden}
-.gate-banner.on{display:block}
-.gate-anon{background:var(--navy);padding:18px 20px}
-.gate-anon-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
-.gate-anon-icon{font-size:26px;line-height:1;flex-shrink:0}
-.gate-anon-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:3px}
-.gate-anon-sub{font-size:12px;color:rgba(255,255,255,.65);line-height:1.4}
-.gate-anon-btns{display:flex;gap:8px;flex-wrap:wrap}
-.gate-anon-btns button{flex:1;padding:10px 12px;border-radius:7px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;min-width:130px;transition:opacity .15s}
-.gate-anon-btns button:hover{opacity:.88}
-.gate-btn-pdf{background:var(--gold);color:var(--navy);border:none}
-.gate-btn-save{background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.25)}
-.gate-counter{font-size:11px;color:rgba(255,255,255,.4);margin-top:10px;text-align:center}
-.gate-auth{background:#EAF3DE;border:1px solid #C0DD97;padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-radius:10px}
-.gate-auth-msg{font-size:13px;color:#3B6D11;font-weight:500}
-.gate-auth button{padding:7px 16px;background:#3B6D11;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
-
-/* ── Toast ── */
-.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:300px;pointer-events:none}
-.toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
+@media (max-width:760px){ .row2{grid-template-columns:1fr} #resume-paper{padding:30px 22px} }
 </style>
-<script src="/static/logger.js"></script>
 </head>
 <body>
 
-<header>
-  <a class="logo" href="/"><img src="/static/banner.png" alt="Резюмирую.рф" height="34"></a>
-  <div class="header-right">
-    <a id="nav-resumes" href="/resumes" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Мои резюме</a>
-    <a id="nav-settings" href="/settings" style="display:none;color:rgba(255,255,255,.7);font-size:13px;text-decoration:none;padding:4px 10px;border-radius:6px;transition:color .15s" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='rgba(255,255,255,.7)'">Настройки</a>
+<header class="appbar">
+  <a class="appbar__logo" href="/resumes" aria-label="Резюмирую — мои резюме">
+    <span class="logo-mark">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+    </span>
+    <span class="brand">Резюмирую</span>
+  </a>
+  <nav class="nav">
+    <a class="nav__btn" id="nav-resumes" href="/resumes" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+      <span data-navlabel>Мои резюме</span>
+    </a>
+    <a class="nav__cta nav__cta--active" href="/">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span data-navlabel>Создать</span>
+    </a>
+  </nav>
+  <div class="appbar__right">
+    <button id="theme-btn" class="theme-btn" type="button" aria-label="Сменить тему">🌙</button>
     <span id="uses-chip" class="uses-chip" style="display:none"></span>
     <div id="user-chip" class="user-chip" style="display:none">
-      <div id="user-avatar" class="user-avatar-init"></div>
+      <a id="user-avatar" class="avatar-user" href="/settings" aria-label="Профиль и настройки"></a>
       <span id="user-name" class="user-name"></span>
-      <button class="btn-logout" onclick="doLogout()" title="Выйти">✕</button>
+      <button class="btn-logout" onclick="doLogout()" title="Выйти" type="button">✕</button>
     </div>
-    <button id="btn-login-header" class="btn-login" onclick="openAuthModal()">Войти</button>
+    <button id="btn-login-header" class="btn-header-login" onclick="openAuthModal()" type="button">Войти</button>
   </div>
 </header>
 
-<div class="tabs">
-  <div class="tab active" id="tab-match"   onclick="switchTab('match')">🎯 Под вакансию</div>
-  <div class="tab"        id="tab-general" onclick="switchTab('general')">📄 Общее резюме</div>
-  <div class="tab"        id="tab-profile" onclick="switchTab('profile')">👤 Мой профиль</div>
+<div class="crumbs">
+  <div class="crumbs__inner">
+    <a class="crumbs__back" href="/resumes">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg>Назад
+    </a>
+    <span class="crumbs__div"></span>
+    <nav class="crumbs__nav">
+      <a class="crumb" href="/resumes">Мои резюме</a>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb crumb--current">Новое резюме</span>
+    </nav>
+  </div>
 </div>
 
-<div class="layout">
-<div class="form-panel">
+<main class="gen">
+  <div class="genmode">
+    <button class="genmode__btn genmode__btn--active" id="tab-match" type="button" onclick="switchTab('match')">🎯 Под вакансию</button>
+    <button class="genmode__btn" id="tab-general" type="button" onclick="switchTab('general')">📄 Общее резюме</button>
+    <button class="genmode__btn" id="tab-profile" type="button" onclick="switchTab('profile')">👤 Мой профиль</button>
+  </div>
 
-  <!-- ── TAB: MATCH ── -->
+  <div class="gen__head">
+    <div class="gen__badge"><span>✨</span> AI собирает резюме под конкретную вакансию</div>
+    <h1 class="gen__h1" id="gen-h1">Новое резюме под вакансию</h1>
+    <p class="gen__sub" id="gen-sub">Дайте вакансию и профиль — AI подчеркнёт нужный опыт, добавит ключевые слова ATS и соберёт резюме под требования работодателя.</p>
+  </div>
+
+  <!-- ── MODE: MATCH ── -->
   <div id="panel-match">
-    <div class="status-bar" id="status-bar">
-      <span>Адаптаций осталось</span>
-      <span class="status-count" id="status-n">3</span>
-    </div>
-    <div id="no-profile-warn" class="notice notice-warn" style="display:none">
-      ⚠️ Профиль не заполнен. Перейдите на вкладку <b>«Мой профиль»</b>.
-    </div>
-    <div id="profile-ok" class="notice notice-ok">
-      <span>✓</span> Профиль загружен
-    </div>
-    <div class="card">
-      <div class="card-title">Вакансия</div>
-      <div class="job-toolbar">
-        <input id="job-url" placeholder="Вставьте ссылку на hh.ru / LinkedIn...">
-        <button onclick="fetchJob()">Загрузить</button>
-      </div>
-      <div class="field">
-        <label>Или вставьте текст вакансии</label>
-        <textarea id="job-text" class="job-area" placeholder="Senior Product Manager в Тинькофф&#10;&#10;Требования:&#10;— Опыт 3+ лет в продукте..."></textarea>
-      </div>
-      <div class="field">
-        <label>Компания (для сохранения)</label>
-        <input id="job-company" placeholder="Тинькофф, Яндекс...">
-      </div>
-      <div class="field">
-        <label>Пожелания к акцентам (необязательно)</label>
-        <input id="m-hint" placeholder="Акцент на аналитике, убрать ранний опыт...">
-      </div>
-    </div>
-    <button class="btn btn-gold" id="btn-match" onclick="doMatch()">🎯 Адаптировать под вакансию</button>
-    <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:6px">
-      ИИ выберет релевантный опыт и добавит ключевые слова ATS
-    </div>
-  </div>
+    <div class="gen__grid">
+      <div class="gen__col">
+        <!-- Step 1 -->
+        <section class="step">
+          <div class="step__head"><div class="step__num">1</div><div class="step__title">Вакансия</div></div>
+          <div class="gen-row">
+            <div class="gen-field" style="flex:1"><input id="job-url" class="gen-input" placeholder="hh.ru/vacancy/…  или ссылка на вакансию"></div>
+            <button class="btn-fetch" type="button" onclick="fetchJob()">Загрузить</button>
+          </div>
+          <textarea id="job-text" class="gen-textarea" placeholder="Или вставьте текст вакансии…&#10;&#10;Senior Product Manager в Тинькофф&#10;Требования: опыт 3+ лет в продукте…"></textarea>
+          <div class="field" style="margin:12px 0 0">
+            <label>Компания — для сохранения</label>
+            <input id="job-company" placeholder="Тинькофф, Яндекс, Авито…">
+          </div>
+        </section>
 
-  <!-- ── TAB: GENERAL ── -->
-  <div id="panel-general" style="display:none">
-    <p style="font-size:12px;color:var(--muted);margin-bottom:1rem">Универсальное резюме из вашего профиля — для публикации на hh.ru или отправки «вхолодную»</p>
-    <div id="g-no-profile" class="notice notice-warn" style="display:none">
-      ⚠️ Профиль не заполнен. Перейдите на вкладку <b>«Мой профиль»</b>.
-    </div>
-    <div class="card">
-      <div class="card-title">Настройки</div>
-      <div class="field">
-        <label>Желаемая должность (необязательно)</label>
-        <input id="g-role" placeholder="Оставьте пустым — AI определит из опыта">
-      </div>
-      <div class="field">
-        <label>Пожелания</label>
-        <textarea id="g-hint" placeholder="Акцент на управлении, скрой нерелевантный опыт..."></textarea>
-      </div>
-    </div>
-    <button class="btn btn-navy" id="btn-general" onclick="doGeneralResume()">📄 Сгенерировать общее резюме</button>
-  </div>
+        <!-- Step 2 -->
+        <section class="step">
+          <div class="step__head"><div class="step__num">2</div><div class="step__title">На основе чего</div></div>
+          <div id="no-profile-warn" class="notice notice-warn" style="display:none">⚠️ Профиль не заполнен. Откройте вкладку <b>«Мой профиль»</b> и заполните его.</div>
+          <div id="profile-ok" class="notice notice-ok"><span>✓</span> Профиль загружен — резюме соберётся на его основе</div>
+          <div class="based">
+            <div class="based__icon">👤</div>
+            <div style="flex:1"><div class="based__t">Базовый профиль</div><div class="based__d">AI возьмёт ваш опыт и навыки из профиля</div></div>
+            <button class="btn-soft" type="button" onclick="switchTab('profile')">Изменить</button>
+          </div>
+        </section>
 
-  <!-- ── TAB: PROFILE ── -->
-  <div id="panel-profile" style="display:none">
-    <p style="font-size:12px;color:var(--muted);margin-bottom:1rem">Заполните один раз — используйте для любой вакансии</p>
-    <div class="card">
-      <div class="card-title">Личные данные</div>
-      <div class="field"><label>Полное имя *</label><input id="p-name" placeholder="Иван Иванов"></div>
-      <div class="row2">
-        <div class="field"><label>Телефон</label><input id="p-phone" placeholder="+7 900 000-00-00" type="tel"></div>
-        <div class="field"><label>Город</label><input id="p-city" placeholder="Москва"></div>
+        <!-- Step 3 -->
+        <section class="step">
+          <div class="step__head"><div class="step__num">3</div><div class="step__title">Акценты <span class="muted">— необязательно</span></div></div>
+          <div class="emph">
+            <button class="emph-chip" type="button" data-ph="подчеркнуть лидерство" onclick="toggleEmph(this)">Подчеркнуть лидерство</button>
+            <button class="emph-chip" type="button" data-ph="скрыть нерелевантный опыт" onclick="toggleEmph(this)">Скрыть нерелевантное</button>
+            <button class="emph-chip" type="button" data-ph="усилить ключевые слова ATS" onclick="toggleEmph(this)">Ключевые слова ATS</button>
+            <button class="emph-chip" type="button" data-ph="добавить метрики результата" onclick="toggleEmph(this)">Добавить метрики</button>
+            <button class="emph-chip" type="button" data-ph="уместить в одну страницу" onclick="toggleEmph(this)">В одну страницу</button>
+          </div>
+          <textarea id="m-hint" class="gen-textarea" style="min-height:80px" placeholder="Например: упор на управление командой, упомянуть запуск маркетплейса, тон деловой…"></textarea>
+        </section>
       </div>
-      <div class="field"><label>LinkedIn / hh.ru</label><input id="p-linkedin" placeholder="linkedin.com/in/username"></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Опыт работы</div>
-      <div id="exp-list"></div>
-      <button class="btn-add" onclick="addExp()">+ Добавить место работы</button>
-    </div>
-    <div class="card">
-      <div class="card-title">Образование</div>
-      <div id="edu-list"></div>
-      <button class="btn-add" onclick="addEdu()">+ Добавить</button>
-    </div>
-    <div class="card">
-      <div class="card-title">Навыки и языки</div>
-      <div class="field">
-        <label>Навыки (через запятую)</label>
-        <textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой..."></textarea>
-      </div>
-      <div class="field">
-        <label>Языки</label>
-        <input id="p-langs" value="Русский — родной">
-      </div>
-    </div>
-    <button class="btn btn-navy" onclick="saveProfile()">💾 Сохранить профиль</button>
-  </div>
 
-</div><!-- form-panel -->
-
-<!-- ── Preview panel ── -->
-<div class="preview-panel">
-  <div class="preview-toolbar">
-    <button class="btn-gold"    id="btn-pdf"   style="display:none" onclick="downloadPDF()">↓ Скачать PDF</button>
-    <button class="btn-outline" id="btn-regen" style="display:none" onclick="regenCurrent()">↺ Перегенерировать</button>
-  </div>
-
-  <!-- Gate banner: два состояния — анон (гейт) и авторизован (подтверждение) -->
-  <div id="gate-banner" class="gate-banner">
-    <!-- Анонимный: призыв войти -->
-    <div id="gate-anon" style="display:none" class="gate-anon">
-      <div class="gate-anon-head">
-        <div class="gate-anon-icon">🎉</div>
-        <div>
-          <div class="gate-anon-title">Резюме готово!</div>
-          <div class="gate-anon-sub">Войдите чтобы скачать PDF и сохранить в личный кабинет</div>
+      <aside class="summary">
+        <div class="summary__top">
+          <div class="summary__cap">Что получится</div>
+          <div class="summary__target">
+            <div class="avatar-co" style="--co:#10b981">✦</div>
+            <div><div class="summary__role">Резюме под вакансию</div><div class="summary__co">на основе вашего профиля</div></div>
+          </div>
         </div>
-      </div>
-      <div class="gate-anon-btns">
-        <button class="gate-btn-pdf"  onclick="gateAction('pdf')">↓ Скачать PDF</button>
-        <button class="gate-btn-save" onclick="gateAction('save')">Сохранить резюме</button>
-      </div>
-      <div class="gate-counter" id="gate-counter"></div>
-    </div>
-    <!-- Авторизован: подтверждение -->
-    <div id="gate-auth" style="display:none" class="gate-auth">
-      <span class="gate-auth-msg">✓ Резюме сохранено</span>
-      <button onclick="downloadPDFDirect()">↓ Скачать PDF</button>
+        <div class="summary__bot">
+          <div id="status-bar" class="summary__uses" style="display:none"><span>Генераций осталось</span><b id="status-n">3</b></div>
+          <button class="btn-build" id="btn-match" type="button" onclick="doMatch()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3l1.9 5.8H20l-5 3.6 1.9 5.8L12 14.6 7.1 18.2 9 12.4 4 8.8h6.1z"></path></svg>
+            Собрать резюме
+          </button>
+          <div class="summary__hintline"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Готово примерно за 30 секунд · 1 генерация</div>
+        </div>
+      </aside>
     </div>
   </div>
-  <div id="resume-paper">
-    <div class="r-empty" id="r-empty">
-      <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
-        <rect x="8" y="4" width="38" height="52" rx="4" stroke="currentColor" stroke-width="2.5"/>
-        <line x1="16" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <line x1="16" y1="24" x2="38" y2="24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <line x1="16" y1="32" x2="30" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <p>Заполните профиль и вставьте вакансию<br>→ получите резюме с нужными ключевыми словами</p>
-    </div>
-    <div id="r-content" style="display:none">
-      <p class="r-name" id="r-name"></p>
-      <p class="r-role" id="r-role"></p>
-      <div class="r-contacts" id="r-contacts"></div>
-      <div class="r-section"><h2>Профессиональный профиль</h2><p class="r-summary" id="r-summary"></p></div>
-      <div class="r-section"><h2>Опыт работы</h2><div id="r-exp"></div></div>
-      <div class="r-section"><h2>Образование</h2><div id="r-edu"></div></div>
-      <div class="r-section"><h2>Навыки</h2><div id="r-skills-out"></div></div>
-      <div class="r-section"><h2>Языки</h2><p class="r-langs" id="r-langs-out"></p></div>
+
+  <!-- ── MODE: GENERAL ── -->
+  <div id="panel-general" style="display:none">
+    <div class="gen__grid">
+      <div class="gen__col">
+        <section class="step">
+          <div class="step__head"><div class="step__num">1</div><div class="step__title">Настройки</div></div>
+          <div id="g-no-profile" class="notice notice-warn" style="display:none">⚠️ Профиль не заполнен. Откройте вкладку <b>«Мой профиль»</b>.</div>
+          <div class="field"><label>Желаемая должность <span style="color:var(--text-3)">— необязательно</span></label><input id="g-role" placeholder="Оставьте пустым — AI определит из опыта"></div>
+          <div class="field"><label>Пожелания</label><textarea id="g-hint" placeholder="Акцент на управлении, скрыть нерелевантный опыт…"></textarea></div>
+        </section>
+      </div>
+      <aside class="summary">
+        <div class="summary__top">
+          <div class="summary__cap">Что получится</div>
+          <div class="summary__target">
+            <div class="avatar-co" style="--co:#10b981">📄</div>
+            <div><div class="summary__role">Общее резюме</div><div class="summary__co">для публикации и рассылки</div></div>
+          </div>
+        </div>
+        <div class="summary__bot">
+          <button class="btn-build" id="btn-general" type="button" onclick="doGeneralResume()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 12h6M9 16h4"></path></svg>
+            Сгенерировать резюме
+          </button>
+          <div class="summary__hintline"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Готово примерно за 30 секунд · 1 генерация</div>
+        </div>
+      </aside>
     </div>
   </div>
-</div>
-</div><!-- layout -->
+
+  <!-- ── MODE: PROFILE ── -->
+  <div id="panel-profile" style="display:none">
+    <div class="gen__col panel-single">
+      <section class="step">
+        <div class="step__head"><div class="step__num">1</div><div class="step__title">Личные данные</div></div>
+        <div class="field"><label>Полное имя *</label><input id="p-name" placeholder="Иван Иванов"></div>
+        <div class="row2">
+          <div class="field"><label>Телефон</label><input id="p-phone" type="tel" placeholder="+7 900 000-00-00"></div>
+          <div class="field"><label>Город</label><input id="p-city" placeholder="Москва"></div>
+        </div>
+        <div class="field"><label>LinkedIn / hh.ru</label><input id="p-linkedin" placeholder="linkedin.com/in/username"></div>
+      </section>
+      <section class="step">
+        <div class="step__head"><div class="step__num">2</div><div class="step__title">Опыт работы</div></div>
+        <div id="exp-list"></div>
+        <button class="btn-add" type="button" onclick="addExp()">+ Добавить место работы</button>
+      </section>
+      <section class="step">
+        <div class="step__head"><div class="step__num">3</div><div class="step__title">Образование</div></div>
+        <div id="edu-list"></div>
+        <button class="btn-add" type="button" onclick="addEdu()">+ Добавить</button>
+      </section>
+      <section class="step">
+        <div class="step__head"><div class="step__num">4</div><div class="step__title">Навыки и языки</div></div>
+        <div class="field"><label>Навыки (через запятую)</label><textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой…"></textarea></div>
+        <div class="field"><label>Языки</label><input id="p-langs" value="Русский — родной"></div>
+      </section>
+      <button class="btn-build" type="button" onclick="saveProfile()">💾 Сохранить профиль</button>
+    </div>
+  </div>
+
+  <!-- ── Result / preview ── -->
+  <div class="results" id="results">
+    <div class="preview-toolbar">
+      <button class="btn-pdf-act" id="btn-pdf" type="button" onclick="downloadPDF()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"></path></svg>Скачать PDF</button>
+      <button class="btn-regen-act" id="btn-regen" type="button" onclick="regenCurrent()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M4 12a8 8 0 0114-5l2 2M20 12a8 8 0 01-14 5l-2-2M18 5v4h-4M6 19v-4h4"></path></svg>Перегенерировать</button>
+    </div>
+
+    <div id="gate-banner" class="gate">
+      <div id="gate-anon" class="gate--anon" style="display:none">
+        <div class="gate__head">
+          <div class="gate__icon">🎉</div>
+          <div><div class="gate__title">Резюме готово!</div><div class="gate__sub">Войдите, чтобы скачать PDF и сохранить в личный кабинет</div></div>
+        </div>
+        <div class="gate__btns">
+          <button class="g-pdf" type="button" onclick="gateAction('pdf')">↓ Скачать PDF</button>
+          <button class="g-save" type="button" onclick="gateAction('save')">Сохранить резюме</button>
+        </div>
+        <div class="gate__counter" id="gate-counter"></div>
+      </div>
+      <div id="gate-auth" class="gate--auth" style="display:none">
+        <span class="gate__msg">✓ Резюме сохранено в «Мои резюме»</span>
+        <button class="g-pdf2" type="button" onclick="downloadPDFDirect()">↓ Скачать PDF</button>
+      </div>
+    </div>
+
+    <div id="ats-panel" class="ats-panel">
+      <div class="ats-panel__label">Ключевые слова для ATS</div>
+      <div class="ats-tags" id="ats-tags"></div>
+    </div>
+
+    <div id="resume-paper">
+      <div class="r-empty" id="r-empty">
+        <svg width="56" height="56" viewBox="0 0 60 60" fill="none">
+          <rect x="8" y="4" width="38" height="52" rx="4" stroke="currentColor" stroke-width="2.5"/>
+          <line x1="16" y1="16" x2="38" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="16" y1="24" x2="38" y2="24" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <line x1="16" y1="32" x2="30" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p>Заполните вакансию и профиль слева<br>→ соберём резюме с нужными ключевыми словами</p>
+      </div>
+      <div id="r-content" style="display:none">
+        <p class="r-name" id="r-name"></p>
+        <p class="r-role" id="r-role"></p>
+        <div class="r-contacts" id="r-contacts"></div>
+        <div class="r-section"><h2>О себе</h2><p class="r-summary" id="r-summary"></p></div>
+        <div class="r-section"><h2>Опыт работы</h2><div id="r-exp"></div></div>
+        <div class="r-section"><h2>Образование</h2><div id="r-edu"></div></div>
+        <div class="r-section"><h2>Навыки</h2><div id="r-skills-out"></div></div>
+        <div class="r-section"><h2>Языки</h2><p class="r-langs" id="r-langs-out"></p></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+{% include '_app_footer.html' %}
 
 <!-- ── Auth modal ── -->
 <div class="modal-wrap" id="modal-auth">
   <div class="modal-backdrop" onclick="closeAuthModal()"></div>
   <div class="modal">
-    <button class="modal-close" onclick="closeAuthModal()">×</button>
+    <button class="modal__close" onclick="closeAuthModal()" type="button">×</button>
     <div id="auth-main">
       <h2>Войдите в аккаунт</h2>
-      <p class="modal-sub" id="auth-sub">Чтобы сохранять резюме и использовать все функции</p>
+      <p class="modal__sub" id="auth-sub">Чтобы сохранять резюме и использовать все функции</p>
       {% if telegram_bot_name %}
-      <div class="tg-widget-wrap" id="tg-widget-wrap"></div>
-      <div class="auth-divider">или</div>
+      <div id="tg-block" style="display:none">
+        <div class="tg-widget-wrap" id="tg-widget-wrap" style="display:flex;align-items:center;justify-content:center"></div>
+        <div class="auth-divider">или</div>
+      </div>
       {% endif %}
       {% if yandex_enabled %}
-      <a href="/auth/yandex" onclick="appLog('auth','переход на Яндекс OAuth')"
-         style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:10px;background:#000;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:500">
-        <span style="background:#FC3F1D;color:#fff;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">Я</span>
-        Войти с Яндекс&nbsp;ID
+      <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
+        <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
       </a>
       <div class="auth-divider">или</div>
       {% endif %}
-      <div class="auth-email-row">
+      <div class="auth-email">
         <input type="email" id="auth-email" placeholder="email@example.com" autocomplete="email">
-        <button onclick="requestMagicLink()">Войти</button>
+        <button onclick="requestMagicLink()" type="button">Войти</button>
       </div>
-      <p style="font-size:11px;color:var(--light);margin-top:8px;text-align:center">Без пароля — пришлём ссылку на почту</p>
+      <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;text-align:center">Без пароля — пришлём ссылку на почту</p>
     </div>
     <div class="magic-sent" id="magic-sent">
       <div class="icon">📬</div>
@@ -410,42 +393,30 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 <!-- ── Payment modal ── -->
 <div class="modal-wrap" id="modal-pay">
   <div class="modal-backdrop" onclick="closePayModal()"></div>
-  <div class="pay-modal">
-    <button class="modal-close" onclick="closePayModal()">×</button>
-    <div style="font-size:36px;margin-bottom:.75rem">✨</div>
+  <div class="modal modal--pay">
+    <button class="modal__close" onclick="closePayModal()" type="button">×</button>
+    <div style="font-size:34px;margin-bottom:8px">✨</div>
     <h2 id="paywall-title">Перейдите на Pro</h2>
-    <p class="pay-modal-p" id="paywall-msg">Безлимитные генерации и сохранение<br>любого количества резюме.</p>
+    <p class="modal__sub" id="paywall-msg" style="text-align:center">Безлимитные генерации и сохранение любого количества резюме.</p>
     <div class="pay-price">399 ₽</div>
     <div class="pay-pack">Pro-подписка на 30 дней</div>
-    <ul style="list-style:none;text-align:left;margin:0 0 1.25rem;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+    <ul class="pay-feats">
       <li>✓ Безлимитные AI-генерации</li>
       <li>✓ Безлимитные сохранённые резюме</li>
       <li>✓ PDF всегда бесплатно</li>
     </ul>
-    <button class="btn btn-gold" onclick="doPay()">Оплатить через ЮKassa</button>
-    <button class="btn btn-outline" onclick="closePayModal()" style="margin-top:8px">Отмена</button>
-    <div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--border)">
-      <div style="font-size:11px;color:var(--muted);line-height:1.7">
-        <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 календарных дней</div>
-        <div>⚡ Доступ открывается автоматически после оплаты</div>
-        <div>💻 Услуга предоставляется в цифровой форме</div>
-        <div style="margin-top:6px">
-          <a href="/offer" style="color:var(--muted)" target="_blank">Оферта</a>
-          <span style="margin:0 6px;opacity:.4">·</span>
-          <a href="/privacy" style="color:var(--muted)" target="_blank">Конфиденциальность</a>
-        </div>
-      </div>
+    <button class="btn-build" onclick="doPay()" type="button">Оплатить через ЮKassa</button>
+    <button class="btn-soft" onclick="closePayModal()" type="button" style="width:100%;justify-content:center;height:42px;margin-top:8px">Отмена</button>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);line-height:1.7;text-align:left">
+      <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 дней</div>
+      <div>⚡ Доступ открывается автоматически после оплаты</div>
+      <div>💻 Услуга предоставляется в цифровой форме</div>
+      <div style="margin-top:6px"><a href="/offer" target="_blank" style="color:var(--text-2)">Оферта</a> · <a href="/privacy" target="_blank" style="color:var(--text-2)">Конфиденциальность</a></div>
     </div>
   </div>
 </div>
 
-<!-- ── Loader ── -->
-<div class="loader" id="loader">
-  <div class="spinner"></div>
-  <div class="loader-text" id="loader-text">Обрабатываю...</div>
-  <div class="loader-sub">Обычно 10–20 секунд</div>
-</div>
-
+<div class="loader" id="loader"><div class="spinner"></div><div class="loader-text" id="loader-text">Обрабатываю…</div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -458,6 +429,12 @@ let lastTab      = 'match';
 let expCnt = 0, eduCnt = 0;
 let pendingAction = null;
 
+const HEADS = {
+  match:   ['Новое резюме под вакансию', 'Дайте вакансию и профиль — AI подчеркнёт нужный опыт, добавит ключевые слова ATS и соберёт резюме под требования.'],
+  general: ['Общее резюме из профиля',   'Универсальное резюме для публикации на hh.ru или холодной рассылки — на основе вашего профиля.'],
+  profile: ['Мой профиль',               'Заполните один раз — и используйте для любой вакансии.'],
+};
+
 // ── Boot ──────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   appLog('boot', 'загрузка страницы');
@@ -466,11 +443,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Анонимный профиль из localStorage — показываем сразу, до авторизации
   const localP = getLocalProfile();
   if (localP) { hasProfile = true; fillProfileForm(localP); }
-
-  // Move Telegram widget into modal (it was rendered by Jinja2 in <head>)
-  const tgEl = document.querySelector('iframe[src*="telegram"]') ||
-               document.querySelector('script[src*="telegram-widget"]');
-  // Widget loads async; we'll re-inject if needed via onTelegramAuth
 
   await refreshSession();
 
@@ -489,6 +461,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     history.replaceState({}, '', '/');
     appError('auth', 'вход через Яндекс не удался');
     toast('Не удалось войти через Яндекс. Попробуйте другой способ.', 'err');
+  }
+  if (p.get('auth_required')) {
+    history.replaceState({}, '', '/');
+    openAuthModal('Войдите, чтобы открыть «Мои резюме»');
   }
   appLog('boot', 'готово', {авторизован: !!currentUser, профиль: hasProfile});
 });
@@ -526,40 +502,41 @@ function refreshAuthUI() {
   const loggedIn = !!currentUser;
   document.getElementById('btn-login-header').style.display = loggedIn ? 'none' : '';
   document.getElementById('user-chip').style.display = loggedIn ? 'flex' : 'none';
+  const navResumes = document.getElementById('nav-resumes');
+  if (navResumes) navResumes.style.display = loggedIn ? '' : 'none';
 
   if (loggedIn) {
-    const initials = (currentUser.name || 'U').charAt(0).toUpperCase();
     const av = document.getElementById('user-avatar');
-    if (currentUser.photo) {
-      av.outerHTML = `<img id="user-avatar" class="user-avatar" src="${currentUser.photo}" alt="">`;
-    } else {
-      av.textContent = initials;
+    if (av) {
+      if (currentUser.photo) av.innerHTML = `<img src="${esc(currentUser.photo)}" alt="">`;
+      else av.textContent = (currentUser.name || currentUser.email || 'U').charAt(0).toUpperCase();
     }
     document.getElementById('user-name').textContent = currentUser.name || currentUser.email || 'Пользователь';
-    document.getElementById('nav-resumes').style.display = '';
-    const navSettings = document.getElementById('nav-settings');
-    if (navSettings) navSettings.style.display = '';
 
     const chip = document.getElementById('uses-chip');
     chip.style.display = '';
     if (currentUser.is_pro) {
       chip.textContent = '✨ Pro';
-      chip.classList.remove('low');
-      chip.style.cssText = 'background:rgba(240,165,32,.22);color:#F0A520;display:inline-block';
+      chip.className = 'uses-chip pro';
     } else {
       const total = currentUser.total || 0;
       chip.textContent = `Осталось: ${total}`;
-      chip.classList.toggle('low', total <= 1);
-      chip.style.cssText = '';
+      chip.className = 'uses-chip' + (total <= 1 ? ' low' : '');
     }
-
-    const bar = document.getElementById('status-bar');
-    bar.style.display = 'flex';
-    const t = currentUser.is_pro ? 999 : (currentUser.total || 0);
-    bar.classList.toggle('warn', !currentUser.is_pro && t <= 1);
-    document.getElementById('status-n').textContent = currentUser.is_pro ? '∞' : t;
+    updateStatusBar(currentUser.is_pro ? 999 : (currentUser.total || 0), !!currentUser.is_pro);
+  } else {
+    document.getElementById('uses-chip').style.display = 'none';
+    updateStatusBar(0, false);
   }
   refreshProfileWarnings();
+}
+
+function updateStatusBar(t, pro) {
+  const bar = document.getElementById('status-bar');
+  if (!bar) return;
+  bar.style.display = currentUser ? 'flex' : 'none';
+  bar.classList.toggle('warn', !pro && t <= 1);
+  document.getElementById('status-n').textContent = pro ? '∞' : t;
 }
 
 // ── Auth modal ────────────────────────────────────────────────────
@@ -572,7 +549,6 @@ function openAuthModal(sub) {
   // Re-inject Telegram widget into modal if not already there
   const wrap = document.getElementById('tg-widget-wrap');
   if (wrap && !wrap.querySelector('iframe')) {
-    // Widget script already loaded globally — re-render into modal
     const script = document.createElement('script');
     script.async = true;
     script.src   = 'https://telegram.org/js/telegram-widget.js?22';
@@ -581,6 +557,19 @@ function openAuthModal(sub) {
     script.setAttribute('data-radius', '8');
     script.setAttribute('data-onauth', 'onTelegramAuth(user)');
     wrap.appendChild(script);
+  }
+  // Показываем блок Telegram только когда виджет реально отрисовался (iframe),
+  // иначе он остаётся скрытым — без пустого места и «висячего» разделителя «или».
+  const tgBlock = document.getElementById('tg-block');
+  if (tgBlock && wrap) {
+    if (wrap.querySelector('iframe')) { tgBlock.style.display = ''; }
+    else {
+      let tries = 0;
+      const iv = setInterval(() => {
+        if (wrap.querySelector('iframe')) { tgBlock.style.display = ''; clearInterval(iv); }
+        else if (++tries > 20) { clearInterval(iv); }   // ~3 c и сдаёмся
+      }, 150);
+    }
   }
 }
 function closeAuthModal() { document.getElementById('modal-auth').classList.remove('on'); }
@@ -617,7 +606,7 @@ async function requestMagicLink() {
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
     document.getElementById('auth-main').style.display = 'none';
-    document.getElementById('magic-sent').style.display = '';
+    document.getElementById('magic-sent').style.display = 'block';
     document.getElementById('magic-email-display').textContent = email;
   } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); }
@@ -636,9 +625,11 @@ async function doLogout() {
 function switchTab(t) {
   lastTab = t;
   ['match','general','profile'].forEach(id => {
-    document.getElementById('tab-' + id).classList.toggle('active', id === t);
+    document.getElementById('tab-' + id).classList.toggle('genmode__btn--active', id === t);
     document.getElementById('panel-' + id).style.display = id === t ? '' : 'none';
   });
+  const h = HEADS[t];
+  if (h) { document.getElementById('gen-h1').textContent = h[0]; document.getElementById('gen-sub').textContent = h[1]; }
   refreshProfileWarnings();
 }
 
@@ -650,6 +641,18 @@ function refreshProfileWarnings() {
   });
   const okEl = document.getElementById('profile-ok');
   if (okEl) okEl.classList.toggle('on', hasProfile);
+}
+
+// ── Emphasis chips (быстрые подсказки → дописываются в пожелания) ──
+function toggleEmph(btn) {
+  const ph = btn.dataset.ph;
+  const ta = document.getElementById('m-hint');
+  if (!ta) return;
+  const active = btn.classList.toggle('emph-chip--active');
+  let parts = ta.value.split(';').map(s => s.trim()).filter(Boolean);
+  if (active) { if (!parts.includes(ph)) parts.push(ph); }
+  else        { parts = parts.filter(p => p !== ph); }
+  ta.value = parts.join('; ');
 }
 
 // ── LocalStorage profile helpers ──────────────────────────────────
@@ -789,7 +792,7 @@ async function doMatch() {
     show('btn-regen');
     appLog('match', 'готово', {resume_id: lastResumeId});
     toast(currentUser ? 'Резюме адаптировано и сохранено!' : 'Резюме готово!', 'ok');
-    if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
+    document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
   } catch(e) { appError('match', e.message); toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); document.getElementById('btn-match').disabled=false; }
 }
@@ -840,7 +843,7 @@ async function doGeneralResume() {
     show('btn-regen');
     appLog('general', 'готово', {resume_id: lastResumeId});
     toast(currentUser ? 'Резюме создано и сохранено!' : 'Резюме готово!', 'ok');
-    if (window.innerWidth <= 860) document.querySelector('.preview-panel').scrollIntoView({behavior:'smooth'});
+    document.getElementById('results').scrollIntoView({behavior:'smooth', block:'start'});
   } catch(e) { appError('general', e.message); toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); document.getElementById('btn-general').disabled=false; }
 }
@@ -853,7 +856,7 @@ function regenCurrent() {
 // ── Gate helpers ──────────────────────────────────────────────────
 function showGateAnon(anonLeft) {
   const b = document.getElementById('gate-banner'); b.classList.add('on');
-  document.getElementById('gate-anon').style.display = '';
+  document.getElementById('gate-anon').style.display = 'block';
   document.getElementById('gate-auth').style.display = 'none';
   document.getElementById('gate-counter').textContent = anonLeft > 0
     ? `Ещё ${anonLeft} бесплатных генераций без аккаунта`
@@ -862,7 +865,7 @@ function showGateAnon(anonLeft) {
 function showGateAuth() {
   const b = document.getElementById('gate-banner'); b.classList.add('on');
   document.getElementById('gate-anon').style.display = 'none';
-  document.getElementById('gate-auth').style.display = '';
+  document.getElementById('gate-auth').style.display = 'flex';
 }
 function hideGate() {
   document.getElementById('gate-banner').classList.remove('on');
@@ -920,6 +923,7 @@ async function saveCurrentResume() {
   showGateAuth();
   toast('Резюме сохранено в «Мои резюме»', 'ok');
 }
+
 function renderResume(r, showAts) {
   hide('r-empty'); show('r-content');
   setText('r-name', r.name||''); setText('r-role', r.target_role||''); setText('r-summary', r.summary||'');
@@ -951,15 +955,14 @@ function renderResume(r, showAts) {
 }
 
 function updateUsesFromResponse(usesLeft) {
-  if (currentUser) {
-    currentUser.total = usesLeft;
-    const chip = document.getElementById('uses-chip');
+  if (!currentUser) return;
+  currentUser.total = usesLeft;
+  const chip = document.getElementById('uses-chip');
+  if (!currentUser.is_pro) {
     chip.textContent = `Осталось: ${usesLeft}`;
-    chip.classList.toggle('low', usesLeft <= 1);
-    const bar = document.getElementById('status-bar');
-    bar.classList.toggle('warn', usesLeft <= 1);
-    document.getElementById('status-n').textContent = usesLeft;
+    chip.className = 'uses-chip' + (usesLeft <= 1 ? ' low' : '');
   }
+  updateStatusBar(currentUser.is_pro ? 999 : usesLeft, !!currentUser.is_pro);
 }
 
 // ── Job fetch ─────────────────────────────────────────────────────
@@ -977,14 +980,6 @@ async function fetchJob() {
     toast('Вакансия загружена!', 'ok');
   } catch(e) { appError('fetch-job', e.message); toast('Ошибка. Вставьте текст вручную.', 'err'); }
   finally { setLoader(false); }
-}
-
-// ── PDF ───────────────────────────────────────────────────────────
-function downloadPDF() {
-  const el   = document.getElementById('resume-paper');
-  const name = (document.getElementById('r-name').textContent||'resume').replace(/\s+/g,'_');
-  setLoader(true,'Создание PDF…');
-  html2pdf().set({margin:[10,10,10,10],filename:`${name}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,logging:false},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}}).from(el).save().then(()=>setLoader(false));
 }
 
 // ── Payment ───────────────────────────────────────────────────────
@@ -1015,7 +1010,7 @@ function addExp(fill) {
   expCnt++;
   const n=expCnt, d=document.createElement('div');
   d.className='entry';d.id=`exp-${n}`;
-  d.innerHTML=`<div class="entry-head"><span class="entry-label">Место работы ${n}</span>${n>1?`<button class="btn-rm" onclick="rm('exp-${n}')">×</button>`:''}</div>
+  d.innerHTML=`<div class="entry-head"><span class="entry-label">Место работы ${n}</span>${n>1?`<button class="btn-rm" type="button" onclick="rm('exp-${n}')">×</button>`:''}</div>
   <div class="row2"><div class="field"><label>Компания</label><input id="ec-${n}" placeholder="ООО Название"></div><div class="field"><label>Должность</label><input id="er-${n}" placeholder="Менеджер"></div></div>
   <div class="row2"><div class="field"><label>Период</label><input id="ep-${n}" placeholder="2022 — 2025"></div><div class="field"><label>Город</label><input id="el-${n}" placeholder="Москва"></div></div>
   <div class="field"><label>Обязанности и достижения</label><textarea id="ed-${n}" placeholder="Вёл клиентов, перевыполнял план..."></textarea></div>`;
@@ -1026,7 +1021,7 @@ function addEdu(fill) {
   eduCnt++;
   const n=eduCnt, d=document.createElement('div');
   d.className='entry';d.id=`edu-${n}`;
-  d.innerHTML=`<div class="entry-head"><span class="entry-label">Учебное заведение ${n}</span>${n>1?`<button class="btn-rm" onclick="rm('edu-${n}')">×</button>`:''}</div>
+  d.innerHTML=`<div class="entry-head"><span class="entry-label">Учебное заведение ${n}</span>${n>1?`<button class="btn-rm" type="button" onclick="rm('edu-${n}')">×</button>`:''}</div>
   <div class="field"><label>Университет</label><input id="ei-${n}" placeholder="МГУ"></div>
   <div class="row2"><div class="field"><label>Специальность</label><input id="eg-${n}" placeholder="Бакалавр экономики"></div><div class="field"><label>Год</label><input id="ey-${n}" placeholder="2021"></div></div>`;
   document.getElementById('edu-list').appendChild(d);
@@ -1039,13 +1034,13 @@ function collectEdu(){const a=[];for(let i=1;i<=50;i++){if(!document.getElementB
 // ── Helpers ───────────────────────────────────────────────────────
 function v(id){return(document.getElementById(id)?.value||'').trim()}
 function set(id,val){const el=document.getElementById(id);if(el)el.value=val}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function setText(id,t){const el=document.getElementById(id);if(el)el.textContent=t}
 function show(id){const el=document.getElementById(id);if(el)el.style.display='block'}
 function hide(id){const el=document.getElementById(id);if(el)el.style.display='none'}
 function setLoader(on,txt){document.getElementById('loader').classList.toggle('on',on);if(txt)document.getElementById('loader-text').textContent=txt}
 let _tt;
 function toast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast on'+(type?' '+type:'');clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('on'),3500)}
-</script>{% include '_footer.html' %}
+</script>
 </body>
 </html>
