@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>preview · generate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+</head>
+<body>
+
+<header class="appbar">
+  <a class="appbar__logo" href="#"><span class="logo-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span><span class="brand">Резюмирую</span></a>
+  <nav class="nav">
+    <a class="nav__btn" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg><span data-navlabel>Мои резюме</span></a>
+    <a class="nav__cta nav__cta--active" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg><span data-navlabel>Создать</span></a>
+  </nav>
+  <div class="appbar__right">
+    <button id="theme-btn" class="theme-btn" type="button" onclick="(function(){var d=document.documentElement;if(d.getAttribute('data-theme')==='light'){d.removeAttribute('data-theme');this.textContent='🌙';}else{d.setAttribute('data-theme','light');this.textContent='☀️';}}).call(this)">🌙</button>
+    <span class="avatar-user">АИ</span>
+  </div>
+</header>
+
+<div class="crumbs"><div class="crumbs__inner">
+  <a class="crumbs__back" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg>Назад</a>
+  <span class="crumbs__div"></span>
+  <nav class="crumbs__nav">
+    <a class="crumb" href="#">Мои резюме</a>
+    <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+    <span class="crumb crumb--current">Новое резюме</span>
+  </nav>
+</div></div>
+
+<main class="gen">
+  <div class="genmode">
+    <button class="genmode__btn genmode__btn--active">🎯 Под вакансию</button>
+    <button class="genmode__btn">📄 Общее резюме</button>
+    <button class="genmode__btn">👤 Мой профиль</button>
+  </div>
+
+  <div class="gen__head">
+    <div class="gen__badge"><span>✨</span>AI собирает резюме под конкретную вакансию</div>
+    <h1 class="gen__h1">Новое резюме под вакансию</h1>
+    <p class="gen__sub">Дайте вакансию и выберите профиль — AI подчеркнёт нужный опыт, добавит ключевые слова и соберёт резюме под требования работодателя.</p>
+  </div>
+
+  <div class="gen__grid">
+    <div class="gen__col">
+      <!-- Step 1 -->
+      <section class="step">
+        <div class="step__head"><div class="step__num">1</div><div class="step__title">Вакансия</div></div>
+        <div class="seg">
+          <button class="seg__btn seg__btn--active">Ссылка</button>
+          <button class="seg__btn">Текст вакансии</button>
+          <button class="seg__btn">Файл</button>
+        </div>
+        <div class="gen-field">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"></path><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"></path></svg>
+          <input class="gen-input" placeholder="hh.ru/vacancy/...  или  career.avito.com/...">
+        </div>
+        <div class="insight">
+          <div class="insight__head"><span class="insight__badge">✦</span>AI разобрал вакансию</div>
+          <div class="insight__fields">
+            <div><div class="insight__label">Компания</div><div class="insight__val">Авито</div></div>
+            <div><div class="insight__label">Роль</div><div class="insight__val">Frontend-разработчик</div></div>
+            <div><div class="insight__label">Уровень</div><div class="insight__val">Senior</div></div>
+          </div>
+          <div class="insight__kwlabel">Ключевые требования</div>
+          <div class="insight__kw">
+            <span class="kw">React</span><span class="kw">TypeScript</span><span class="kw">Next.js</span><span class="kw">Тимлид 5+</span><span class="kw">A/B-тесты</span><span class="kw">Performance</span><span class="kw">CI/CD</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 2 -->
+      <section class="step">
+        <div class="step__head"><div class="step__num">2</div><div class="step__title">На основе чего</div></div>
+        <div class="profiles">
+          <button class="profile-card profile-card--active">
+            <div class="profile-card__row"><div class="profile-card__icon">👤</div><div class="profile-card__check"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></div></div>
+            <div class="profile-card__t">Базовый профиль</div>
+            <div class="profile-card__d">Алексей Иванов · Frontend · 6 лет опыта</div>
+          </button>
+          <button class="profile-card">
+            <div class="profile-card__row"><div class="profile-card__icon">📄</div></div>
+            <div class="profile-card__t">Загрузить старое резюме</div>
+            <div class="profile-card__d">PDF или DOCX — AI извлечёт опыт</div>
+          </button>
+          <button class="profile-card">
+            <div class="profile-card__row"><div class="profile-card__icon">🔗</div></div>
+            <div class="profile-card__t">Импорт с hh.ru</div>
+            <div class="profile-card__d">Подтянуть данные из профиля</div>
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 3 -->
+      <section class="step">
+        <div class="step__head"><div class="step__num">3</div><div class="step__title">Акценты <span class="muted">— необязательно</span></div></div>
+        <p class="step__hint">Подскажите AI, на чём сделать упор</p>
+        <div class="emph">
+          <button class="emph-chip emph-chip--active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg>Подчеркнуть лидерство</button>
+          <button class="emph-chip">Скрыть нерелевантное</button>
+          <button class="emph-chip">Ключевые слова ATS</button>
+          <button class="emph-chip">Добавить метрики</button>
+          <button class="emph-chip">Уместить в 1 страницу</button>
+        </div>
+        <textarea class="gen-textarea" style="min-height:80px" placeholder="Например: упор на управление командой, упомянуть запуск маркетплейса, тон — деловой…"></textarea>
+      </section>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary">
+      <div class="summary__top">
+        <div class="summary__cap">Что получится</div>
+        <div class="summary__target">
+          <div class="avatar-co" style="--co:#7c3aed">А</div>
+          <div><div class="summary__role">Frontend-разработчик</div><div class="summary__co">Авито · Удалённо</div></div>
+        </div>
+        <div class="summary__est">
+          <div class="est-ring" style="--deg:320.4deg"><div class="est-ring__hole"></div><div class="est-ring__num">89%</div></div>
+          <div><div class="summary__estlabel">Прогноз ATS-совпадения</div><div class="summary__estsub">Высокий шанс пройти отбор</div></div>
+        </div>
+      </div>
+      <div class="summary__bot">
+        <div class="summary__cap">Совпадение по навыкам</div>
+        <div class="skill-match">
+          <div class="skill-row"><span class="skill-ic skill-ic--ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span><span>React</span></div>
+          <div class="skill-row"><span class="skill-ic skill-ic--ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span><span>TypeScript</span></div>
+          <div class="skill-row"><span class="skill-ic skill-ic--ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span><span>Next.js</span></div>
+          <div class="skill-row"><span class="skill-ic skill-ic--ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M5 12l5 5 9-11"></path></svg></span><span>Лидерство команды</span></div>
+          <div class="skill-row"><span class="skill-ic skill-ic--miss"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"></path></svg></span><span style="color:var(--text-3)">GraphQL</span></div>
+          <div class="skill-row"><span class="skill-ic skill-ic--miss"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"></path></svg></span><span style="color:var(--text-3)">Highload</span></div>
+        </div>
+        <button class="btn-build"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3l1.9 5.8H20l-5 3.6 1.9 5.8L12 14.6 7.1 18.2 9 12.4 4 8.8h6.1z"></path></svg>Собрать резюме</button>
+        <div class="summary__hintline"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Готово примерно за 30 секунд · 1 генерация</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="foot__top">
+    <div class="foot__brand"><span class="logo-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span><div><div class="foot__brand-name">Резюмирую</div><div class="foot__brand-sub">AI-резюме под каждую вакансию</div></div></div>
+    <nav class="foot__nav"><a href="#">Тарифы</a><a href="#">Публичная оферта</a><a href="#">Политика конфиденциальности</a><a href="#">Контакты</a></nav>
+  </div>
+  <div class="foot__bottom"><div class="foot__bottom-in">© 2025 Резюмирую.рф</div></div>
+</footer>
+
+</body>
+</html>

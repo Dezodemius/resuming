@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>preview · library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+</head>
+<body>
+
+<header class="appbar">
+  <a class="appbar__logo" href="#"><span class="logo-mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span><span class="brand">Резюмирую</span></a>
+  <nav class="nav">
+    <a class="nav__btn nav__btn--active" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg><span data-navlabel>Мои резюме</span></a>
+    <a class="nav__cta" href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg><span data-navlabel>Создать</span></a>
+  </nav>
+  <div class="appbar__right">
+    <button id="theme-btn" class="theme-btn" type="button" onclick="(function(){var d=document.documentElement;if(d.getAttribute('data-theme')==='light'){d.removeAttribute('data-theme');this.textContent='🌙';}else{d.setAttribute('data-theme','light');this.textContent='☀️';}}).call(this)">🌙</button>
+    <span class="avatar-user">АИ</span>
+  </div>
+</header>
+
+<div class="crumbs"><div class="crumbs__inner"><nav class="crumbs__nav">
+  <a class="crumb" href="#">Мои резюме</a>
+  <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+  <span class="crumb crumb--current" id="crumb-view">Лента</span>
+</nav></div></div>
+
+<main class="lib">
+  <div class="greet">
+    <div>
+      <div class="greet__date" id="greet-date"></div>
+      <h1 class="greet__h1" id="greet-h1">С возвращением 👋</h1>
+      <p class="greet__sub" id="greet-sub"></p>
+    </div>
+    <a class="btn-primary" href="#"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Создать резюме</a>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar">
+    <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4-4"></path></svg><input id="search" type="text" placeholder="Поиск по компаниям и вакансиям…" autocomplete="off"></div>
+    <div class="chips" id="chips"></div>
+    <div class="views">
+      <button class="view-btn" data-view="board" type="button" aria-label="Доска"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="14" rx="1.5"></rect></svg></button>
+      <button class="view-btn" data-view="feed" type="button" aria-label="Лента"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg></button>
+      <button class="view-btn" data-view="explorer" type="button" aria-label="Проводник"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1.5"></rect><rect x="13" y="4" width="8" height="7" rx="1.5"></rect><rect x="13" y="14" width="8" height="6" rx="1.5"></rect></svg></button>
+    </div>
+  </div>
+  <div id="lib-content"></div>
+</main>
+
+<footer class="foot">
+  <div class="foot__top">
+    <div class="foot__brand"><span class="logo-mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg></span><div><div class="foot__brand-name">Резюмирую</div><div class="foot__brand-sub">AI-резюме под каждую вакансию</div></div></div>
+    <nav class="foot__nav"><a href="#">Тарифы</a><a href="#">Публичная оферта</a><a href="#">Политика конфиденциальности</a><a href="#">Контакты</a></nav>
+  </div>
+  <div class="foot__bottom"><div class="foot__bottom-in">© 2025 Резюмирую.рф</div></div>
+</footer>
+
+<script>
+const STATUS = {
+  draft:{label:'Черновик',c:'#e0a416',bg:'rgba(224,164,22,0.15)'},
+  sent:{label:'Отправлено',c:'#10b981',bg:'rgba(16,185,129,0.15)'},
+  waiting:{label:'Ждём ответа',c:'#3b82f6',bg:'rgba(59,130,246,0.15)'},
+  accepted:{label:'Приглашение',c:'#a855f7',bg:'rgba(168,85,247,0.15)'},
+  rejected:{label:'Отказ',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
+};
+const STATUS_ORDER=['draft','sent','waiting','accepted','rejected'];
+const FILTERS=[['all','Все'],['draft','Черновики'],['sent','Отправлено'],['waiting','Ждём'],['accepted','Приглашения'],['rejected','Отказы']];
+const CO_COLORS={'яндекс':'#ef4444','авито':'#7c3aed','т-банк':'#f4c20d','озон':'#2563eb','vk':'#0ea5e9'};
+const PALETTE=['#ef4444','#7c3aed','#2563eb','#0ea5e9','#f4c20d','#0ea372','#f97316','#ec4899'];
+const D=86400000, now=Date.now();
+let resumes=[
+ {id:1,company_name:'Яндекс',status:'waiting',match:91,title:'Senior Frontend Developer',salary:'350–450k ₽',location:'Москва · гибрид',updated:new Date(now-2*D).toISOString()},
+ {id:2,company_name:'Яндекс',status:'sent',match:84,title:'Team Lead, Фронтенд',salary:'от 450k ₽',location:'Москва',updated:new Date(now-5*D).toISOString()},
+ {id:3,company_name:'Авито',status:'sent',match:88,title:'Frontend-разработчик (React)',salary:'300–400k ₽',location:'Удалённо',updated:new Date(now-1*D).toISOString()},
+ {id:4,company_name:'Авито',status:'draft',match:79,title:'Старший инженер интерфейсов',salary:'по договорённости',location:'СПб · офис',updated:new Date(now-3*D).toISOString()},
+ {id:5,company_name:'Т-Банк',status:'waiting',match:86,title:'Ведущий Frontend-инженер',salary:'380–500k ₽',location:'Москва · гибрид',updated:new Date(now).toISOString()},
+ {id:6,company_name:'Озон',status:'accepted',match:90,title:'Senior React Developer',salary:'400–520k ₽',location:'Удалённо',updated:new Date(now-1*D).toISOString()},
+ {id:7,company_name:'Озон',status:'sent',match:82,title:'Фронтенд-разработчик (Маркетплейс)',salary:'280–360k ₽',location:'Москва',updated:new Date(now-4*D).toISOString()},
+ {id:8,company_name:'VK',status:'draft',match:77,title:'Фронтенд-разработчик',salary:'250–340k ₽',location:'СПб · гибрид',updated:new Date(now-7*D).toISOString()},
+];
+let state={view:'feed',filter:'all',query:'',selected:0};
+
+document.getElementById('greet-date').textContent=formatToday();
+document.getElementById('greet-h1').innerHTML='С возвращением, Алексей <span>👋</span>';
+document.getElementById('search').addEventListener('input',e=>{state.query=e.target.value;renderContent();});
+document.querySelectorAll('.view-btn').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+renderStats();renderChips();syncViewButtons();renderContent();
+
+function coKey(name){return (name||'Без компании').trim().toLowerCase()||'без компании';}
+function coColor(name){const k=coKey(name);if(CO_COLORS[k])return CO_COLORS[k];let h=0;for(const ch of k)h=(h*31+ch.charCodeAt(0))>>>0;return PALETTE[h%PALETTE.length];}
+function coInitial(name){const n=(name||'?').trim();if(!n)return '?';return n.length<=3?n.toUpperCase():n[0].toUpperCase();}
+function vacTitle(v){return v.title||v.company_name||'Резюме';}
+function matchVac(v){const q=state.query.trim().toLowerCase();const okS=state.filter==='all'||v.status===state.filter;const okQ=!q||vacTitle(v).toLowerCase().includes(q)||(v.company_name||'').toLowerCase().includes(q);return okS&&okQ;}
+function buildCompanies(filtered){const map=new Map();for(const r of resumes){if(filtered&&!matchVac(r))continue;const key=coKey(r.company_name);if(!map.has(key))map.set(key,{name:(r.company_name||'Без компании').trim()||'Без компании',vacancies:[]});map.get(key).vacancies.push(r);}return [...map.values()].map(co=>{const ms=co.vacancies.map(v=>v.match).filter(m=>m!=null);co.avgMatch=ms.length?Math.round(ms.reduce((a,b)=>a+b,0)/ms.length):null;co.color=coColor(co.name);co.initial=coInitial(co.name);return co;});}
+function renderStats(){const active=resumes.filter(r=>['sent','waiting','accepted'].includes(r.status)).length;const invites=resumes.filter(r=>r.status==='accepted').length;const waiting=resumes.filter(r=>r.status==='waiting').length;const ms=resumes.map(r=>r.match).filter(m=>m!=null);const avg=ms.length?Math.round(ms.reduce((a,b)=>a+b,0)/ms.length):null;const companyCount=new Set(resumes.map(r=>coKey(r.company_name))).size;const cards=[{icon:'📨',label:'Активные отклики',val:active,delta:'в работе'},{icon:'🎯',label:'Приглашения',val:invites,delta:invites?'отлично':''},{icon:'⚡',label:'Средний ATS',val:avg!=null?avg+'%':'—',delta:avg!=null?'по сохранённым':''},{icon:'🕓',label:'Ждём ответа',val:waiting,delta:waiting?'ожидают':''}];document.getElementById('stats').innerHTML=cards.map(s=>`<div class="stat"><div class="stat__head"><span class="stat__icon">${s.icon}</span>${s.label}</div><div class="stat__body"><div class="stat__val">${s.val}</div>${s.delta?`<div class="stat__delta">${s.delta}</div>`:''}</div></div>`).join('');const sub=[];sub.push(`${resumes.length} ${plural(resumes.length,['резюме','резюме','резюме'])} под ${companyCount} ${plural(companyCount,['компанию','компании','компаний'])}`);if(invites)sub.push(`${invites} ${plural(invites,['приглашение','приглашения','приглашений'])}`);if(avg!=null)sub.push(`средний ATS ${avg}%`);document.getElementById('greet-sub').textContent=resumes.length?sub.join(' · '):'Пока нет сохранённых резюме';}
+function renderChips(){document.getElementById('chips').innerHTML=FILTERS.map(([key,label])=>{const cnt=key==='all'?resumes.length:resumes.filter(r=>r.status===key).length;const active=state.filter===key;return `<button class="chip ${active?'chip--active':''}" onclick="setFilter('${key}')">${label}<span class="chip__count">${cnt}</span></button>`;}).join('');}
+function setFilter(key){state.filter=key;renderChips();renderContent();}
+function setView(view){state.view=view;syncViewButtons();renderContent();}
+function syncViewButtons(){document.querySelectorAll('.view-btn').forEach(b=>b.classList.toggle('view-btn--active',b.dataset.view===state.view));document.getElementById('crumb-view').textContent=state.view==='board'?'Доска':state.view==='explorer'?'Проводник':'Лента';document.getElementById('chips').style.display=state.view==='board'?'none':'';}
+function renderContent(){const host=document.getElementById('lib-content');if(!resumes.length){host.innerHTML=emptyHtml();return;}if(state.view==='board')host.innerHTML=boardView();else if(state.view==='explorer')host.innerHTML=explorerView();else host.innerHTML=feedView();}
+function emptyHtml(){return `<div class="lib-empty"><h2>Резюме пока нет</h2><p>Создайте первое резюме в генераторе.</p></div>`;}
+function feedView(){const companies=buildCompanies(true).filter(c=>c.vacancies.length);if(!companies.length)return noMatchHtml();return `<div class="feed">${companies.map(companySection).join('')}</div>`;}
+function companySection(co){return `<section class="company"><div class="company__head"><div class="avatar-co" style="--co:${co.color}">${esc(co.initial)}</div><div class="company__title"><div class="company__name">${esc(co.name)}</div><div class="company__meta">${co.vacancies.length} ${plural(co.vacancies.length,['вакансия','вакансии','вакансий'])}${co.avgMatch!=null?' · средний ATS '+co.avgMatch+'%':''}</div></div>${co.avgMatch!=null?`<span class="ats-pill">ATS ${co.avgMatch}%</span>`:''}<a class="btn-soft" href="#"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме</a></div><div class="vac-grid">${co.vacancies.map(vacCard).join('')}</div></section>`;}
+function vacCard(v){const st=STATUS[v.status]||STATUS.draft;const meta=metaLine(v);return `<button class="vac" onclick="void 0"><div class="vac__top"><span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>${ringHtml(v.match)}</div><div class="vac__title">${esc(vacTitle(v))}</div>${meta?`<div class="vac__meta">${meta}</div>`:''}<div class="vac__foot"><span class="vac__updated">${esc(relTime(v.updated))}</span><span class="vac__open">Открыть<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span></div></button>`;}
+function boardView(){const items=resumes.filter(matchVac);return `<div class="board">${STATUS_ORDER.map(k=>{const st=STATUS[k];const col=items.filter(v=>v.status===k);return `<div class="col"><div class="col__head"><span class="col__dot" style="--st:${st.c};--st-bg:${st.bg}"></span><span class="col__label">${st.label}</span><span class="col__count">${col.length}</span></div>${col.map(bcard).join('')}<a class="col__add" href="#"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Добавить</a></div>`;}).join('')}</div>`;}
+function bcard(v){const foot=(v.salary||v.location)?`<div class="bcard__foot"><span class="bcard__salary">${esc(v.salary||'')}</span><span class="bcard__loc">${esc(v.location||'')}</span></div>`:'';return `<button class="bcard" onclick="void 0"><div class="bcard__top"><div class="avatar-co" style="--co:${coColor(v.company_name)}">${esc(coInitial(v.company_name))}</div><span class="bcard__co">${esc(v.company_name||'Без компании')}</span>${ringHtml(v.match)}</div><div class="bcard__title">${esc(vacTitle(v))}</div>${foot}</button>`;}
+function explorerView(){const companies=buildCompanies(true).filter(c=>c.vacancies.length);if(!companies.length)return noMatchHtml();let idx=state.selected;if(idx>=companies.length||idx<0)idx=0;state.selected=idx;const active=companies[idx];const aside=companies.map((co,i)=>`<button class="co-row ${i===idx?'co-row--active':''}" onclick="selectCompany(${i})"><div class="avatar-co" style="--co:${co.color}">${esc(co.initial)}</div><div class="co-row__body"><div class="co-row__name">${esc(co.name)}</div><div class="co-row__meta">${co.vacancies.length} ${plural(co.vacancies.length,['вакансия','вакансии','вакансий'])}${co.avgMatch!=null?' · ATS '+co.avgMatch+'%':''}</div></div><svg class="co-row__chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg></button>`).join('');const rows=active.vacancies.map(v=>{const st=STATUS[v.status]||STATUS.draft;const meta=[v.salary,v.location,relTime(v.updated)].filter(Boolean).map(esc).join('<span class="dot">·</span>');return `<button class="vrow" onclick="void 0">${ringHtml(v.match)||'<span style="width:46px;flex-shrink:0"></span>'}<div class="vrow__body"><div class="vrow__title">${esc(vacTitle(v))}</div><div class="vrow__meta">${meta}</div></div><span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span><svg class="vrow__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg></button>`;}).join('');return `<div class="explorer"><div class="explorer__aside"><div class="explorer__asidetitle">Компании · ${companies.length}</div><div class="co-rows">${aside}</div></div><div class="explorer__main"><div class="explorer__head"><div class="avatar-co" style="--co:${active.color}">${esc(active.initial)}</div><div class="explorer__co"><div class="explorer__coname">${esc(active.name)}</div><div class="explorer__cometa">${active.vacancies.length} ${plural(active.vacancies.length,['вакансия','вакансии','вакансий'])}${active.avgMatch!=null?' · средний ATS '+active.avgMatch+'%':''}</div></div><a class="btn-primary" href="#" style="height:40px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме</a></div><div class="explorer__list">${rows}</div></div></div>`;}
+function selectCompany(i){state.selected=i;renderContent();}
+function ringHtml(match){if(match==null)return '';return `<div class="ring" style="--deg:${match*3.6}deg"><div class="ring__hole"></div><span class="ring__num">${match}</span></div>`;}
+function metaLine(v){return [v.salary,v.location].filter(Boolean).map(esc).join('<span class="dot">·</span>');}
+function noMatchHtml(){return `<div class="lib-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить поиск или фильтр.</p></div>`;}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function plural(n,forms){const a=Math.abs(n)%100,b=n%10;if(a>10&&a<20)return forms[2];if(b>1&&b<5)return forms[1];if(b===1)return forms[0];return forms[2];}
+function formatToday(){const s=new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});return s.charAt(0).toUpperCase()+s.slice(1);}
+function relTime(iso){if(!iso)return '';const d=new Date(iso);if(isNaN(d))return '';const days=Math.floor((Date.now()-d.getTime())/86400000);if(days<=0)return 'обновлено сегодня';if(days===1)return 'обновлено вчера';if(days<7)return `обновлено ${days} ${plural(days,['день','дня','дней'])} назад`;return 'обновлено '+d.toLocaleDateString('ru-RU',{day:'2-digit',month:'short'});}
+</script>
+</body>
+</html>

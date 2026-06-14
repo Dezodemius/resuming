@@ -5,647 +5,415 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Мои резюме — Резюмирую.рф</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/static/site.webmanifest">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --navy:#0F1C3F;--navy-l:#1a3060;
-  --gold:#F0A520;
-  --bg:#F2F5FA;--card:#fff;
-  --text:#1E293B;--muted:#64748B;--light:#94A3B8;
-  --border:#E2E8F0;--border-d:#CBD5E1;
-  --danger:#EF4444;--success:#059669;
-}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;font-size:14px;min-height:100vh}
-
-/* ── Header ── */
-header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px}
-.logo{display:flex;align-items:center;text-decoration:none}
-.header-nav{display:flex;align-items:center;gap:6px}
-.nav-link{color:rgba(255,255,255,.6);font-size:13px;text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .15s}
-.nav-link:hover{color:#fff;background:rgba(255,255,255,.1)}
-.nav-link.active{color:#fff;background:rgba(255,255,255,.12)}
-.header-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.user-chip{display:flex;align-items:center;gap:8px}
-.user-avatar-init{width:28px;height:28px;border-radius:50%;background:var(--gold);color:var(--navy);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
-.user-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(255,255,255,.3)}
-.user-name{font-size:13px;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.btn-logout{background:none;border:none;cursor:pointer;color:rgba(255,255,255,.5);font-size:13px;padding:4px;transition:color .15s}
-.btn-logout:hover{color:#fff}
-
-/* ── Page layout ── */
-.page{max-width:1100px;margin:0 auto;padding:2rem 1.5rem}
-
-/* ── Stats bar ── */
-.stats-row{display:flex;gap:10px;margin-bottom:1.75rem;flex-wrap:wrap}
-.stat-chip{background:var(--card);border:0.5px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;flex-direction:column;gap:2px;min-width:110px}
-.stat-val{font-size:22px;font-weight:700;color:var(--navy);line-height:1}
-.stat-lbl{font-size:11px;color:var(--muted)}
-
-/* ── Page header ── */
-.page-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;gap:12px;flex-wrap:wrap}
-.page-head h1{font-size:20px;font-weight:700}
-.btn-new{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;transition:opacity .15s}
-.btn-new:hover{opacity:.88}
-
-/* ── Empty state ── */
-.empty{text-align:center;padding:5rem 2rem;color:var(--light)}
-.empty svg{opacity:.3;display:block;margin:0 auto 1.25rem}
-.empty h2{font-size:17px;font-weight:600;color:var(--muted);margin-bottom:6px}
-.empty p{font-size:13px;margin-bottom:1.5rem;line-height:1.6}
-
-/* ── Cards grid ── */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-
-/* ── Card ── */
-.card{background:var(--card);border:0.5px solid var(--border);border-radius:12px;overflow:visible;transition:border-color .15s;position:relative}
-.card:hover{border-color:var(--border-d)}
-.card.deleting{border-color:var(--danger);background:#FFF5F5}
-
-.card-top{padding:16px 16px 12px;display:flex;align-items:flex-start;gap:12px}
-.avatar{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex-shrink:0;letter-spacing:-.5px}
-.card-info{flex:1;min-width:0}
-.company-input{font-size:14px;font-weight:600;color:var(--text);background:none;border:none;outline:none;width:100%;padding:0;font-family:inherit;cursor:text;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.company-input:focus{background:var(--bg);border-bottom:1.5px solid var(--navy);padding:0 2px;cursor:text}
-.card-role{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-
-.card-meta{padding:0 16px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.kind-badge{font-size:11px;font-weight:500;padding:3px 8px;border-radius:12px;white-space:nowrap;background:var(--bg);color:var(--muted);border:0.5px solid var(--border)}
-.status-wrap{position:relative}
-.status-btn{font-size:11px;font-weight:500;padding:3px 10px 3px 8px;border-radius:12px;border:none;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px;white-space:nowrap}
-.status-btn::after{content:'↓';font-size:10px;opacity:.6}
-.status-menu{position:absolute;top:calc(100% + 5px);left:0;z-index:50;background:var(--card);border:0.5px solid var(--border-d);border-radius:10px;min-width:170px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.1)}
-.status-opt{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:13px;cursor:pointer;transition:background .1s;color:var(--text)}
-.status-opt:hover{background:var(--bg)}
-.status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-
-.card-footer{padding:10px 16px;border-top:0.5px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}
-.card-date{font-size:11px;color:var(--light)}
-.card-actions{display:flex;gap:4px}
-.card-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:5px 7px;border-radius:6px;transition:all .15s;font-family:inherit;display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500}
-.card-btn:hover{background:var(--bg);color:var(--text)}
-.card-btn.danger:hover{background:#FEE2E2;color:var(--danger)}
-
-/* Delete confirm row */
-.delete-confirm{display:none;padding:10px 16px;background:#FFF5F5;border-top:0.5px solid #FECACA;align-items:center;justify-content:space-between;gap:8px}
-.delete-confirm.on{display:flex}
-.delete-confirm span{font-size:12px;color:#991B1B}
-.delete-confirm-btns{display:flex;gap:6px}
-.btn-confirm-del{padding:5px 12px;background:var(--danger);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
-.btn-cancel-del{padding:5px 12px;background:none;border:0.5px solid var(--border-d);border-radius:6px;font-size:12px;color:var(--muted);cursor:pointer;font-family:inherit}
-
-/* ── Preview modal ── */
-.modal-wrap{display:none;position:fixed;inset:0;z-index:200;padding:24px 16px;align-items:flex-start;justify-content:center;overflow-y:auto}
-.modal-wrap.on{display:flex}
-.modal-backdrop{position:fixed;inset:0;background:rgba(10,20,50,.65)}
-.modal-inner{background:var(--card);border-radius:14px;width:100%;max-width:760px;position:relative;z-index:1;margin:auto}
-.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:0.5px solid var(--border);gap:10px}
-.modal-header h2{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.modal-header-btns{display:flex;gap:8px;flex-shrink:0}
-.modal-header-btns button{padding:7px 14px;border-radius:7px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s}
-.modal-header-btns button:hover{opacity:.88}
-.btn-modal-pdf{background:var(--gold);color:var(--navy)}
-.btn-modal-close{background:var(--bg);color:var(--text);border:0.5px solid var(--border)!important}
-.modal-body{padding:32px 40px;overflow-y:auto}
-@media(max-width:600px){.modal-body{padding:20px}}
-
-/* ── Resume paper (shared with index.html) ── */
-.r-name{font-size:26px;font-weight:800;color:var(--navy);letter-spacing:-.5px;margin-bottom:3px;line-height:1.2}
-.r-role{font-size:13px;color:var(--gold);font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em}
-.r-contacts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--muted);padding-bottom:14px;border-bottom:2.5px solid var(--navy);margin-bottom:18px}
-.r-section{margin-bottom:18px}
-.r-section h2{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--navy);margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid var(--border-d)}
-.r-summary{font-size:12.5px;line-height:1.65;color:#334155}
-.r-exp{margin-bottom:12px}
-.r-exp-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px}
-.r-exp-role{font-size:13px;font-weight:700}
-.r-exp-period{font-size:11px;color:var(--muted);white-space:nowrap;margin-left:8px}
-.r-exp-co{font-size:11.5px;color:var(--muted);margin-bottom:6px}
-.r-bullets{list-style:none;padding:0}
-.r-bullets li{font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative}
-.r-bullets li::before{content:"▸";position:absolute;left:0;color:var(--gold);font-size:10px;top:3px}
-.r-edu-item{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
-.r-edu-item .deg{font-size:13px;font-weight:600}.r-edu-item .inst{font-size:11.5px;color:var(--muted)}
-.r-edu-year{font-size:11.5px;color:var(--muted)}
-.r-skills-row{display:flex;gap:10px;margin-bottom:5px;font-size:12px}
-.r-skill-cat{font-weight:600;min-width:110px}
-.r-langs{font-size:12px;color:#334155}
-
-/* ── Loader ── */
-.loader{display:none;position:fixed;inset:0;background:rgba(10,20,50,.65);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:14px}
-.loader.on{display:flex}
-.spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--gold);animation:spin .75s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loader-text{font-size:14px;font-weight:500;color:#fff}
-
-/* ── Toast ── */
-.toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--navy);color:#fff;padding:10px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:300px;pointer-events:none}
-.toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
-
-/* ── Hidden PDF source ── */
-#pdf-src{position:fixed;left:-9999px;top:0;width:700px;padding:44px 52px;background:#fff;font-family:'Inter',sans-serif}
-</style>
+<link rel="stylesheet" href="/static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 </head>
 <body>
 
-<header>
-  <a class="logo" href="/"><img src="/static/banner.png" alt="Резюмирую.рф" height="34"></a>
-  <nav class="header-nav">
-    <a class="nav-link" href="/">Генератор</a>
-    <a class="nav-link active" href="/resumes">Мои резюме</a>
-  </nav>
-  <div class="header-right">
-    <div class="user-chip" id="user-chip">
-      <div class="user-avatar-init" id="user-av"></div>
-      <span class="user-name" id="user-nm"></span>
-      <button class="btn-logout" onclick="doLogout()" title="Выйти">✕</button>
-    </div>
-  </div>
-</header>
+{% with nav_active = 'library' %}{% include '_app_header.html' %}{% endwith %}
 
-<div class="page">
-
-  <!-- Stats -->
-  <div class="stats-row" id="stats-row" style="display:none">
-    <div class="stat-chip">
-      <div class="stat-val" id="s-total">0</div>
-      <div class="stat-lbl">Всего резюме</div>
-    </div>
-    <div class="stat-chip">
-      <div class="stat-val" id="s-sent">0</div>
-      <div class="stat-lbl">Отправлено</div>
-    </div>
-    <div class="stat-chip">
-      <div class="stat-val" id="s-waiting">0</div>
-      <div class="stat-lbl">Ждём ответа</div>
-    </div>
-    <div class="stat-chip">
-      <div class="stat-val" id="s-accepted">0</div>
-      <div class="stat-lbl">Приглашений</div>
-    </div>
-  </div>
-
-  <!-- Page header -->
-  <div class="page-head">
-    <h1>Мои резюме</h1>
-    <a href="/" class="btn-new">+ Создать новое</a>
-  </div>
-
-  <!-- Empty state -->
-  <div class="empty" id="empty" style="display:none">
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-      <rect x="10" y="6" width="40" height="52" rx="6" stroke="currentColor" stroke-width="2.5"/>
-      <line x1="18" y1="20" x2="46" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <line x1="18" y1="30" x2="46" y2="30" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <line x1="18" y1="40" x2="34" y2="40" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-    <h2>Резюме пока нет</h2>
-    <p>Создайте первое резюме в генераторе.<br>Оно появится здесь после сохранения.</p>
-    <a href="/" class="btn-new">Создать первое резюме</a>
-  </div>
-
-  <!-- Cards grid -->
-  <div class="grid" id="grid"></div>
-
-</div>
-
-<!-- Preview modal -->
-<div class="modal-wrap" id="modal-preview">
-  <div class="modal-backdrop" onclick="closePreview()"></div>
-  <div class="modal-inner">
-    <div class="modal-header">
-      <h2 id="preview-title">Резюме</h2>
-      <div class="modal-header-btns">
-        <button class="btn-modal-pdf" onclick="downloadCurrentPDF()">↓ Скачать PDF</button>
-        <button class="btn-modal-close" onclick="closePreview()">Закрыть</button>
-      </div>
-    </div>
-    <div class="modal-body" id="preview-body"></div>
+<!-- Breadcrumbs -->
+<div class="crumbs">
+  <div class="crumbs__inner">
+    <nav class="crumbs__nav">
+      <a class="crumb" href="/resumes">Мои резюме</a>
+      <svg class="crumbs__sep" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+      <span class="crumb crumb--current" id="crumb-view">Лента</span>
+    </nav>
   </div>
 </div>
 
-<!-- Hidden PDF render area -->
-<div id="pdf-src"></div>
+<main class="lib">
+  <!-- Greeting -->
+  <div class="greet">
+    <div>
+      <div class="greet__date" id="greet-date"></div>
+      <h1 class="greet__h1" id="greet-h1">С возвращением 👋</h1>
+      <p class="greet__sub" id="greet-sub"></p>
+    </div>
+    <a class="btn-primary" href="/">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      Создать резюме
+    </a>
+  </div>
 
-<!-- Loader -->
-<div class="loader" id="loader">
-  <div class="spinner"></div>
-  <div class="loader-text" id="loader-text">Загружаем...</div>
-</div>
+  <!-- Stat cards -->
+  <div class="stats" id="stats"></div>
 
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4-4"></path></svg>
+      <input id="search" type="text" placeholder="Поиск по компаниям и вакансиям…" autocomplete="off">
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="views">
+      <button class="view-btn" data-view="board" type="button" aria-label="Доска">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16" rx="1.5"></rect><rect x="10" y="4" width="5" height="11" rx="1.5"></rect><rect x="17" y="4" width="4" height="14" rx="1.5"></rect></svg>
+      </button>
+      <button class="view-btn" data-view="feed" type="button" aria-label="Лента">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+      </button>
+      <button class="view-btn" data-view="explorer" type="button" aria-label="Проводник">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1.5"></rect><rect x="13" y="4" width="8" height="7" rx="1.5"></rect><rect x="13" y="14" width="8" height="6" rx="1.5"></rect></svg>
+      </button>
+    </div>
+  </div>
+
+  <div id="lib-content"></div>
+</main>
+
+{% include '_app_footer.html' %}
+
+<div class="loader" id="loader"><div class="spinner"></div><div class="loader-text" id="loader-text">Загружаем…</div></div>
 <div class="toast" id="toast"></div>
 
 <script>
-// ── Config ─────────────────────────────────────────────────────────────
+// ── Config ───────────────────────────────────────────────────────────────
 const STATUS = {
-  draft:    { label:'Черновик',    bg:'#F1F5F9', color:'#475569' },
-  sent:     { label:'Отправлено',  bg:'#DBEAFE', color:'#1D4ED8' },
-  waiting:  { label:'Ждём ответа', bg:'#FEF3C7', color:'#B45309' },
-  accepted: { label:'Приглашение', bg:'#D1FAE5', color:'#065F46' },
-  rejected: { label:'Отказ',       bg:'#FEE2E2', color:'#991B1B' },
+  draft:    { label:'Черновик',    c:'#e0a416', bg:'rgba(224,164,22,0.15)' },
+  sent:     { label:'Отправлено',  c:'#10b981', bg:'rgba(16,185,129,0.15)' },
+  waiting:  { label:'Ждём ответа', c:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
+  accepted: { label:'Приглашение', c:'#a855f7', bg:'rgba(168,85,247,0.15)' },
+  rejected: { label:'Отказ',       c:'#ef4444', bg:'rgba(239,68,68,0.15)' },
 };
 const STATUS_ORDER = ['draft','sent','waiting','accepted','rejected'];
-
-const AVATARS = [
-  {bg:'#0F1C3F',text:'#fff'}, {bg:'#0F6E56',text:'#fff'},
-  {bg:'#7F77DD',text:'#fff'}, {bg:'#BA7517',text:'#fff'},
-  {bg:'#993C1D',text:'#fff'},
+const FILTERS = [
+  ['all','Все'], ['draft','Черновики'], ['sent','Отправлено'],
+  ['waiting','Ждём'], ['accepted','Приглашения'], ['rejected','Отказы'],
 ];
-function avatarColor(name) { return AVATARS[(name||'?').charCodeAt(0) % AVATARS.length]; }
+const CO_COLORS = {
+  'яндекс':'#ef4444','авито':'#7c3aed','т-банк':'#f4c20d','тинькофф':'#f4c20d','тбанк':'#f4c20d',
+  'озон':'#2563eb','ozon':'#2563eb','vk':'#0ea5e9','вконтакте':'#0ea5e9',
+  'сбер':'#21a038','сбербанк':'#21a038','wildberries':'#cb11ab','wb':'#cb11ab',
+};
+const PALETTE = ['#ef4444','#7c3aed','#2563eb','#0ea5e9','#f4c20d','#0ea372','#f97316','#ec4899'];
 
-// ── State ──────────────────────────────────────────────────────────────
+// ── State ────────────────────────────────────────────────────────────────
 let resumes = [];
-let currentUser = null;
-let previewId = null;
-let previewResume = null;
+let state = {
+  view:   (localStorage.getItem('lib_view') || 'feed'),
+  filter: 'all',
+  query:  '',
+  selected: 0,
+};
+if (!['feed','board','explorer'].includes(state.view)) state.view = 'feed';
 
-// ── Boot ───────────────────────────────────────────────────────────────
+// ── Boot ─────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-  // Auth check
-  const me = await fetch('/api/me').then(r => r.json());
+  document.getElementById('greet-date').textContent = formatToday();
+  const me = await fetch('/api/me').then(r => r.json()).catch(() => ({authenticated:false}));
   if (!me.authenticated) { window.location.href = '/?auth_required=1'; return; }
-  currentUser = me;
+  if (window.App) App.setAvatar(me);
+  const first = (me.name || '').trim().split(/\s+/)[0];
+  document.getElementById('greet-h1').innerHTML =
+    `С возвращением${first ? ', ' + esc(first) : ''} <span>👋</span>`;
 
-  // Render user chip
-  const av = document.getElementById('user-av');
-  if (me.photo) {
-    const img = document.createElement('img');
-    img.className = 'user-avatar'; img.src = me.photo; img.alt = '';
-    av.replaceWith(img);
-  } else {
-    av.textContent = (me.name || 'U').charAt(0).toUpperCase();
-  }
-  document.getElementById('user-nm').textContent = me.name || me.email || '';
+  // Toolbar wiring
+  document.getElementById('search').addEventListener('input', e => {
+    state.query = e.target.value; renderContent();
+  });
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.addEventListener('click', () => setView(b.dataset.view));
+  });
 
   await loadResumes();
 });
 
-// ── Load & render ──────────────────────────────────────────────────────
 async function loadResumes() {
-  setLoader(true, 'Загружаем резюме...');
+  setLoader(true, 'Загружаем резюме…');
   try {
     const res = await fetch('/api/resumes');
     if (!res.ok) throw new Error('Ошибка загрузки');
-    const d = await res.json();
-    resumes = d.resumes || [];
-    renderAll();
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
+    resumes = (await res.json()).resumes || [];
+    renderStats(); renderChips(); syncViewButtons(); renderContent();
+  } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); }
 }
 
-function renderAll() {
-  const grid   = document.getElementById('grid');
-  const empty  = document.getElementById('empty');
-  const stats  = document.getElementById('stats-row');
+// ── Derived data ─────────────────────────────────────────────────────────
+function coKey(name)  { return (name || 'Без компании').trim().toLowerCase() || 'без компании'; }
+function coColor(name){
+  const k = coKey(name); if (CO_COLORS[k]) return CO_COLORS[k];
+  let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+function coInitial(name){
+  const n = (name || '?').trim(); if (!n) return '?';
+  return n.length <= 3 ? n.toUpperCase() : n[0].toUpperCase();
+}
+function vacTitle(v){ return v.title || v.company_name || 'Резюме'; }
 
-  if (!resumes.length) {
-    empty.style.display = ''; grid.innerHTML = ''; stats.style.display = 'none'; return;
-  }
-  empty.style.display = 'none'; stats.style.display = 'flex';
-
-  // Stats
-  const sent     = resumes.filter(r => ['sent','waiting','accepted','rejected'].includes(r.status)).length;
-  const waiting  = resumes.filter(r => r.status === 'waiting').length;
-  const accepted = resumes.filter(r => r.status === 'accepted').length;
-  document.getElementById('s-total').textContent    = resumes.length;
-  document.getElementById('s-sent').textContent     = sent;
-  document.getElementById('s-waiting').textContent  = waiting;
-  document.getElementById('s-accepted').textContent = accepted;
-
-  grid.innerHTML = resumes.map(renderCard).join('');
+function matchVac(v){
+  const q = state.query.trim().toLowerCase();
+  const okStatus = state.filter === 'all' || v.status === state.filter;
+  const okQuery  = !q || vacTitle(v).toLowerCase().includes(q) ||
+                   (v.company_name || '').toLowerCase().includes(q);
+  return okStatus && okQuery;
 }
 
-function renderCard(r) {
-  const st      = STATUS[r.status] || STATUS.draft;
-  const ac      = avatarColor(r.company_name || '?');
-  const initials= (r.company_name || '?').substring(0,2).toUpperCase();
-  const kindLbl = r.kind === 'matched' ? '🎯 Под вакансию' : '📄 Общее резюме';
-  const date    = formatDate(r.created);
+function buildCompanies(filtered){
+  const map = new Map();
+  for (const r of resumes) {
+    if (filtered && !matchVac(r)) continue;
+    const key = coKey(r.company_name);
+    if (!map.has(key)) map.set(key, { name: (r.company_name || 'Без компании').trim() || 'Без компании', vacancies: [] });
+    map.get(key).vacancies.push(r);
+  }
+  return [...map.values()].map(co => {
+    const ms = co.vacancies.map(v => v.match).filter(m => m != null);
+    co.avgMatch = ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : null;
+    co.color = coColor(co.name); co.initial = coInitial(co.name);
+    return co;
+  });
+}
 
-  const statusOpts = STATUS_ORDER.map(k => {
-    const s = STATUS[k];
-    return `<div class="status-opt" onclick="changeStatus(${r.id},'${k}');event.stopPropagation()">
-      <span class="status-dot" style="background:${s.color}"></span>${s.label}
-    </div>`;
+// ── Stats ────────────────────────────────────────────────────────────────
+function renderStats(){
+  const active = resumes.filter(r => ['sent','waiting','accepted'].includes(r.status)).length;
+  const invites = resumes.filter(r => r.status === 'accepted').length;
+  const waiting = resumes.filter(r => r.status === 'waiting').length;
+  const ms = resumes.map(r => r.match).filter(m => m != null);
+  const avg = ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : null;
+  const companyCount = new Set(resumes.map(r => coKey(r.company_name))).size;
+
+  const cards = [
+    { icon:'📨', label:'Активные отклики', val: active,  delta:'в работе' },
+    { icon:'🎯', label:'Приглашения',      val: invites, delta: invites ? 'отлично' : '' },
+    { icon:'⚡', label:'Средний ATS',       val: avg != null ? avg + '%' : '—', delta: avg != null ? 'по сохранённым' : '' },
+    { icon:'🕓', label:'Ждём ответа',       val: waiting, delta: waiting ? 'ожидают' : '' },
+  ];
+  document.getElementById('stats').innerHTML = cards.map(s => `
+    <div class="stat">
+      <div class="stat__head"><span class="stat__icon">${s.icon}</span>${s.label}</div>
+      <div class="stat__body"><div class="stat__val">${s.val}</div>${s.delta ? `<div class="stat__delta">${s.delta}</div>` : ''}</div>
+    </div>`).join('');
+
+  // greeting subtitle
+  const sub = [];
+  sub.push(`${resumes.length} ${plural(resumes.length, ['резюме','резюме','резюме'])} под ${companyCount} ${plural(companyCount, ['компанию','компании','компаний'])}`);
+  if (invites) sub.push(`${invites} ${plural(invites, ['приглашение','приглашения','приглашений'])}`);
+  if (avg != null) sub.push(`средний ATS ${avg}%`);
+  document.getElementById('greet-sub').textContent = resumes.length ? sub.join(' · ') : 'Пока нет сохранённых резюме';
+}
+
+// ── Chips ────────────────────────────────────────────────────────────────
+function renderChips(){
+  document.getElementById('chips').innerHTML = FILTERS.map(([key, label]) => {
+    const cnt = key === 'all' ? resumes.length : resumes.filter(r => r.status === key).length;
+    const active = state.filter === key;
+    return `<button class="chip ${active ? 'chip--active' : ''}" onclick="setFilter('${key}')">${label}<span class="chip__count">${cnt}</span></button>`;
   }).join('');
+}
+function setFilter(key){ state.filter = key; renderChips(); renderContent(); }
 
-  return `
-  <div class="card" id="card-${r.id}">
-    <div class="card-top">
-      <div class="avatar" style="background:${ac.bg};color:${ac.text}">${esc(initials)}</div>
-      <div class="card-info">
-        <input class="company-input" id="cname-${r.id}"
-               value="${esc(r.company_name||'Без названия')}"
-               title="Нажмите чтобы переименовать"
-               onblur="renameCompany(${r.id},this)"
-               onkeydown="if(event.key==='Enter')this.blur()"
-               onfocus="this.select()">
-        <div class="card-role" id="crole-${r.id}">загрузка...</div>
-      </div>
-    </div>
+// ── Views ────────────────────────────────────────────────────────────────
+function setView(view){
+  state.view = view; localStorage.setItem('lib_view', view);
+  syncViewButtons(); renderContent();
+}
+function syncViewButtons(){
+  document.querySelectorAll('.view-btn').forEach(b =>
+    b.classList.toggle('view-btn--active', b.dataset.view === state.view));
+  document.getElementById('crumb-view').textContent =
+    state.view === 'board' ? 'Доска' : state.view === 'explorer' ? 'Проводник' : 'Лента';
+  // chips hidden in board view (per design)
+  document.getElementById('chips').style.display = state.view === 'board' ? 'none' : '';
+}
 
-    <div class="card-meta">
-      <span class="kind-badge">${kindLbl}</span>
-      <div class="status-wrap" id="sw-${r.id}">
-        <button class="status-btn" id="sbtn-${r.id}"
-                style="background:${st.bg};color:${st.color}"
-                onclick="toggleStatus(${r.id});event.stopPropagation()">
-          ${st.label}
-        </button>
-        <div class="status-menu" id="smenu-${r.id}" style="display:none">
-          ${statusOpts}
-        </div>
-      </div>
-    </div>
+function renderContent(){
+  const host = document.getElementById('lib-content');
+  if (!resumes.length) { host.innerHTML = emptyHtml(); return; }
+  if (state.view === 'board')        host.innerHTML = boardView();
+  else if (state.view === 'explorer') host.innerHTML = explorerView();
+  else                                host.innerHTML = feedView();
+}
 
-    <div class="card-footer">
-      <span class="card-date">${date}</span>
-      <div class="card-actions">
-        <button class="card-btn" onclick="window.location.href='/resumes/${r.id}'" title="Открыть редактор">✏️ Открыть</button>
-        <button class="card-btn" onclick="downloadCardPDF(${r.id})" title="PDF">↓ PDF</button>
-        <button class="card-btn danger" onclick="startDelete(${r.id})" title="Удалить">✕</button>
-      </div>
-    </div>
-
-    <div class="delete-confirm" id="dc-${r.id}">
-      <span>Удалить это резюме?</span>
-      <div class="delete-confirm-btns">
-        <button class="btn-confirm-del" onclick="confirmDelete(${r.id})">Удалить</button>
-        <button class="btn-cancel-del"  onclick="cancelDelete(${r.id})">Отмена</button>
-      </div>
-    </div>
+function emptyHtml(){
+  return `<div class="lib-empty">
+    <h2>Резюме пока нет</h2>
+    <p>Создайте первое резюме в генераторе — оно появится здесь после сохранения.</p>
+    <a class="btn-primary" href="/">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+      Создать резюме
+    </a>
   </div>`;
 }
 
-// Lazy-load roles from API (only on visible cards)
-async function loadCardRoles() {
-  for (const r of resumes) {
-    const el = document.getElementById(`crole-${r.id}`);
-    if (!el) continue;
-    try {
-      const res = await fetch(`/api/resumes/${r.id}`);
-      const d   = await res.json();
-      if (el) el.textContent = d.resume_data?.target_role || '—';
-    } catch { if (el) el.textContent = '—'; }
-  }
+// ── Feed ─────────────────────────────────────────────────────────────────
+function feedView(){
+  const companies = buildCompanies(true).filter(c => c.vacancies.length);
+  if (!companies.length) return noMatchHtml();
+  return `<div class="feed">${companies.map(companySection).join('')}</div>`;
 }
-
-// Call lazy-load after render
-function renderAll() {
-  const grid   = document.getElementById('grid');
-  const empty  = document.getElementById('empty');
-  const stats  = document.getElementById('stats-row');
-
-  if (!resumes.length) {
-    empty.style.display = ''; grid.innerHTML = ''; stats.style.display = 'none'; return;
-  }
-  empty.style.display = 'none'; stats.style.display = 'flex';
-
-  const sent     = resumes.filter(r => ['sent','waiting','accepted','rejected'].includes(r.status)).length;
-  const waiting  = resumes.filter(r => r.status === 'waiting').length;
-  const accepted = resumes.filter(r => r.status === 'accepted').length;
-  document.getElementById('s-total').textContent    = resumes.length;
-  document.getElementById('s-sent').textContent     = sent;
-  document.getElementById('s-waiting').textContent  = waiting;
-  document.getElementById('s-accepted').textContent = accepted;
-
-  grid.innerHTML = resumes.map(renderCard).join('');
-  loadCardRoles();  // populate roles asynchronously
-}
-
-// ── Status ─────────────────────────────────────────────────────────────
-function toggleStatus(id) {
-  const menu = document.getElementById(`smenu-${id}`);
-  // Close all other open menus
-  document.querySelectorAll('.status-menu').forEach(m => {
-    if (m.id !== `smenu-${id}`) m.style.display = 'none';
-  });
-  menu.style.display = menu.style.display === 'none' ? '' : 'none';
-}
-// Close menus on outside click
-document.addEventListener('click', () => {
-  document.querySelectorAll('.status-menu').forEach(m => m.style.display = 'none');
-});
-
-async function changeStatus(id, newStatus) {
-  document.getElementById(`smenu-${id}`).style.display = 'none';
-  const r = resumes.find(x => x.id === id);
-  if (!r || r.status === newStatus) return;
-  r.status = newStatus;
-
-  // Update button UI immediately
-  const st   = STATUS[newStatus] || STATUS.draft;
-  const btn  = document.getElementById(`sbtn-${id}`);
-  btn.style.background = st.bg;
-  btn.style.color      = st.color;
-  btn.textContent      = st.label;
-
-  // Persist
-  try {
-    await fetch(`/api/resumes/${id}`, {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ status: newStatus })
-    });
-    renderStats();
-  } catch(e) { toast('Не удалось сохранить', 'err'); }
-}
-
-function renderStats() {
-  const sent     = resumes.filter(r => ['sent','waiting','accepted','rejected'].includes(r.status)).length;
-  const waiting  = resumes.filter(r => r.status === 'waiting').length;
-  const accepted = resumes.filter(r => r.status === 'accepted').length;
-  document.getElementById('s-sent').textContent     = sent;
-  document.getElementById('s-waiting').textContent  = waiting;
-  document.getElementById('s-accepted').textContent = accepted;
-}
-
-// ── Rename ─────────────────────────────────────────────────────────────
-async function renameCompany(id, input) {
-  const newName = input.value.trim();
-  const r = resumes.find(x => x.id === id);
-  if (!r || newName === r.company_name) return;
-  r.company_name = newName;
-
-  // Update avatar initials
-  const av = document.querySelector(`#card-${id} .avatar`);
-  if (av) {
-    const ac = avatarColor(newName);
-    av.textContent = newName.substring(0,2).toUpperCase();
-    av.style.background = ac.bg;
-    av.style.color      = ac.text;
-  }
-
-  try {
-    await fetch(`/api/resumes/${id}`, {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ company_name: newName })
-    });
-  } catch(e) { toast('Не удалось переименовать', 'err'); }
-}
-
-// ── Preview ─────────────────────────────────────────────────────────────
-async function openPreview(id) {
-  setLoader(true, 'Загружаем резюме...');
-  try {
-    const res = await fetch(`/api/resumes/${id}`);
-    const d   = await res.json();
-    if (!res.ok) throw new Error(d.detail);
-    previewId     = id;
-    previewResume = d.resume_data;
-
-    const r = resumes.find(x => x.id === id);
-    document.getElementById('preview-title').textContent =
-      `${r?.company_name || 'Резюме'} · ${previewResume.target_role || ''}`;
-    document.getElementById('preview-body').innerHTML = buildResumeHtml(previewResume);
-    document.getElementById('modal-preview').classList.add('on');
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
-  finally { setLoader(false); }
-}
-function closePreview() {
-  document.getElementById('modal-preview').classList.remove('on');
-}
-
-// ── PDF ─────────────────────────────────────────────────────────────────
-async function downloadCardPDF(id) {
-  setLoader(true, 'Подготовка PDF...');
-  try {
-    const res = await fetch(`/api/resumes/${id}`);
-    const d   = await res.json();
-    if (!res.ok) throw new Error(d.detail);
-    await _generatePDF(d.resume_data);
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
-  finally { setLoader(false); }
-}
-
-function downloadCurrentPDF() {
-  if (!previewResume) return;
-  setLoader(true, 'Создание PDF...');
-  _generatePDF(previewResume).finally(() => setLoader(false));
-}
-
-async function _generatePDF(resumeData) {
-  const el = document.getElementById('pdf-src');
-  el.innerHTML = buildResumeHtml(resumeData);
-  const name = (resumeData.name || 'resume').replace(/\s+/g, '_');
-  await html2pdf().set({
-    margin:[10,10,10,10], filename:`${name}.pdf`,
-    image:{type:'jpeg',quality:.98},
-    html2canvas:{scale:2,useCORS:true,logging:false},
-    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(el).save();
-  el.innerHTML = '';
-}
-
-// ── Delete ──────────────────────────────────────────────────────────────
-function startDelete(id) {
-  document.getElementById(`card-${id}`).classList.add('deleting');
-  document.getElementById(`dc-${id}`).classList.add('on');
-}
-function cancelDelete(id) {
-  document.getElementById(`card-${id}`).classList.remove('deleting');
-  document.getElementById(`dc-${id}`).classList.remove('on');
-}
-async function confirmDelete(id) {
-  setLoader(true, 'Удаляем...');
-  try {
-    const res = await fetch(`/api/resumes/${id}`, { method:'DELETE' });
-    if (!res.ok) throw new Error('Ошибка удаления');
-    resumes = resumes.filter(r => r.id !== id);
-    renderAll();
-    toast('Резюме удалено', 'ok');
-  } catch(e) { toast('Ошибка: ' + e.message, 'err'); cancelDelete(id); }
-  finally { setLoader(false); }
-}
-
-// ── Auth ────────────────────────────────────────────────────────────────
-async function doLogout() {
-  await fetch('/auth/logout', { method:'POST' });
-  window.location.href = '/';
-}
-
-// ── Resume HTML builder ─────────────────────────────────────────────────
-function buildResumeHtml(r) {
-  if (!r) return '';
-  const c = r.contact || {};
-  const contacts = [
-    c.city     && `📍 ${esc(c.city)}`,
-    c.phone    && `📞 ${esc(c.phone)}`,
-    c.email    && `✉️ ${esc(c.email)}`,
-    c.linkedin && `🔗 ${esc(c.linkedin)}`,
-  ].filter(Boolean).map(p => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:14px;font-size:11px;color:#64748B">${p}</span>`).join('');
-
-  const exp = (r.experience || []).map(e => `
-    <div style="margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:1px">
-        <span style="font-size:13px;font-weight:700;color:#1E293B">${esc(e.role||'')}</span>
-        <span style="font-size:11px;color:#94A3B8;white-space:nowrap;margin-left:8px">${esc(e.period||'')}</span>
+function companySection(co){
+  return `<section class="company">
+    <div class="company__head">
+      <div class="avatar-co" style="--co:${co.color}">${esc(co.initial)}</div>
+      <div class="company__title">
+        <div class="company__name">${esc(co.name)}</div>
+        <div class="company__meta">${co.vacancies.length} ${plural(co.vacancies.length, ['вакансия','вакансии','вакансий'])}${co.avgMatch != null ? ' · средний ATS ' + co.avgMatch + '%' : ''}</div>
       </div>
-      <div style="font-size:11.5px;color:#94A3B8;margin-bottom:6px">${esc(e.company||'')}${e.location?' · '+esc(e.location):''}</div>
-      <ul style="list-style:none;padding:0">${(e.bullets||[]).map(b=>`
-        <li style="font-size:12px;color:#334155;line-height:1.55;padding:2px 0 2px 14px;position:relative">
-          <span style="position:absolute;left:0;color:#F0A520;font-size:10px;top:3px">▸</span>${esc(b)}
-        </li>`).join('')}</ul>
-    </div>`).join('');
+      ${co.avgMatch != null ? `<span class="ats-pill">ATS ${co.avgMatch}%</span>` : ''}
+      <a class="btn-soft" href="/"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме</a>
+    </div>
+    <div class="vac-grid">${co.vacancies.map(vacCard).join('')}</div>
+  </section>`;
+}
+function vacCard(v){
+  const st = STATUS[v.status] || STATUS.draft;
+  const meta = metaLine(v);
+  return `<button class="vac" onclick="openResume(${v.id})">
+    <div class="vac__top">
+      <span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>
+      ${ringHtml(v.match)}
+    </div>
+    <div class="vac__title">${esc(vacTitle(v))}</div>
+    ${meta ? `<div class="vac__meta">${meta}</div>` : ''}
+    <div class="vac__foot">
+      <span class="vac__updated">${esc(relTime(v.updated || v.created))}</span>
+      <span class="vac__open">Открыть<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
+    </div>
+  </button>`;
+}
 
-  const edu = (r.education || []).map(e => `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px">
-      <div>
-        <div style="font-size:13px;font-weight:600;color:#1E293B">${esc(e.degree||'')}</div>
-        <div style="font-size:11.5px;color:#94A3B8">${esc(e.institution||'')}</div>
+// ── Board ────────────────────────────────────────────────────────────────
+function boardView(){
+  const items = resumes.filter(matchVac);
+  return `<div class="board">${STATUS_ORDER.map(k => {
+    const st = STATUS[k];
+    const col = items.filter(v => v.status === k);
+    return `<div class="col">
+      <div class="col__head">
+        <span class="col__dot" style="--st:${st.c};--st-bg:${st.bg}"></span>
+        <span class="col__label">${st.label}</span>
+        <span class="col__count">${col.length}</span>
       </div>
-      <div style="font-size:11.5px;color:#94A3B8;white-space:nowrap">${esc(e.year||'')}</div>
-    </div>`).join('');
-
-  const skills = Object.entries(r.skills || {}).map(([cat, items]) => `
-    <div style="display:flex;gap:10px;margin-bottom:5px;font-size:12px">
-      <span style="font-weight:600;color:#1E293B;min-width:110px">${esc(cat)}</span>
-      <span style="color:#334155">${(items||[]).map(esc).join(', ')}</span>
-    </div>`).join('');
-
-  const sectionHead = (label) =>
-    `<h2 style="font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:#0F1C3F;margin-bottom:9px;padding-bottom:4px;border-bottom:1px solid #E2E8F0">${label}</h2>`;
-
-  return `
-    <p style="font-size:26px;font-weight:800;color:#0F1C3F;letter-spacing:-.5px;margin-bottom:3px;line-height:1.2">${esc(r.name||'')}</p>
-    <p style="font-size:13px;color:#F0A520;font-weight:600;margin-bottom:12px;text-transform:uppercase;letter-spacing:.04em">${esc(r.target_role||'')}</p>
-    <div style="padding-bottom:14px;border-bottom:2.5px solid #0F1C3F;margin-bottom:18px;flex-wrap:wrap;display:flex">${contacts}</div>
-    <div style="margin-bottom:18px">${sectionHead('Профессиональный профиль')}<p style="font-size:12.5px;line-height:1.65;color:#334155">${esc(r.summary||'')}</p></div>
-    ${exp ? `<div style="margin-bottom:18px">${sectionHead('Опыт работы')}${exp}</div>` : ''}
-    ${edu ? `<div style="margin-bottom:18px">${sectionHead('Образование')}${edu}</div>` : ''}
-    ${skills ? `<div style="margin-bottom:18px">${sectionHead('Навыки')}${skills}</div>` : ''}
-    ${(r.languages||[]).length ? `<div>${sectionHead('Языки')}<p style="font-size:12px;color:#334155">${r.languages.map(esc).join(' · ')}</p></div>` : ''}
-  `;
+      ${col.map(bcard).join('')}
+      <a class="col__add" href="/"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Добавить</a>
+    </div>`;
+  }).join('')}</div>`;
+}
+function bcard(v){
+  const foot = (v.salary || v.location)
+    ? `<div class="bcard__foot"><span class="bcard__salary">${esc(v.salary || '')}</span><span class="bcard__loc">${esc(v.location || '')}</span></div>` : '';
+  return `<button class="bcard" onclick="openResume(${v.id})">
+    <div class="bcard__top">
+      <div class="avatar-co" style="--co:${coColor(v.company_name)}">${esc(coInitial(v.company_name))}</div>
+      <span class="bcard__co">${esc(v.company_name || 'Без компании')}</span>
+      ${ringHtml(v.match)}
+    </div>
+    <div class="bcard__title">${esc(vacTitle(v))}</div>
+    ${foot}
+  </button>`;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// ── Explorer ─────────────────────────────────────────────────────────────
+function explorerView(){
+  const companies = buildCompanies(true).filter(c => c.vacancies.length);
+  if (!companies.length) return noMatchHtml();
+  let idx = state.selected; if (idx >= companies.length || idx < 0) idx = 0;
+  state.selected = idx;
+  const active = companies[idx];
+
+  const aside = companies.map((co, i) => `
+    <button class="co-row ${i === idx ? 'co-row--active' : ''}" onclick="selectCompany(${i})">
+      <div class="avatar-co" style="--co:${co.color}">${esc(co.initial)}</div>
+      <div class="co-row__body">
+        <div class="co-row__name">${esc(co.name)}</div>
+        <div class="co-row__meta">${co.vacancies.length} ${plural(co.vacancies.length, ['вакансия','вакансии','вакансий'])}${co.avgMatch != null ? ' · ATS ' + co.avgMatch + '%' : ''}</div>
+      </div>
+      <svg class="co-row__chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>`).join('');
+
+  const rows = active.vacancies.map(v => {
+    const st = STATUS[v.status] || STATUS.draft;
+    const meta = [v.salary, v.location, relTime(v.updated || v.created)].filter(Boolean)
+                 .map(esc).join('<span class="dot">·</span>');
+    return `<button class="vrow" onclick="openResume(${v.id})">
+      ${ringHtml(v.match) || '<span style="width:46px;flex-shrink:0"></span>'}
+      <div class="vrow__body"><div class="vrow__title">${esc(vacTitle(v))}</div><div class="vrow__meta">${meta}</div></div>
+      <span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>
+      <svg class="vrow__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>`;
+  }).join('');
+
+  return `<div class="explorer">
+    <div class="explorer__aside">
+      <div class="explorer__asidetitle">Компании · ${companies.length}</div>
+      <div class="co-rows">${aside}</div>
+    </div>
+    <div class="explorer__main">
+      <div class="explorer__head">
+        <div class="avatar-co" style="--co:${active.color}">${esc(active.initial)}</div>
+        <div class="explorer__co">
+          <div class="explorer__coname">${esc(active.name)}</div>
+          <div class="explorer__cometa">${active.vacancies.length} ${plural(active.vacancies.length, ['вакансия','вакансии','вакансий'])}${active.avgMatch != null ? ' · средний ATS ' + active.avgMatch + '%' : ''}</div>
+        </div>
+        <a class="btn-primary" href="/" style="height:40px;font-size:13.5px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме
+        </a>
+      </div>
+      <div class="explorer__list">${rows}</div>
+    </div>
+  </div>`;
 }
-function formatDate(iso) {
+function selectCompany(i){ state.selected = i; renderContent(); }
+
+// ── Shared bits ──────────────────────────────────────────────────────────
+function ringHtml(match){
+  if (match == null) return '';
+  return `<div class="ring" style="--deg:${match * 3.6}deg"><div class="ring__hole"></div><span class="ring__num">${match}</span></div>`;
+}
+function metaLine(v){
+  return [v.salary, v.location].filter(Boolean).map(esc).join('<span class="dot">·</span>');
+}
+function noMatchHtml(){
+  return `<div class="lib-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить поиск или фильтр.</p></div>`;
+}
+function openResume(id){ window.location.href = '/resumes/' + id; }
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function plural(n, forms){
+  const a = Math.abs(n) % 100, b = n % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5)   return forms[1];
+  if (b === 1)          return forms[0];
+  return forms[2];
+}
+function formatToday(){
+  const s = new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function relTime(iso){
   if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('ru-RU', {day:'2-digit',month:'short',year:'numeric'});
+  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return 'обновлено сегодня';
+  if (days === 1) return 'обновлено вчера';
+  if (days < 7)  return `обновлено ${days} ${plural(days, ['день','дня','дней'])} назад`;
+  return 'обновлено ' + d.toLocaleDateString('ru-RU', { day:'2-digit', month:'short' });
 }
 let _tt;
-function toast(msg, type) {
+function toast(msg, type){
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast on' + (type ? ' '+type : '');
-  clearTimeout(_tt);
-  _tt = setTimeout(() => t.classList.remove('on'), 3500);
+  t.textContent = msg; t.className = 'toast on' + (type ? ' ' + type : '');
+  clearTimeout(_tt); _tt = setTimeout(() => t.classList.remove('on'), 3500);
 }
-function setLoader(on, txt) {
+function setLoader(on, txt){
   document.getElementById('loader').classList.toggle('on', on);
   if (txt) document.getElementById('loader-text').textContent = txt;
 }
 </script>
-{% include '_footer.html' %}
 </body>
 </html>
