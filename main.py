@@ -884,8 +884,20 @@ async def call_ai(prompt: str) -> str:
             raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 def _parse_ai(raw: str) -> dict:
-    raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(raw)
+    cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Модель иногда добавляет пояснения вокруг JSON или обрывает ответ
+        # (например при упоре в num_predict). Пытаемся вытащить объект {...}.
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start != -1 and end > start:
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+        log.warning("AI returned non-JSON (len=%d): %s", len(raw), raw[:500])
+        raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
 
 def _save_resume(db, user_id: int, resume: dict, kind: str,
                  company: str = "", job_url: str = "", job_snippet: str = "") -> int:
