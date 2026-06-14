@@ -298,25 +298,40 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 
     return {"resume": resume, "anon_uses_left": ANON_LIMIT - uses - 1}
 
-# ── Health check ──────────────────────────────────────────────────────────
+# ── Health checks ─────────────────────────────────────────────────────────
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
 @app.get("/healthz")
 async def healthz():
-    """Диагностика: жив ли app и доступна ли Ollama с нужной моделью."""
-    ollama = "fail"
-    detail = ""
+    return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+
+
+@app.get("/readyz")
+async def readyz():
+    db_ok = False
+    ollama_ok = False
+    try:
+        with get_db() as db:
+            db.execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        pass
     try:
         async with httpx.AsyncClient(timeout=5) as http:
             r = await http.get(f"{OLLAMA_URL}/api/tags")
         if r.status_code == 200:
-            ollama = "ok"
             models = [m.get("name", "") for m in r.json().get("models", [])]
-            detail = "model_present" if any(MODEL in m for m in models) \
-                     else f"model '{MODEL}' not pulled (have: {', '.join(models) or 'none'})"
-        else:
-            detail = f"HTTP {r.status_code}"
-    except Exception as e:
-        detail = f"{type(e).__name__}: {e}"
-    return {"app": "ok", "ollama": ollama, "model": MODEL, "detail": detail}
+            ollama_ok = any(MODEL in m for m in models)
+    except Exception:
+        pass
+    if db_ok and ollama_ok:
+        return JSONResponse({"status": "ok"}, headers=_NO_STORE)
+    return JSONResponse(
+        {"status": "degraded", "checks": {"db": db_ok, "ollama": ollama_ok}},
+        status_code=503,
+        headers=_NO_STORE,
+    )
 
 # ── Static pages ──────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)

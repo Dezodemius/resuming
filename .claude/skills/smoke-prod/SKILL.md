@@ -20,20 +20,38 @@ MCP-сервер `playwright` настроен в `.mcp.json` проекта (`n
 - Если инструментов `mcp__playwright__*` нет — скажи пользователю переподключить MCP командой `/mcp` и **остановись**. Не пытайся эмулировать проверку через curl/Invoke-WebRequest — смысл скилла именно в реальном браузере.
 - Если первый `browser_navigate` падает с ошибкой про отсутствующий браузер — предложи выполнить (PowerShell): `npx playwright install chromium`, затем повтори.
 
-## Шаг 1. /healthz
+## Шаг 1. /healthz + /readyz
+
+### 1a. Liveness — /healthz
 
 `browser_navigate` → `https://xn--e1aedprev8fe.xn--p1ai/healthz`, прочитай JSON из снапшота.
 
-Эндпоинт **всегда отвечает HTTP 200** (если жив сам app); состояние — внутри JSON:
+Эндпоинт **всегда отвечает HTTP 200** пока процесс жив; ожидаемое тело:
 
 ```json
-{"app": "ok", "ollama": "ok", "model": "qwen2.5:14b", "detail": "model_present"}
+{"status": "ok"}
 ```
 
 Интерпретация:
-- `ollama: "ok"` + `detail: "model_present"` → **PASS**.
-- `ollama: "ok"` + `detail: "model '...' not pulled (have: ...)"` → **FAIL (degraded)**: Ollama жива, но модель не скачана — генерация будет падать. Нужен `ollama pull` на сервере.
-- `ollama: "fail"` + `detail: "ConnectError: ..."` (или иной exception) → **FAIL**: Ollama недоступна; все генерации будут возвращать 503 «Сервис генерации недоступен».
+- `{"status": "ok"}` → **PASS** (процесс живой).
+- Страница не открылась / не-JSON → **FAIL**; см. «Известные режимы отказа» ниже.
+
+### 1b. Readiness — /readyz
+
+`browser_navigate` → `https://xn--e1aedprev8fe.xn--p1ai/readyz`, прочитай JSON из снапшота.
+
+```json
+// всё готово:
+{"status": "ok"}
+
+// деградация (HTTP 503):
+{"status": "degraded", "checks": {"db": true, "ollama": false}}
+```
+
+Интерпретация:
+- `{"status": "ok"}` (HTTP 200) → **PASS**: БД и Ollama + модель доступны.
+- `{"status": "degraded", "checks": {"db": false, ...}}` → **FAIL**: SQLite недоступна.
+- `{"status": "degraded", "checks": {"ollama": false, ...}}` → **FAIL (degraded)**: Ollama недоступна или модель не скачана — генерация будет падать. Нужен `ollama pull qwen2.5:14b` на сервере или перезапуск ollama-контейнера.
 - Страница вообще не открылась / не-JSON → см. «Известные режимы отказа» ниже.
 
 ## Шаг 2. Главная страница
@@ -96,7 +114,8 @@ MCP-сервер `playwright` настроен в `.mcp.json` проекта (`n
 ```
 | # | Проверка                                  | Результат |
 |---|-------------------------------------------|-----------|
-| 1 | /healthz: app ok, ollama ok, model present| PASS/FAIL |
+| 1a| /healthz: процесс живой ({"status":"ok"})  | PASS/FAIL |
+| 1b| /readyz: БД + Ollama + модель доступны    | PASS/FAIL |
 | 2 | Главная: ключевые элементы на месте       | PASS/FAIL |
 | 2a| Консоль без реальных ошибок               | PASS/FAIL |
 | 2b| Нет failed network requests (свой домен)  | PASS/FAIL |
@@ -113,8 +132,8 @@ MCP-сервер `playwright` настроен в `.mcp.json` проекта (`n
 |---|---|---|
 | **522 от Cloudflare** на любой странице | Origin не ответил Cloudflare за таймаут — чаще всего сервер задушен Ollama (OOM/своп при загрузке модели) | Смотреть логи на сервере — скилл `/logs` |
 | **502/521 от Cloudflare** | App/nginx на origin лежит или порт закрыт | `/logs`, `docker compose ps` на сервере |
-| `/healthz` отвечает, но `ollama: "fail"` | App жив, Ollama-контейнер упал/не поднялся | `/logs`, перезапуск ollama-контейнера |
-| `/healthz`: `ollama: "ok"`, но `model '...' not pulled` | Модель слетела (например, после пересоздания volume) | `ollama pull qwen2.5:14b` на сервере |
+| `/healthz` 200, но `/readyz` 503 `ollama: false` | App жив; Ollama упала или модель не скачана | `/logs`, перезапуск ollama-контейнера или `ollama pull qwen2.5:14b` |
+| `/healthz` 200, но `/readyz` 503 `db: false` | App жив; SQLite недоступна (volume, права) | `/logs`, проверить volume `app_data` |
 | Генерация у пользователей падает с **503** «Сервис генерации недоступен. Проверьте Ollama.» | `call_ai` не достучался до Ollama | То же, что и `ollama: "fail"` |
 | **503** «Модель не смогла загрузиться: серверу не хватает памяти» | OOM при загрузке модели | `/logs`, проверить память/своп на сервере |
 | **504** «Генерация заняла слишком долго» | Ollama жива, но отвечает дольше таймаута (перегруз/холодный старт модели) | Повторить позже; если стабильно — `/logs` |
