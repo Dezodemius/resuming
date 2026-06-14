@@ -302,12 +302,12 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])
 async def healthz():
     return JSONResponse({"status": "ok"}, headers=_NO_STORE)
 
 
-@app.get("/readyz")
+@app.api_route("/readyz", methods=["GET", "HEAD"])
 async def readyz():
     db_ok = False
     ollama_ok = False
