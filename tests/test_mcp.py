@@ -42,7 +42,10 @@ async def test_mcp_token_issued_with_session(client):
 async def test_mcp_endpoint_without_auth_is_not_5xx(client):
     # ASGITransport не запускает lifespan — поднимаем session manager вручную
     async with main.app.router.lifespan_context(main.app):
-        # без заголовка Accept: text/event-stream транспорт отвечает 406
+        # Главный инвариант: MCP смонтирован и не падает 5xx.
+        # Конкретный 4xx зависит от версии mcp-транспорта: без заголовка
+        # Accept: text/event-stream старые версии отвечают 406, новые (с
+        # проверкой Host) — 421 на тестовый хост. Принимаем оба.
         r = await client.post("/mcp", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
         assert r.status_code < 500
-        assert r.status_code == 406
+        assert r.status_code in (406, 421)
