@@ -92,4 +92,11 @@ def init_db():
                 user_id    INTEGER NOT NULL,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            -- Индексы под частые выборки по владельцу (иначе full scan при росте)
+            CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
         """)

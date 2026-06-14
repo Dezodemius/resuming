@@ -1020,35 +1020,63 @@ async def fetch_job(request: Request):
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments ───────────────────────────────────────────────────────────────
+def _drop_payment(idem: str) -> None:
+    """Удаляет «висячую» строку платежа, если создать платёж в ЮKassa не удалось."""
+    try:
+        with get_db() as db:
+            db.execute("DELETE FROM payments WHERE idem_key=? AND pay_id IS NULL", (idem,))
+            db.commit()
+    except Exception:
+        log.exception("pay: не удалось удалить висячую строку платежа idem=%s", idem)
+
+
 @app.post("/api/pay")
 async def create_payment(req: PayReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
+
+    # ЮKassa ещё не подключена (нет ключей) — не дёргаем API впустую,
+    # отдаём понятную ошибку и явно пишем причину в лог.
+    if not YOKASSA_SHOP or not YOKASSA_SECRET:
+        log.warning("pay: ЮKassa не настроена (YOKASSA_SHOP_ID/SECRET_KEY пусты), user=%s", user["id"])
+        raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
+
     idem = str(uuid.uuid4())
     with get_db() as db:
         db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
         db.commit()
-    async with httpx.AsyncClient() as http:
-        r = await http.post(
-            "https://api.yookassa.ru/v3/payments",
-            headers={"Idempotence-Key": idem},
-            auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-            json={
-                "amount": {"value": PACK_PRICE, "currency": "RUB"},
-                "confirmation": {"type": "redirect",
-                                 "return_url": f"{APP_URL}/?paid=1"},
-                "capture": True,
-                "description": f"{PAID_PACK} адаптаций резюме",
-                "metadata": {"user_id": user["id"], "idem": idem},
-            },
-        )
-    data = r.json()
-    if "id" not in data:
-        raise HTTPException(502, "ЮKassa недоступна")
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as http:
+            r = await http.post(
+                "https://api.yookassa.ru/v3/payments",
+                headers={"Idempotence-Key": idem},
+                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
+                json={
+                    "amount": {"value": PACK_PRICE, "currency": "RUB"},
+                    "confirmation": {"type": "redirect",
+                                     "return_url": f"{APP_URL}/?paid=1"},
+                    "capture": True,
+                    "description": f"{PAID_PACK} адаптаций резюме",
+                    "metadata": {"user_id": user["id"], "idem": idem},
+                },
+            )
+        data = r.json()
+    except Exception:
+        log.exception("pay: ошибка обращения к ЮKassa (user=%s, idem=%s)", user["id"], idem)
+        _drop_payment(idem)
+        raise HTTPException(502, "Не удалось создать платёж. Попробуйте позже.")
+
+    if "id" not in data or "confirmation" not in data:
+        log.error("pay: неожиданный ответ ЮKassa (status=%s): %s", r.status_code, str(data)[:500])
+        _drop_payment(idem)
+        raise HTTPException(502, "Платёжная система отклонила запрос. Попробуйте позже.")
+
     with get_db() as db:
         db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (data["id"], idem))
         db.commit()
+    log.info("pay: платёж создан user=%s pay_id=%s", user["id"], data["id"])
     return {"url": data["confirmation"]["confirmation_url"]}
 
 @app.post("/api/pay/webhook")
@@ -1073,9 +1101,11 @@ async def payment_webhook(request: Request):
                     if r.status_code == 200 and r.json().get("status") == "succeeded":
                         confirmed = True
             except Exception:
+                log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
                 confirmed = False  # не выдаём Pro при ошибке проверки
 
             if not confirmed:
+                log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
                 return {"ok": False, "reason": "payment_not_confirmed"}
 
             with get_db() as db:
@@ -1103,6 +1133,9 @@ async def payment_webhook(request: Request):
                         (new_exp, user_id)
                     )
                     db.commit()
+                    log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
+                else:
+                    log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
     return {"ok": True}
 
 # Промпты вынесены в prompts.py.

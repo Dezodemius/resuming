@@ -21,10 +21,31 @@ DB_PATH = os.path.join(DATA_DIR, "resume.db")
 _data_dir = DATA_DIR
 
 # ── Logging ─────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
-)
+# Логи идут И в stdout (docker logs), И в ротируемый файл на volume DATA_DIR —
+# чтобы история переживала перезапуски и не зависела от docker log-драйвера.
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_DIR = os.getenv("LOG_DIR", os.path.join(DATA_DIR, "logs"))
+os.makedirs(LOG_DIR, exist_ok=True)
+
+_log_formatter = logging.Formatter("%(asctime)s %(levelname)-7s [%(name)s] %(message)s")
+_log_handlers: list[logging.Handler] = [logging.StreamHandler()]
+try:
+    from logging.handlers import RotatingFileHandler
+
+    _file_handler = RotatingFileHandler(
+        os.path.join(LOG_DIR, "app.log"),
+        maxBytes=10 * 1024 * 1024,  # 10 МБ на файл
+        backupCount=5,              # app.log + app.log.1 … app.log.5
+        encoding="utf-8",
+    )
+    _log_handlers.append(_file_handler)
+except OSError:
+    # ФС только для чтения и т.п. — остаёмся на stdout.
+    pass
+
+for _h in _log_handlers:
+    _h.setFormatter(_log_formatter)
+logging.basicConfig(level=LOG_LEVEL, handlers=_log_handlers)
 log = logging.getLogger("resuming")
 
 # ── Внешние сервисы ─────────────────────────────────────────────────────────

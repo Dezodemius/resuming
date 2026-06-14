@@ -117,3 +117,33 @@ async def test_webhook_with_confirmation_grants_pro(client, monkeypatch):
         row = db.execute("SELECT is_pro, pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()
     assert row["is_pro"] == 1
     assert row["pro_expires_at"]
+
+
+# ── Платёж: понятная ошибка при невыключенной/ненастроенной ЮKassa ──────────
+async def test_pay_requires_auth(client):
+    """Без сессии /api/pay не пускает к платежу."""
+    main.init_db()
+    r = await client.post("/api/pay", json={})
+    assert r.status_code == 401
+
+
+async def test_pay_unconfigured_returns_503(client, monkeypatch):
+    """Без ключей ЮKassa /api/pay отдаёт понятную 503 и не плодит висячих строк."""
+    main.init_db()
+    monkeypatch.setattr(main, "YOKASSA_SHOP", "")
+    monkeypatch.setattr(main, "YOKASSA_SECRET", "")
+    # авторизуемся через magic-ссылку — клиент сохранит session-cookie
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO magic_tokens (token, email, expires_at, used)"
+            " VALUES (?,?,datetime('now','+10 minutes'),0)",
+            ("tok-pay", "payer@test.com"),
+        )
+        db.commit()
+    await client.get("/auth/email/verify?token=tok-pay", follow_redirects=False)
+
+    r = await client.post("/api/pay", json={})
+    assert r.status_code == 503
+    assert "недоступна" in r.json()["detail"].lower()
+    with main.get_db() as db:
+        assert db.execute("SELECT COUNT(*) AS c FROM payments").fetchone()["c"] == 0

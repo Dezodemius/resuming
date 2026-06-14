@@ -1,3 +1,10 @@
+# Общая политика логов: ограничиваем размер, чтобы docker json-log не забил диск.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
 
   # ── Ollama (локальная AI-модель) ──────────────────────────────────────
@@ -5,6 +12,7 @@ services:
     image: ollama/ollama:latest
     container_name: resuming-ollama
     restart: unless-stopped
+    logging: *default-logging
     # Лимит памяти: загрузка слишком большой модели упадёт внутри контейнера,
     # а не задушит всю VM (иначе nginx/app перестают отвечать и сайт отдаёт 522)
     mem_limit: 6g
@@ -28,6 +36,7 @@ services:
     build: .
     container_name: resuming-app
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     environment:
       - OLLAMA_URL=http://ollama:11434   # ollama доступен по имени сервиса
@@ -41,6 +50,7 @@ services:
     image: nginx:alpine
     container_name: resuming-nginx
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
     volumes:
@@ -56,6 +66,7 @@ services:
     build: ./ops_mcp
     container_name: resuming-ops-mcp
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - OPS_MCP_TOKEN=${OPS_MCP_TOKEN}
     volumes:
