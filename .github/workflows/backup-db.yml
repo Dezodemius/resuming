@@ -2,6 +2,8 @@ name: Backup DB
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # ежедневный автоматический бэкап в 03:00 UTC
 
 jobs:
   backup:
@@ -27,6 +29,12 @@ jobs:
           docker compose exec -T app python -c "import sqlite3; src=sqlite3.connect('/app/data/resume.db'); dst=sqlite3.connect('/app/data/_backup_tmp.db'); src.backup(dst); dst.close(); src.close()"
           if ($LASTEXITCODE -ne 0) { Write-Error "Backup inside container failed"; exit 1 }
 
+      - name: Verify backup integrity
+        run: |
+          cd $env:DEPLOY_PATH
+          docker compose exec -T app python -c "import sqlite3,sys; c=sqlite3.connect('/app/data/_backup_tmp.db'); r=c.execute('PRAGMA integrity_check').fetchone()[0]; c.close(); print('integrity:', r); sys.exit(0 if r=='ok' else 1)"
+          if ($LASTEXITCODE -ne 0) { Write-Error "Backup integrity check failed"; exit 1 }
+
       - name: Copy backup to runner workspace
         run: |
           cd $env:DEPLOY_PATH
@@ -44,7 +52,7 @@ jobs:
         with:
           name: resume-db-backup-${{ steps.ts.outputs.stamp }}
           path: resume-backup.db
-          retention-days: 7
+          retention-days: 30
           if-no-files-found: error
 
       # Не оставляем копию БД с PII в рабочей папке раннера.
