@@ -1,14 +1,16 @@
 import asyncio
+import ipaddress
 import logging
 import os
 import json
 import re
+import socket
 import uuid
 import sqlite3
 import hashlib
 import hmac
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -247,8 +249,13 @@ def _verify_telegram(data: dict) -> bool:
 
 def _create_session(db, user_id: int) -> str:
     sid = str(uuid.uuid4())
-    exp = (datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)).isoformat()
-    db.execute("INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)", (sid, user_id, exp))
+    # Срок жизни считаем внутри SQLite (datetime('now', ...)), чтобы формат хранения
+    # совпадал с форматом сравнения в get_current_user. ISO-строка с 'T' и смещением
+    # '+00:00' при текстовом сравнении в SQLite даёт неверный результат на границе суток.
+    db.execute(
+        "INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,datetime('now',?))",
+        (sid, user_id, f"+{SESSION_DAYS} days"),
+    )
     db.commit()
     return sid
 
@@ -296,14 +303,15 @@ def _upsert_user_by_email(db, email: str) -> dict:
     return dict(db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone())
 
 async def _resolve_user(request: Request, body_email: Optional[str] = None) -> Optional[dict]:
-    """Get user from session, or create/fetch by email (backward compat)."""
-    user = await get_current_user(request)
-    if user:
-        return user
-    if body_email:
-        with get_db() as db:
-            return _upsert_user_by_email(db, body_email)
-    return None
+    """Возвращает пользователя ТОЛЬКО из cookie-сессии.
+
+    Раньше был fallback: если сессии нет — брать пользователя по `body_email`
+    без какой-либо проверки. Это давало обход авторизации — любой мог читать и
+    перезаписывать чужой профиль (`GET/POST /api/profile?email=...`) и тратить
+    чужую квоту, зная email жертвы. Fallback убран; параметр сохранён для
+    обратной совместимости сигнатуры вызовов, но больше не используется.
+    """
+    return await get_current_user(request)
 
 # ── Email magic link ──────────────────────────────────────────────────────
 async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
@@ -639,11 +647,15 @@ async def auth_telegram(data: TgAuthData, response: Response):
 @app.post("/auth/email/request")
 async def auth_email_request(req: EmailReq):
     token = str(uuid.uuid4())
-    exp   = (datetime.now() + timedelta(minutes=MAGIC_MINUTES)).isoformat()
     with get_db() as db:
+        # Срок (15 мин) считаем в SQLite, чтобы формат совпал с datetime('now') при
+        # проверке. Раньше хранилась наивная ISO-строка локального времени с 'T':
+        # из-за текстового сравнения '...T...' > '... ...' токен фактически жил до
+        # конца суток UTC, а не 15 минут — обход короткого окна одноразового входа.
         db.execute(
-            "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at) VALUES (?,?,?)",
-            (token, req.email, exp)
+            "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at)"
+            " VALUES (?,?,datetime('now',?))",
+            (token, req.email, f"+{MAGIC_MINUTES} minutes")
         )
         db.commit()
     err = await _send_magic_email(req.email, token)
@@ -1112,25 +1124,62 @@ async def generate(req: GenerateReq, request: Request):
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
 
 # ── Fetch job URL ──────────────────────────────────────────────────────────
+def _assert_public_host(host: str) -> None:
+    """Бросает HTTPException, если host резолвится в приватный/служебный адрес.
+
+    Защита от SSRF: без неё /api/fetch-job (без авторизации) позволял заставить
+    сервер ходить на localhost:11434 (Ollama), внутренние сервисы и cloud
+    metadata 169.254.169.254 — и возвращал тело ответа пользователю.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        raise HTTPException(400, "Не удалось распознать адрес вакансии")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            raise HTTPException(400, "Недопустимый адрес — ссылка ведёт во внутреннюю сеть")
+
 async def _fetch_job_text(url: str) -> str:
-    """Скачивает страницу вакансии и возвращает её текст (без HTML-тегов)."""
-    if not url.startswith("http"):
+    """Скачивает страницу вакансии и возвращает её текст (без HTML-тегов).
+
+    Редиректы следуем вручную и проверяем каждый хоп через _assert_public_host —
+    иначе SSRF-защиту можно обойти редиректом с внешнего URL на внутренний адрес.
+    """
+    if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "Некорректная ссылка на вакансию")
     log.info("fetch-job start: %s", url)
     try:
         async with httpx.AsyncClient(
-            timeout=15, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}
+            timeout=15, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0"}
         ) as h:
-            r = await h.get(url)
+            current = url
+            r = None
+            for _ in range(5):
+                parsed = urlparse(current)
+                if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                    raise HTTPException(400, "Некорректная ссылка на вакансию")
+                _assert_public_host(parsed.hostname)
+                r = await h.get(current)
+                if r.is_redirect and r.headers.get("location"):
+                    current = urljoin(current, r.headers["location"])
+                    continue
+                break
+            else:
+                raise HTTPException(400, "Слишком много перенаправлений по ссылке")
         text = re.sub(r"<[^>]+>", " ", r.text)
         text = re.sub(r"\s+", " ", text).strip()
         log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), r.status_code)
         return text[:4000]
+    except HTTPException:
+        raise
     except Exception as e:
         log.warning("fetch-job failed: %s: %s", url, e)
         raise HTTPException(502, "Не удалось загрузить вакансию по ссылке — вставьте текст вручную")
 
 @app.post("/api/fetch-job")
+@rate("20/minute")
 async def fetch_job(request: Request):
     body = await request.json()
     url  = body.get("url", "").strip()
