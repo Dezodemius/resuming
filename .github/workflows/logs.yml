@@ -19,7 +19,7 @@ jobs:
       DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
     defaults:
       run:
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
       - name: Container status
         run: |
