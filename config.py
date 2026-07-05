@@ -25,7 +25,9 @@ _data_dir = DATA_DIR
 # чтобы история переживала перезапуски и не зависела от docker log-драйвера.
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(DATA_DIR, "logs"))
-os.makedirs(LOG_DIR, exist_ok=True)
+
+if LOG_DIR:
+    os.makedirs(LOG_DIR, exist_ok=True)
 
 _log_formatter = logging.Formatter("%(asctime)s %(levelname)-7s [%(name)s] %(message)s")
 _log_handlers: list[logging.Handler] = [logging.StreamHandler()]
@@ -63,6 +65,12 @@ SMTP_PASS            = os.getenv("SMTP_PASS", "")
 SMTP_FROM            = os.getenv("SMTP_FROM", SMTP_USER)
 YANDEX_CLIENT_ID     = os.getenv("YANDEX_CLIENT_ID", "")
 YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
+VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")
+VK_CLIENT_SECRET     = os.getenv("VK_CLIENT_SECRET", "")
+MAILRU_CLIENT_ID     = os.getenv("MAILRU_CLIENT_ID", "")
+MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
+ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+METRIKA_ID           = os.getenv("METRIKA_ID", "")
 
 # ── Лимиты / тарифы ─────────────────────────────────────────────────────────
 FREE_USES        = 3

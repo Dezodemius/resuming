@@ -6,10 +6,11 @@
 <title>Настройки — Резюмирую.рф</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -121,6 +122,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 .toast.on{opacity:1}.toast.ok{background:#059669}.toast.err{background:#DC2626}
 </style>
 <script src="/static/logger.js"></script>
+{% include '_metrika.html' %}
 </head>
 <body>
 
@@ -169,6 +171,15 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
     </div>
     <div class="usage-bar-bg"><div class="usage-bar-fill" id="u-res-bar" style="width:0%"></div></div>
 
+  </div>
+
+  <!-- Promo code -->
+  <div class="usage-card">
+    <div class="usage-title">Промокод</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" id="promo-input" placeholder="Введите код" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+      <button onclick="activatePromo()" style="padding:8px 16px;background:var(--navy);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:500">Активировать</button>
+    </div>
   </div>
 
   <!-- Payment history -->
@@ -395,6 +406,28 @@ function toast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast on'+(type?' '+type:'');
   clearTimeout(_tt); _tt = setTimeout(()=>t.classList.remove('on'), 4000);
+}
+
+// ── Promo ─────────────────────────────────────────────────────────────────
+async function activatePromo() {
+  const code = document.getElementById('promo-input').value.trim();
+  if (!code) { toast('Введите код', 'err'); return; }
+  try {
+    const res = await fetch('/api/promo/activate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({code})
+    });
+    const d = await res.json();
+    if (res.ok) {
+      toast(d.message, 'ok');
+      document.getElementById('promo-input').value = '';
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      toast(d.detail || 'Ошибка', 'err');
+    }
+  } catch(e) {
+    toast('Ошибка: ' + e.message, 'err');
+  }
 }
 </script>
 {% include '_footer.html' %}
