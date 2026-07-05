@@ -80,3 +80,15 @@ class AnonymousPreviewReq(BaseModel):
     job_url:     str = ""
     target_role: str = ""
     hint:        str = ""
+
+
+class PromoActivateReq(BaseModel):
+    code: str
+
+
+class PromoCreateReq(BaseModel):
+    kind:      str           # "pro_days" | "gen_pack" | "unlimited"
+    value:     int
+    max_uses:  int
+    expires_at: Optional[str] = None
+    comment:   str = ""

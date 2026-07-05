@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Admin — Резюмирую.рф</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="manifest" href="/static/site.webmanifest">
+<link rel="stylesheet" href="/static/app.css">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<style>
+.admin-container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.section { margin-bottom: 32px; }
+.section-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: var(--navy, #0F1C3F); }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text, #1E293B); }
+.form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #E2E8F0); border-radius: 6px; font-size: 14px; }
+.form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border, #E2E8F0); border-radius: 6px; font-size: 14px; resize: vertical; min-height: 80px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px; }
+.btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 14px; }
+.btn-primary { background: var(--navy, #0F1C3F); color: #fff; }
+.btn-primary:hover { opacity: 0.9; }
+.btn-danger { background: #EF4444; color: #fff; }
+.btn-danger:hover { opacity: 0.9; }
+.card { background: #fff; border: 1px solid var(--border, #E2E8F0); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: #fff; border: 1px solid var(--border, #E2E8F0); border-radius: 8px; padding: 16px; text-align: center; }
+.stat-value { font-size: 24px; font-weight: 700; color: var(--navy, #0F1C3F); }
+.stat-label { font-size: 12px; color: var(--muted, #64748B); margin-top: 4px; }
+.table { width: 100%; border-collapse: collapse; }
+.table th { text-align: left; padding: 8px; font-weight: 600; border-bottom: 1px solid var(--border, #E2E8F0); font-size: 12px; }
+.table td { padding: 8px; border-bottom: 1px solid var(--border, #E2E8F0); font-size: 13px; }
+.table tr:hover { background: #f9fafb; }
+.code-display { background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 16px; border-radius: 6px; background: var(--navy, #0F1C3F); color: #fff; font-size: 13px; z-index: 1000; opacity: 0; transition: opacity 0.25s; }
+.toast.show { opacity: 1; }
+.toast.ok { background: #059669; }
+.toast.err { background: #DC2626; }
+</style>
+</head>
+<body>
+{% with nav_active = 'admin' %}{% include '_app_header.html' %}{% endwith %}
+
+<div class="admin-container">
+
+  <!-- Section 1: Create Promo Codes -->
+  <div class="section">
+    <div class="section-title">📝 Создать промокод</div>
+    <div class="card">
+      <div class="form-row">
+        <div class="form-group" style="grid-column: 1;">
+          <label>Тип кода</label>
+          <select id="promo-kind">
+            <option value="pro_days">Pro дни</option>
+            <option value="gen_pack">Пакет генераций</option>
+            <option value="unlimited">Безлимит</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column: 2;">
+          <label>Значение (дни/штуки)</label>
+          <input type="number" id="promo-value" placeholder="30" min="1">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="grid-column: 1;">
+          <label>Макс. активаций</label>
+          <input type="number" id="promo-max-uses" placeholder="1" min="1">
+        </div>
+        <div class="form-group" style="grid-column: 2;">
+          <label>Срок действия (опц.)</label>
+          <input type="date" id="promo-expires">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Комментарий</label>
+        <textarea id="promo-comment" placeholder="Например: для тестеров"></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="createPromo()">Создать код</button>
+    </div>
+  </div>
+
+  <!-- Section 2: Promo Codes List -->
+  <div class="section">
+    <div class="section-title">🎟️ Активные коды</div>
+    <div class="card" style="overflow-x: auto;">
+      <table class="table" id="promo-table">
+        <thead>
+          <tr>
+            <th>Код</th>
+            <th>Тип</th>
+            <th>Значение</th>
+            <th>Исп.</th>
+            <th>Статус</th>
+            <th>Срок</th>
+            <th>Действие</th>
+          </tr>
+        </thead>
+        <tbody id="promo-list"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Section 3: Stats -->
+  <div class="section">
+    <div class="section-title">📊 Статистика</div>
+
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Генерации по дням (30 дней)</h3>
+      <table class="table" id="gen-by-day">
+        <thead>
+          <tr><th>День</th><th>OK</th><th>Ошибок</th></tr>
+        </thead>
+        <tbody id="gen-list"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Топ пользователи (30 дней)</h3>
+      <table class="table">
+        <thead>
+          <tr><th>Email</th><th>Имя</th><th>Генераций</th></tr>
+        </thead>
+        <tbody id="top-users"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+async function loadPromos() {
+  try {
+    const res = await fetch('/api/admin/promo');
+    if (res.status === 404) { alert('Доступ запрещен'); location.href = '/'; return; }
+    const d = await res.json();
+    const tbody = document.getElementById('promo-list');
+    tbody.innerHTML = (d.codes || []).map(c => `
+      <tr>
+        <td><div class="code-display">${c.code}</div></td>
+        <td>${c.kind}</td>
+        <td>${c.value}</td>
+        <td>${c.used_count}/${c.max_uses}</td>
+        <td>${c.active ? '✓ Активен' : '✗ Отключен'}</td>
+        <td>${c.expires_at ? c.expires_at.split('T')[0] : '—'}</td>
+        <td><button class="btn btn-danger" onclick="deactivatePromo('${c.code}')">Отключить</button></td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    showToast('Ошибка загрузки: ' + e.message, 'err');
+  }
+}
+
+async function createPromo() {
+  const kind = document.getElementById('promo-kind').value;
+  const value = parseInt(document.getElementById('promo-value').value);
+  const max_uses = parseInt(document.getElementById('promo-max-uses').value);
+  const expires = document.getElementById('promo-expires').value;
+  const comment = document.getElementById('promo-comment').value;
+
+  if (!value || !max_uses) { showToast('Заполните все поля', 'err'); return; }
+
+  try {
+    const res = await fetch('/api/admin/promo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, value, max_uses, expires_at: expires || null, comment })
+    });
+    const d = await res.json();
+    if (res.ok) {
+      showToast('Код создан: ' + d.code, 'ok');
+      document.getElementById('promo-value').value = '';
+      document.getElementById('promo-max-uses').value = '';
+      document.getElementById('promo-expires').value = '';
+      document.getElementById('promo-comment').value = '';
+      loadPromos();
+    } else {
+      showToast('Ошибка: ' + (d.detail || 'Неизвестная ошибка'), 'err');
+    }
+  } catch(e) {
+    showToast('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function deactivatePromo(code) {
+  if (!confirm('Отключить код?')) return;
+  try {
+    const res = await fetch('/api/admin/promo/deactivate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    if (res.ok) {
+      showToast('Код отключен', 'ok');
+      loadPromos();
+    } else {
+      showToast('Ошибка', 'err');
+    }
+  } catch(e) {
+    showToast('Ошибка: ' + e.message, 'err');
+  }
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/admin/stats');
+    const d = await res.json();
+
+    // Stats cards
+    document.getElementById('stat-grid').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-value">${d.users.total}</div>
+        <div class="stat-label">Пользователей</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${d.users.pro_active}</div>
+        <div class="stat-label">Pro активных</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${d.generations.total_30days}</div>
+        <div class="stat-label">Генераций (30 дн.)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${d.payments_30days}</div>
+        <div class="stat-label">Платежей (30 дн.)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value">${d.promos_30days}</div>
+        <div class="stat-label">Промокодов (30 дн.)</div>
+      </div>
+    `;
+
+    // Generations by day
+    document.getElementById('gen-list').innerHTML = (d.generations.by_day || []).map(g => `
+      <tr>
+        <td>${g.day}</td>
+        <td>${g.ok}</td>
+        <td>${g.fail}</td>
+      </tr>
+    `).join('');
+
+    // Top users
+    document.getElementById('top-users').innerHTML = (d.top_users || []).map(u => `
+      <tr>
+        <td style="font-size: 12px;">${u.email}</td>
+        <td>${u.name}</td>
+        <td>${u.count}</td>
+      </tr>
+    `).join('');
+
+  } catch(e) {
+    showToast('Ошибка загрузки статистики: ' + e.message, 'err');
+  }
+}
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (type || '');
+  setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  loadPromos();
+  loadStats();
+});
+</script>
+{% include '_footer.html' %}
+</body>
+</html>

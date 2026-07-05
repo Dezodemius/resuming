@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import ipaddress
 import os
 import json
 import re
+import secrets
 import socket
 import uuid
 import hashlib
@@ -39,9 +41,12 @@ from config import (  # noqa: E402
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
+    VK_CLIENT_ID, VK_CLIENT_SECRET,
+    MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
     PAID_PACK, PACK_PRICE, SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
+    ADMIN_EMAILS, METRIKA_ID,
 )
 
 # Семафор: не более AI_CONCURRENCY параллельных генераций.
@@ -55,6 +60,7 @@ def get_ai_sem() -> asyncio.Semaphore:
     return _ai_sem
 
 tpl = Jinja2Templates(directory="templates")
+tpl.env.globals["metrika_id"] = METRIKA_ID
 
 # ── Database ── слой БД вынесен в db.py (get_db/init_db).
 from db import get_db, init_db  # noqa: E402
@@ -193,6 +199,10 @@ async def _resolve_user(request: Request, body_email: Optional[str] = None) -> O
     """
     return await get_current_user(request)
 
+def _require_admin(user):
+    if not user or (user.get("email") or "").lower() not in ADMIN_EMAILS:
+        raise HTTPException(404)
+
 # ── Email magic link ──────────────────────────────────────────────────────
 async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
     """Отправляет magic-ссылку. Возвращает None при успехе, иначе строку с причиной ошибки."""
@@ -236,6 +246,7 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
 from schemas import (  # noqa: E402
     TgAuthData, EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
+    PromoActivateReq, PromoCreateReq,
 )
 
 ANON_LIMIT = ANON_LIMIT_CONST
@@ -290,11 +301,16 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         )
         raw    = await call_ai(prompt)
         resume = _parse_ai(raw)
-    except HTTPException:
+    except HTTPException as e:
         with get_db() as db:
             db.execute("UPDATE anon_usage SET uses=uses-1 WHERE anon_id=?", (anon_id,))
+            log_event(db, "generate_fail", anon_id=anon_id, kind="preview")
             db.commit()
         raise
+
+    with get_db() as db:
+        log_event(db, "anon_preview", anon_id=anon_id)
+        db.commit()
 
     return {"resume": resume, "anon_uses_left": ANON_LIMIT - uses - 1}
 
@@ -325,6 +341,8 @@ async def root(request: Request):
     return tpl.TemplateResponse(request, "index.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "yandex_enabled": bool(YANDEX_CLIENT_ID),
+        "vk_enabled": bool(VK_CLIENT_ID),
+        "mailru_enabled": bool(MAILRU_CLIENT_ID),
         "user": user,
     })
 
@@ -455,6 +473,8 @@ async def auth_telegram(data: TgAuthData, response: Response):
         db.commit()
         u = db.execute("SELECT * FROM users WHERE telegram_id=?", (data.id,)).fetchone()
         sid = _create_session(db, u["id"])
+        log_event(db, "login", user_id=u["id"], method="telegram")
+        db.commit()
     log.info("auth/telegram: login ok user_id=%s", u["id"])
     _set_session_cookie(response, sid)
     return {"ok": True, "user": {"name": u["display_name"], "photo": u["tg_photo"], "free_left": u["free_left"]}}
@@ -496,6 +516,8 @@ async def auth_email_verify(token: str, response: Response):
         db.execute("UPDATE magic_tokens SET used=1 WHERE token=?", (token,))
         u = _upsert_user_by_email(db, email)
         sid = _create_session(db, u["id"])
+        log_event(db, "login", user_id=u["id"], method="email")
+        db.commit()
     r = RedirectResponse(url="/?login=success", status_code=303)
     _set_session_cookie(r, sid)
     return r
@@ -558,9 +580,166 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
             db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
             db.commit()
         sid = _create_session(db, u["id"])
+        log_event(db, "login", user_id=u["id"], method="yandex")
+        db.commit()
     log.info("auth/yandex: login ok user_id=%s", u["id"])
     r = RedirectResponse(url="/?login=success", status_code=303)
     r.delete_cookie("ya_state")
+    _set_session_cookie(r, sid)
+    return r
+
+# ── VK ID OAuth (с PKCE) ──────────────────────────────────────────────────────
+@app.get("/auth/vk")
+async def auth_vk_start():
+    if not VK_CLIENT_ID:
+        raise HTTPException(503, "Вход через VK не настроен")
+    state = str(uuid.uuid4())
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+    params = urlencode({
+        "response_type":         "code",
+        "client_id":             VK_CLIENT_ID,
+        "redirect_uri":          f"{APP_URL}/auth/vk/callback",
+        "state":                 state,
+        "code_challenge":        code_challenge,
+        "code_challenge_method": "S256",
+        "scope":                 "email",
+    })
+    r = RedirectResponse(f"https://id.vk.com/authorize?{params}", status_code=302)
+    r.set_cookie("vk_state", state, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    r.set_cookie("vk_verifier", code_verifier, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    log.info("auth/vk: redirect to VK OAuth")
+    return r
+
+@app.get("/auth/vk/callback")
+async def auth_vk_callback(request: Request, code: str = "", state: str = "", device_id: str = "", error: str = ""):
+    if error or not code:
+        log.warning("auth/vk callback error: %s", error or "no code")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+    if not state or state != request.cookies.get("vk_state"):
+        log.warning("auth/vk callback: state mismatch")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+    try:
+        code_verifier = request.cookies.get("vk_verifier")
+        if not code_verifier:
+            log.error("auth/vk: missing code_verifier cookie")
+            return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.post("https://id.vk.com/oauth2/auth", data={
+                "grant_type":     "authorization_code",
+                "code":           code,
+                "code_verifier":  code_verifier,
+                "client_id":      VK_CLIENT_ID,
+                "client_secret":  VK_CLIENT_SECRET,
+                "device_id":      device_id,
+                "redirect_uri":   f"{APP_URL}/auth/vk/callback",
+                "state":          state,
+            })
+            access = tr.json().get("access_token")
+            if not access:
+                log.error("auth/vk: token exchange failed: %s", tr.text[:300])
+                return RedirectResponse(url="/?auth_error=vk", status_code=303)
+            ir = await http.post("https://id.vk.com/oauth2/user_info", data={
+                "access_token": access,
+                "client_id":    VK_CLIENT_ID,
+            })
+            info = ir.json()
+    except Exception:
+        log.exception("auth/vk: OAuth request failed")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+
+    user_data = info.get("user", {})
+    email = user_data.get("email") or ""
+    if not email:
+        log.error("auth/vk: no email in userinfo")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+
+    with get_db() as db:
+        u = _upsert_user_by_email(db, email)
+        first_name = user_data.get("first_name") or ""
+        last_name = user_data.get("last_name") or ""
+        name = (first_name + " " + last_name).strip() if first_name or last_name else ""
+        if name and u.get("display_name") in (None, "", email.split("@")[0]):
+            db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+            db.commit()
+        sid = _create_session(db, u["id"])
+        log_event(db, "login", user_id=u["id"], method="vk")
+        db.commit()
+    log.info("auth/vk: login ok user_id=%s", u["id"])
+    r = RedirectResponse(url="/?login=success", status_code=303)
+    r.delete_cookie("vk_state")
+    r.delete_cookie("vk_verifier")
+    _set_session_cookie(r, sid)
+    return r
+
+# ── Mail.ru OAuth ─────────────────────────────────────────────────────────────
+@app.get("/auth/mailru")
+async def auth_mailru_start():
+    if not MAILRU_CLIENT_ID:
+        raise HTTPException(503, "Вход через Mail.ru не настроен")
+    state = str(uuid.uuid4())
+    params = urlencode({
+        "response_type": "code",
+        "client_id":     MAILRU_CLIENT_ID,
+        "redirect_uri":  f"{APP_URL}/auth/mailru/callback",
+        "state":         state,
+        "scope":         "userinfo",
+    })
+    r = RedirectResponse(f"https://oauth.mail.ru/login?{params}", status_code=302)
+    r.set_cookie("mr_state", state, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    log.info("auth/mailru: redirect to Mail.ru OAuth")
+    return r
+
+@app.get("/auth/mailru/callback")
+async def auth_mailru_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error or not code:
+        log.warning("auth/mailru callback error: %s", error or "no code")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+    if not state or state != request.cookies.get("mr_state"):
+        log.warning("auth/mailru callback: state mismatch")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.post("https://oauth.mail.ru/token", data={
+                "client_id":     MAILRU_CLIENT_ID,
+                "client_secret": MAILRU_CLIENT_SECRET,
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "redirect_uri":  f"{APP_URL}/auth/mailru/callback",
+            })
+            access = tr.json().get("access_token")
+            if not access:
+                log.error("auth/mailru: token exchange failed: %s", tr.text[:300])
+                return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+            ir = await http.get("https://oauth.mail.ru/userinfo",
+                                params={"access_token": access})
+            info = ir.json()
+    except Exception:
+        log.exception("auth/mailru: OAuth request failed")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+
+    email = info.get("email") or ""
+    if not email:
+        log.error("auth/mailru: no email in userinfo")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+
+    with get_db() as db:
+        u = _upsert_user_by_email(db, email)
+        name = info.get("name") or info.get("nickname") or ""
+        if name and u.get("display_name") in (None, "", email.split("@")[0]):
+            db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+            db.commit()
+        sid = _create_session(db, u["id"])
+        log_event(db, "login", user_id=u["id"], method="mailru")
+        db.commit()
+    log.info("auth/mailru: login ok user_id=%s", u["id"])
+    r = RedirectResponse(url="/?login=success", status_code=303)
+    r.delete_cookie("mr_state")
     _set_session_cookie(r, sid)
     return r
 
@@ -651,6 +830,11 @@ def _refund(db, user_id: int, col: str):
     db.execute(f"UPDATE users SET {col}={col}+1 WHERE id=?", (user_id,))
     db.commit()
     log.info("refund: user=%s col=%s (генерация не удалась)", user_id, col)
+
+def log_event(db, event: str, user_id=None, anon_id=None, **meta):
+    """Логирует событие в таблицу usage_events (логины, генерации, платежи и т.д.)."""
+    db.execute("INSERT INTO usage_events (user_id, anon_id, event, meta) VALUES (?,?,?,?)",
+               (user_id, anon_id, event, json.dumps(meta, ensure_ascii=False) if meta else None))
 
 # ── AI call ────────────────────────────────────────────────────────────────
 async def call_ai(prompt: str) -> str:
@@ -891,10 +1075,14 @@ async def match_to_job(req: MatchReq, request: Request):
     except Exception as e:
         with get_db() as db:
             _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind="match")
+            db.commit()
         raise HTTPException(500, str(e))
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, job_text)
+            log_event(db, "generate", user_id=user["id"], kind="match", col=col)
+            db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
@@ -921,10 +1109,14 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
     except Exception as e:
         with get_db() as db:
             _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind="from_profile")
+            db.commit()
         raise HTTPException(500, str(e))
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
+            log_event(db, "generate", user_id=user["id"], kind="from_profile", col=col)
+            db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
@@ -947,10 +1139,14 @@ async def generate(req: GenerateReq, request: Request):
     except Exception as e:
         with get_db() as db:
             _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind="generate")
+            db.commit()
         raise HTTPException(500, str(e))
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
+            log_event(db, "generate", user_id=user["id"], kind="generate", col=col)
+            db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
@@ -1098,8 +1294,14 @@ async def payment_webhook(request: Request):
                         f"https://api.yookassa.ru/v3/payments/{pid}",
                         auth=(YOKASSA_SHOP, YOKASSA_SECRET),
                     )
-                    if r.status_code == 200 and r.json().get("status") == "succeeded":
-                        confirmed = True
+                    if r.status_code == 200:
+                        resp_data = r.json()
+                        if resp_data.get("status") == "succeeded":
+                            amount_value = resp_data.get("amount", {}).get("value", "")
+                            if amount_value == PACK_PRICE:
+                                confirmed = True
+                            else:
+                                log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PACK_PRICE)
             except Exception:
                 log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
                 confirmed = False  # не выдаём Pro при ошибке проверки
@@ -1132,11 +1334,219 @@ async def payment_webhook(request: Request):
                         "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
                         (new_exp, user_id)
                     )
+                    log_event(db, "payment", user_id=user_id, pay_id=pid)
                     db.commit()
                     log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
                 else:
                     log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
     return {"ok": True}
+
+# ── Promo codes ────────────────────────────────────────────────────────────
+@app.post("/api/promo/activate")
+@rate("5/minute")
+async def promo_activate(body: PromoActivateReq, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
+
+    code = body.code.strip().upper()
+    if not code:
+        raise HTTPException(400, "Код недействителен")
+
+    with get_db() as db:
+        result = db.execute(
+            "UPDATE promo_codes SET used_count = used_count + 1"
+            " WHERE code = ? AND active = 1 AND used_count < max_uses"
+            "   AND (expires_at IS NULL OR expires_at > datetime('now'))",
+            (code,)
+        )
+        if result.rowcount == 0:
+            raise HTTPException(400, "Код недействителен")
+
+        try:
+            db.execute("INSERT INTO promo_activations (code, user_id) VALUES (?,?)",
+                      (code, user["id"]))
+            db.commit()
+        except Exception:
+            db.execute("UPDATE promo_codes SET used_count = used_count - 1 WHERE code = ?", (code,))
+            db.commit()
+            raise HTTPException(400, "Код уже активирован")
+
+    with get_db() as db:
+        promo = db.execute("SELECT kind, value FROM promo_codes WHERE code=?", (code,)).fetchone()
+        kind, value = promo["kind"], promo["value"]
+
+        if kind == "pro_days":
+            existing = db.execute(
+                "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user["id"],)
+            ).fetchone()
+            row_pro = _is_pro(existing) if existing else False
+            if row_pro and existing["pro_expires_at"]:
+                try:
+                    base = datetime.fromisoformat(existing["pro_expires_at"])
+                    if base.tzinfo is None:
+                        base = base.replace(tzinfo=timezone.utc)
+                except Exception:
+                    base = datetime.now(timezone.utc)
+            else:
+                base = datetime.now(timezone.utc)
+            new_exp = (base + timedelta(days=value)).isoformat()
+            db.execute("UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?", (new_exp, user["id"]))
+            msg = f"Pro до {new_exp.split('T')[0]}"
+        elif kind == "gen_pack":
+            db.execute("UPDATE users SET paid_left=paid_left+? WHERE id=?", (value, user["id"]))
+            msg = f"+{value} генераций"
+        else:  # unlimited
+            db.execute("UPDATE users SET is_pro=1, pro_expires_at='2099-12-31 00:00:00' WHERE id=?", (user["id"],))
+            msg = "Безлимит активирован"
+
+        log_event(db, "promo_activate", user_id=user["id"], code_prefix=code[:4])
+        db.commit()
+
+    log.info("promo/activate: user=%s code=%s kind=%s", user["id"], code[:4], kind)
+    return {"ok": True, "kind": kind, "message": msg}
+
+# ── Admin pages and API ────────────────────────────────────────────────────
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    user = await get_current_user(request)
+    _require_admin(user)
+    return tpl.TemplateResponse(request, "admin.html", {
+        "telegram_bot_name": TELEGRAM_BOT_NAME,
+    })
+
+@app.post("/api/admin/promo")
+async def admin_create_promo(body: PromoCreateReq, request: Request):
+    user = await get_current_user(request)
+    _require_admin(user)
+
+    code = "-".join([secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(12)])
+    code = f"{code[:4]}-{code[4:8]}-{code[8:12]}"
+
+    with get_db() as db:
+        db.execute(
+            "INSERT INTO promo_codes (code, kind, value, max_uses, expires_at, comment)"
+            " VALUES (?,?,?,?,?,?)",
+            (code, body.kind, body.value, body.max_uses, body.expires_at, body.comment)
+        )
+        db.commit()
+
+    log.info("admin/promo: created code=%s kind=%s", code[:4], body.kind)
+    return {"ok": True, "code": code}
+
+@app.get("/api/admin/promo")
+async def admin_list_promo(request: Request):
+    user = await get_current_user(request)
+    _require_admin(user)
+
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT code, kind, value, max_uses, used_count, active, expires_at, comment, created"
+            " FROM promo_codes ORDER BY created DESC"
+        ).fetchall()
+
+    return {"codes": [dict(r) for r in rows]}
+
+@app.post("/api/admin/promo/deactivate")
+async def admin_deactivate_promo(body: dict, request: Request):
+    user = await get_current_user(request)
+    _require_admin(user)
+
+    code = body.get("code", "").strip().upper()
+    with get_db() as db:
+        db.execute("UPDATE promo_codes SET active=0 WHERE code=?", (code,))
+        db.commit()
+
+    log.info("admin/promo: deactivated code=%s", code[:4] if len(code) > 4 else code)
+    return {"ok": True}
+
+@app.get("/api/admin/stats")
+async def admin_stats(request: Request):
+    user = await get_current_user(request)
+    _require_admin(user)
+
+    with get_db() as db:
+        # За последние 30 дней
+        past_30 = "datetime('now', '-30 days')"
+
+        # Генерации по дням
+        gen_by_day = db.execute(f"""
+            SELECT date(created) as day,
+                   sum(case when event='generate' then 1 else 0 end) as ok,
+                   sum(case when event='generate_fail' then 1 else 0 end) as fail
+            FROM usage_events
+            WHERE created > {past_30}
+            GROUP BY date(created)
+            ORDER BY day
+        """).fetchall()
+
+        # Топ-10 пользователей
+        top_users = db.execute(f"""
+            SELECT u.id, u.email, u.display_name,
+                   count(*) as count
+            FROM usage_events e
+            JOIN users u ON e.user_id = u.id
+            WHERE e.event='generate' AND e.created > {past_30}
+            GROUP BY u.id
+            ORDER BY count DESC
+            LIMIT 10
+        """).fetchall()
+
+        # Статистика по пользователям
+        users_total = db.execute("SELECT count(*) FROM users").fetchone()[0]
+        users_new = db.execute(f"SELECT count(*) FROM users WHERE created > {past_30}").fetchone()[0]
+
+        # Входы по методам
+        logins = db.execute(f"""
+            SELECT json_extract(meta, '$.method') as method, count(*) as count
+            FROM usage_events
+            WHERE event='login' AND created > {past_30}
+            GROUP BY json_extract(meta, '$.method')
+        """).fetchall()
+
+        # Платежи
+        payments = db.execute(f"""
+            SELECT count(*) as count FROM payments
+            WHERE status='succeeded' AND created > {past_30}
+        """).fetchone()[0]
+
+        # Активации промокодов
+        promos = db.execute(f"""
+            SELECT count(*) as count FROM usage_events
+            WHERE event='promo_activate' AND created > {past_30}
+        """).fetchone()[0]
+
+        # Pro-пользователи
+        pro_users = db.execute(
+            "SELECT count(*) FROM users WHERE is_pro=1 AND pro_expires_at > datetime('now')"
+        ).fetchone()[0]
+
+        # Общие генерации за 30 дней
+        total_gen = db.execute(f"""
+            SELECT count(*) FROM usage_events
+            WHERE event='generate' AND created > {past_30}
+        """).fetchone()[0]
+
+    return {
+        "users": {
+            "total": users_total,
+            "new_7days": users_new,
+            "pro_active": pro_users,
+        },
+        "generations": {
+            "total_30days": total_gen,
+            "by_day": [{"day": dict(r)["day"], "ok": dict(r)["ok"] or 0, "fail": dict(r)["fail"] or 0} for r in gen_by_day],
+        },
+        "logins": [{"method": dict(r)["method"], "count": dict(r)["count"]} for r in logins],
+        "payments_30days": payments,
+        "promos_30days": promos,
+        "top_users": [{
+            "id": dict(r)["id"],
+            "email": dict(r)["email"],
+            "name": dict(r)["display_name"],
+            "count": dict(r)["count"],
+        } for r in top_users],
+    }
 
 # Промпты вынесены в prompts.py.
 from prompts import _match_prompt, _general_prompt, _generate_prompt  # noqa: E402,F401

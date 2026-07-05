@@ -7,10 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css">
 <script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
@@ -117,6 +118,7 @@
 
 @media (max-width:760px){ .row2{grid-template-columns:1fr} #resume-paper{padding:30px 22px} }
 </style>
+{% include '_metrika.html' %}
 </head>
 <body>
 
@@ -371,10 +373,24 @@
         <div class="auth-divider">или</div>
       </div>
       {% endif %}
-      {% if yandex_enabled %}
-      <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
-        <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
-      </a>
+      {% if yandex_enabled or vk_enabled or mailru_enabled %}
+      <div class="oauth-buttons">
+        {% if yandex_enabled %}
+        <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
+          <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
+        </a>
+        {% endif %}
+        {% if vk_enabled %}
+        <a href="/auth/vk" class="btn-vk" onclick="appLog('auth','переход на VK OAuth')">
+          <span class="vk-badge">VK</span> Войти через VK ID
+        </a>
+        {% endif %}
+        {% if mailru_enabled %}
+        <a href="/auth/mailru" class="btn-mailru" onclick="appLog('auth','переход на Mail.ru OAuth')">
+          <span class="mr-badge">@</span> Войти через Mail.ru
+        </a>
+        {% endif %}
+      </div>
       <div class="auth-divider">или</div>
       {% endif %}
       <div class="auth-email">
