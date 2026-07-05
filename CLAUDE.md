@@ -65,6 +65,8 @@ ollama pull qwen2.5:14b
 | `LOG_LEVEL` | Уровень логов бэкенда (по умолчанию `INFO`) |
 | `APP_URL` | Публичный URL (влияет на secure-cookie и CORS) |
 | `AI_CONCURRENCY` | Параллельных вызовов Ollama (по умолчанию 2) |
+| `ADMIN_EMAILS` | Email админов (через запятую), им доступен `/admin` |
+| `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
 
 ## Context management (экономия токенов)
 

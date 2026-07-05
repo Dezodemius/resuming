@@ -99,4 +99,38 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
             CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
             CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+
+            -- Промокоды для маркетинга и тестирования
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                code       TEXT PRIMARY KEY,
+                kind       TEXT NOT NULL CHECK (kind IN ('pro_days','gen_pack','unlimited')),
+                value      INTEGER NOT NULL DEFAULT 0,
+                max_uses   INTEGER NOT NULL DEFAULT 1,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                active     INTEGER NOT NULL DEFAULT 1,
+                expires_at TEXT,
+                comment    TEXT,
+                created    TEXT DEFAULT (datetime('now'))
+            );
+
+            -- Фиксация активации кода для пользователя (предотвращение повторных активаций)
+            CREATE TABLE IF NOT EXISTS promo_activations (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                code    TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                created TEXT DEFAULT (datetime('now')),
+                UNIQUE(code, user_id)
+            );
+
+            -- Журнал событий: логины, генерации, платежи, активации промокодов
+            CREATE TABLE IF NOT EXISTS usage_events (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                anon_id TEXT,
+                event   TEXT NOT NULL,
+                meta    TEXT,
+                created TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
+            CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
         """)

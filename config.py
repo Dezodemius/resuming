@@ -68,6 +68,8 @@ VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")
 VK_CLIENT_SECRET     = os.getenv("VK_CLIENT_SECRET", "")
 MAILRU_CLIENT_ID     = os.getenv("MAILRU_CLIENT_ID", "")
 MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
+ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+METRIKA_ID           = os.getenv("METRIKA_ID", "")
 
 # ── Лимиты / тарифы ─────────────────────────────────────────────────────────
 FREE_USES        = 3
