@@ -117,12 +117,12 @@ def main():
     apple_size = 180
     apple_grad = grad.resize((apple_size, apple_size), Image.LANCZOS)
     apple_grad.save('static/apple-touch-icon.png')
-    print(f"  apple-touch-icon.png")
+    print("  apple-touch-icon.png")
 
     # ICO файл (стандартный 32x32)
     ico_32 = rgba.resize((32, 32), Image.LANCZOS)
     ico_32.save('static/favicon.ico')
-    print(f"  favicon.ico (32x32)")
+    print("  favicon.ico (32x32)")
 
     print("\n[OK] Все файлы сгенерированы в static/")
 

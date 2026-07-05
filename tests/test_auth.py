@@ -3,7 +3,6 @@ import hmac as hmac_module
 import time
 
 import pytest
-import pytest_asyncio
 import main
 from main import _verify_telegram
 

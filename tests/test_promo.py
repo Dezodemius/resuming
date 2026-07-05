@@ -1,7 +1,6 @@
 """Tests for promo code functionality."""
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
 import main
 
 
@@ -35,8 +34,6 @@ def reset_rate_limit(monkeypatch):
 @pytest.mark.asyncio
 async def test_activate_pro_days_promo(client, db, user_session, monkeypatch):
     """Test activating a pro_days promo code."""
-    import main
-
     # Create a promo code
     with db as c:
         c.execute(
