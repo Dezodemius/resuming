@@ -25,6 +25,7 @@ _data_dir = DATA_DIR
 # чтобы история переживала перезапуски и не зависела от docker log-драйвера.
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(DATA_DIR, "logs"))
+
 if LOG_DIR:
     os.makedirs(LOG_DIR, exist_ok=True)
 
