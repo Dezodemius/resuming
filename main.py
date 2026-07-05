@@ -1,8 +1,10 @@
 import asyncio
+import base64
 import ipaddress
 import os
 import json
 import re
+import secrets
 import socket
 import uuid
 import hashlib
@@ -39,6 +41,8 @@ from config import (  # noqa: E402
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
+    VK_CLIENT_ID, VK_CLIENT_SECRET,
+    MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
     PAID_PACK, PACK_PRICE, SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
@@ -325,6 +329,8 @@ async def root(request: Request):
     return tpl.TemplateResponse(request, "index.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "yandex_enabled": bool(YANDEX_CLIENT_ID),
+        "vk_enabled": bool(VK_CLIENT_ID),
+        "mailru_enabled": bool(MAILRU_CLIENT_ID),
         "user": user,
     })
 
@@ -561,6 +567,157 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
     log.info("auth/yandex: login ok user_id=%s", u["id"])
     r = RedirectResponse(url="/?login=success", status_code=303)
     r.delete_cookie("ya_state")
+    _set_session_cookie(r, sid)
+    return r
+
+# ── VK ID OAuth (с PKCE) ──────────────────────────────────────────────────────
+@app.get("/auth/vk")
+async def auth_vk_start():
+    if not VK_CLIENT_ID:
+        raise HTTPException(503, "Вход через VK не настроен")
+    state = str(uuid.uuid4())
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).decode().rstrip("=")
+    params = urlencode({
+        "response_type":         "code",
+        "client_id":             VK_CLIENT_ID,
+        "redirect_uri":          f"{APP_URL}/auth/vk/callback",
+        "state":                 state,
+        "code_challenge":        code_challenge,
+        "code_challenge_method": "S256",
+        "scope":                 "email",
+    })
+    r = RedirectResponse(f"https://id.vk.com/authorize?{params}", status_code=302)
+    r.set_cookie("vk_state", state, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    r.set_cookie("vk_verifier", code_verifier, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    log.info("auth/vk: redirect to VK OAuth")
+    return r
+
+@app.get("/auth/vk/callback")
+async def auth_vk_callback(request: Request, code: str = "", state: str = "", device_id: str = "", error: str = ""):
+    if error or not code:
+        log.warning("auth/vk callback error: %s", error or "no code")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+    if not state or state != request.cookies.get("vk_state"):
+        log.warning("auth/vk callback: state mismatch")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+    try:
+        code_verifier = request.cookies.get("vk_verifier")
+        if not code_verifier:
+            log.error("auth/vk: missing code_verifier cookie")
+            return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.post("https://id.vk.com/oauth2/auth", data={
+                "grant_type":     "authorization_code",
+                "code":           code,
+                "code_verifier":  code_verifier,
+                "client_id":      VK_CLIENT_ID,
+                "client_secret":  VK_CLIENT_SECRET,
+                "device_id":      device_id,
+                "redirect_uri":   f"{APP_URL}/auth/vk/callback",
+                "state":          state,
+            })
+            access = tr.json().get("access_token")
+            if not access:
+                log.error("auth/vk: token exchange failed: %s", tr.text[:300])
+                return RedirectResponse(url="/?auth_error=vk", status_code=303)
+            ir = await http.post("https://id.vk.com/oauth2/user_info", data={
+                "access_token": access,
+                "client_id":    VK_CLIENT_ID,
+            })
+            info = ir.json()
+    except Exception:
+        log.exception("auth/vk: OAuth request failed")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+
+    user_data = info.get("user", {})
+    email = user_data.get("email") or ""
+    if not email:
+        log.error("auth/vk: no email in userinfo")
+        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+
+    with get_db() as db:
+        u = _upsert_user_by_email(db, email)
+        first_name = user_data.get("first_name") or ""
+        last_name = user_data.get("last_name") or ""
+        name = (first_name + " " + last_name).strip() if first_name or last_name else ""
+        if name and u.get("display_name") in (None, "", email.split("@")[0]):
+            db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+            db.commit()
+        sid = _create_session(db, u["id"])
+    log.info("auth/vk: login ok user_id=%s", u["id"])
+    r = RedirectResponse(url="/?login=success", status_code=303)
+    r.delete_cookie("vk_state")
+    r.delete_cookie("vk_verifier")
+    _set_session_cookie(r, sid)
+    return r
+
+# ── Mail.ru OAuth ─────────────────────────────────────────────────────────────
+@app.get("/auth/mailru")
+async def auth_mailru_start():
+    if not MAILRU_CLIENT_ID:
+        raise HTTPException(503, "Вход через Mail.ru не настроен")
+    state = str(uuid.uuid4())
+    params = urlencode({
+        "response_type": "code",
+        "client_id":     MAILRU_CLIENT_ID,
+        "redirect_uri":  f"{APP_URL}/auth/mailru/callback",
+        "state":         state,
+        "scope":         "userinfo",
+    })
+    r = RedirectResponse(f"https://oauth.mail.ru/login?{params}", status_code=302)
+    r.set_cookie("mr_state", state, max_age=600, httponly=True, samesite="lax",
+                 secure=APP_URL.startswith("https"))
+    log.info("auth/mailru: redirect to Mail.ru OAuth")
+    return r
+
+@app.get("/auth/mailru/callback")
+async def auth_mailru_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error or not code:
+        log.warning("auth/mailru callback error: %s", error or "no code")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+    if not state or state != request.cookies.get("mr_state"):
+        log.warning("auth/mailru callback: state mismatch")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.post("https://oauth.mail.ru/token", data={
+                "client_id":     MAILRU_CLIENT_ID,
+                "client_secret": MAILRU_CLIENT_SECRET,
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "redirect_uri":  f"{APP_URL}/auth/mailru/callback",
+            })
+            access = tr.json().get("access_token")
+            if not access:
+                log.error("auth/mailru: token exchange failed: %s", tr.text[:300])
+                return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+            ir = await http.get("https://oauth.mail.ru/userinfo",
+                                params={"access_token": access})
+            info = ir.json()
+    except Exception:
+        log.exception("auth/mailru: OAuth request failed")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+
+    email = info.get("email") or ""
+    if not email:
+        log.error("auth/mailru: no email in userinfo")
+        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+
+    with get_db() as db:
+        u = _upsert_user_by_email(db, email)
+        name = info.get("name") or info.get("nickname") or ""
+        if name and u.get("display_name") in (None, "", email.split("@")[0]):
+            db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+            db.commit()
+        sid = _create_session(db, u["id"])
+    log.info("auth/mailru: login ok user_id=%s", u["id"])
+    r = RedirectResponse(url="/?login=success", status_code=303)
+    r.delete_cookie("mr_state")
     _set_session_cookie(r, sid)
     return r
 

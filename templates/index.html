@@ -372,10 +372,24 @@
         <div class="auth-divider">или</div>
       </div>
       {% endif %}
-      {% if yandex_enabled %}
-      <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
-        <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
-      </a>
+      {% if yandex_enabled or vk_enabled or mailru_enabled %}
+      <div class="oauth-buttons">
+        {% if yandex_enabled %}
+        <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
+          <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
+        </a>
+        {% endif %}
+        {% if vk_enabled %}
+        <a href="/auth/vk" class="btn-vk" onclick="appLog('auth','переход на VK OAuth')">
+          <span class="vk-badge">VK</span> Войти через VK ID
+        </a>
+        {% endif %}
+        {% if mailru_enabled %}
+        <a href="/auth/mailru" class="btn-mailru" onclick="appLog('auth','переход на Mail.ru OAuth')">
+          <span class="mr-badge">@</span> Войти через Mail.ru
+        </a>
+        {% endif %}
+      </div>
       <div class="auth-divider">или</div>
       {% endif %}
       <div class="auth-email">
