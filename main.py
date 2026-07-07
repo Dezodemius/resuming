@@ -301,7 +301,7 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         )
         raw    = await call_ai(prompt)
         resume = _parse_ai(raw)
-    except HTTPException:
+    except HTTPException as e:
         with get_db() as db:
             db.execute("UPDATE anon_usage SET uses=uses-1 WHERE anon_id=?", (anon_id,))
             log_event(db, "generate_fail", anon_id=anon_id, kind="preview")
