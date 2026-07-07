@@ -107,7 +107,8 @@ async def test_webhook_without_confirmation_no_pro(client, monkeypatch):
 async def test_webhook_with_confirmation_grants_pro(client, monkeypatch):
     main.init_db()
     uid = _add_user("pay-ok@test.com")
-    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient({"status": "succeeded"}))
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(
+        {"status": "succeeded", "amount": {"value": main.PACK_PRICE, "currency": "RUB"}}))
     r = await client.post("/api/pay/webhook", json={
         "event": "payment.succeeded",
         "object": {"id": "p-ok", "metadata": {"user_id": uid}},
@@ -117,6 +118,21 @@ async def test_webhook_with_confirmation_grants_pro(client, monkeypatch):
         row = db.execute("SELECT is_pro, pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()
     assert row["is_pro"] == 1
     assert row["pro_expires_at"]
+
+
+async def test_webhook_wrong_amount_no_pro(client, monkeypatch):
+    """Платёж подтверждён, но сумма не совпадает с ожидаемой → Pro не выдаём."""
+    main.init_db()
+    uid = _add_user("pay-wrong@test.com")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(
+        {"status": "succeeded", "amount": {"value": "1.00", "currency": "RUB"}}))
+    r = await client.post("/api/pay/webhook", json={
+        "event": "payment.succeeded",
+        "object": {"id": "p-wrong", "metadata": {"user_id": uid}},
+    })
+    assert r.json().get("ok") is False
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
 
 
 # ── Платёж: понятная ошибка при невыключенной/ненастроенной ЮKassa ──────────
