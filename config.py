@@ -6,6 +6,7 @@
 """
 import logging
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -55,7 +56,27 @@ OLLAMA_URL           = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL                = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 YOKASSA_SHOP         = os.getenv("YOKASSA_SHOP_ID", "")
 YOKASSA_SECRET       = os.getenv("YOKASSA_SECRET_KEY", "")
-APP_URL              = os.getenv("APP_URL", "http://localhost:8000")
+def _idna_url(url: str) -> str:
+    """Хост URL в punycode (IDNA). Браузер, Origin-заголовок и OAuth-провайдеры
+    оперируют ASCII-формой домена, поэтому кириллический APP_URL ломает точное
+    сравнение redirect_uri (Mail.ru отвечает invalid_grant) и CORS-матчинг.
+    Для ASCII-хоста — no-op."""
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if not host or host.isascii():
+            return url
+        netloc = host.encode("idna").decode("ascii")
+        if parts.port:
+            netloc += f":{parts.port}"
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    except (UnicodeError, ValueError):
+        return url
+
+_raw_app_url = os.getenv("APP_URL", "http://localhost:8000")
+APP_URL              = _idna_url(_raw_app_url)
+if APP_URL != _raw_app_url:
+    log.info("APP_URL нормализован в punycode: %s -> %s", _raw_app_url, APP_URL)
 TELEGRAM_BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_BOT_NAME    = os.getenv("TELEGRAM_BOT_NAME", "")
 SMTP_HOST            = os.getenv("SMTP_HOST", "smtp.yandex.ru")
@@ -65,8 +86,7 @@ SMTP_PASS            = os.getenv("SMTP_PASS", "")
 SMTP_FROM            = os.getenv("SMTP_FROM", SMTP_USER)
 YANDEX_CLIENT_ID     = os.getenv("YANDEX_CLIENT_ID", "")
 YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
-VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")
-VK_CLIENT_SECRET     = os.getenv("VK_CLIENT_SECRET", "")
+VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")  # секрет не нужен: VK ID работает по PKCE
 MAILRU_CLIENT_ID     = os.getenv("MAILRU_CLIENT_ID", "")
 MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
 ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]

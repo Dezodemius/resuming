@@ -474,9 +474,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     toast('Оплата прошла! Адаптации добавлены.', 'ok');
   }
   if (p.get('auth_error')) {
+    const provider = {yandex: 'Яндекс', vk: 'VK', mailru: 'Mail.ru'}[p.get('auth_error')] || 'соцсеть';
     history.replaceState({}, '', '/');
-    appError('auth', 'вход через Яндекс не удался');
-    toast('Не удалось войти через Яндекс. Попробуйте другой способ.', 'err');
+    appError('auth', `вход через ${provider} не удался`);
+    toast(`Не удалось войти через ${provider}. Попробуйте другой способ.`, 'err');
   }
   if (p.get('auth_required')) {
     history.replaceState({}, '', '/');

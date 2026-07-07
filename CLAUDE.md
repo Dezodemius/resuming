@@ -60,7 +60,7 @@ ollama pull qwen2.5:14b
 | `YOKASSA_SHOP_ID` / `YOKASSA_SECRET_KEY` | ЮKassa платежи |
 | `SMTP_*` | Email magic link |
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
-| `VK_CLIENT_ID` / `VK_CLIENT_SECRET` | Вход через VK ID (OAuth с PKCE) |
+| `VK_CLIENT_ID` | Вход через VK ID (OAuth с PKCE; секрет не нужен) |
 | `MAILRU_CLIENT_ID` / `MAILRU_CLIENT_SECRET` | Вход через Mail.ru (OAuth) |
 | `LOG_LEVEL` | Уровень логов бэкенда (по умолчанию `INFO`) |
 | `APP_URL` | Публичный URL (влияет на secure-cookie и CORS) |

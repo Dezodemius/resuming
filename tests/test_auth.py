@@ -137,3 +137,20 @@ async def test_mailru_callback_no_code_redirects_to_error(monkeypatch, client):
     r = await client.get("/auth/mailru/callback?state=", follow_redirects=False)
     assert r.status_code == 303
     assert "auth_error=mailru" in r.headers["location"]
+
+
+# ── APP_URL: punycode-нормализация кириллического домена ────────────────
+def test_idna_url_cyrillic_host_converted():
+    from config import _idna_url
+    assert _idna_url("https://резюмирую.рф") == "https://xn--e1aedprev8fe.xn--p1ai"
+
+
+def test_idna_url_preserves_path_and_port():
+    from config import _idna_url
+    assert _idna_url("https://резюмирую.рф:8443/auth") == "https://xn--e1aedprev8fe.xn--p1ai:8443/auth"
+
+
+def test_idna_url_ascii_untouched():
+    from config import _idna_url
+    assert _idna_url("http://localhost:8000") == "http://localhost:8000"
+    assert _idna_url("https://example.com") == "https://example.com"

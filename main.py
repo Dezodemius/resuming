@@ -41,7 +41,7 @@ from config import (  # noqa: E402
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
-    VK_CLIENT_ID, VK_CLIENT_SECRET,
+    VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
     PAID_PACK, PACK_PRICE, SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
@@ -644,12 +644,13 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
             log.error("auth/vk: missing code_verifier cookie")
             return RedirectResponse(url="/?auth_error=vk", status_code=303)
         async with httpx.AsyncClient(timeout=15) as http:
+            # PKCE: code_verifier заменяет client_secret — «Защищённый ключ»
+            # из кабинета VK ID в этом флоу не участвует.
             tr = await http.post("https://id.vk.com/oauth2/auth", data={
                 "grant_type":     "authorization_code",
                 "code":           code,
                 "code_verifier":  code_verifier,
                 "client_id":      VK_CLIENT_ID,
-                "client_secret":  VK_CLIENT_SECRET,
                 "device_id":      device_id,
                 "redirect_uri":   f"{APP_URL}/auth/vk/callback",
                 "state":          state,
