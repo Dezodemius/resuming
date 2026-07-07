@@ -3,6 +3,9 @@ import pytest
 import pytest_asyncio
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
+# Клиент в тестах ходит по http://test: при https-значении APP_URL (из .env)
+# session-cookie ставилась бы с Secure и не возвращалась бы клиентом.
+os.environ["APP_URL"] = "http://test"
 
 
 @pytest.fixture
