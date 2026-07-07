@@ -90,7 +90,13 @@ VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")  # секрет не нуж
 MAILRU_CLIENT_ID     = os.getenv("MAILRU_CLIENT_ID", "")
 MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
 ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+# Номер счётчика Метрики — только цифры: значение подставляется в JS и HTML
+# всех страниц, так что произвольная строка (например, случайно вписанный
+# секрет) и ломает скрипт, и утекает наружу.
 METRIKA_ID           = os.getenv("METRIKA_ID", "")
+if METRIKA_ID and not METRIKA_ID.isdigit():
+    log.warning("METRIKA_ID не является числом — счётчик Метрики отключён")
+    METRIKA_ID = ""
 
 # ── Лимиты / тарифы ─────────────────────────────────────────────────────────
 FREE_USES        = 3
