@@ -1,0 +1,126 @@
+- generic [active] [ref=f4e1]:
+  - banner [ref=f4e2]:
+    - link "Резюмирую.рф" [ref=f4e3] [cursor=pointer]:
+      - /url: /
+      - img "Резюмирую.рф" [ref=f4e4]
+    - navigation [ref=f4e5]:
+      - link "Генератор" [ref=f4e6] [cursor=pointer]:
+        - /url: /
+      - link "Мои резюме" [ref=f4e7] [cursor=pointer]:
+        - /url: /resumes
+      - link "Тарифы" [ref=f4e8] [cursor=pointer]:
+        - /url: /pricing
+  - main [ref=f4e9]:
+    - generic [ref=f4e10]:
+      - generic [ref=f4e11]:
+        - heading "Простые и понятные тарифы" [level=1] [ref=f4e12]
+        - paragraph [ref=f4e13]: Начните бесплатно — обновитесь до Pro когда будете готовы
+      - generic [ref=f4e14]:
+        - generic [ref=f4e15]:
+          - generic [ref=f4e16]: Бесплатный
+          - generic [ref=f4e17]: 0 ₽
+          - generic [ref=f4e18]: навсегда
+          - list [ref=f4e19]:
+            - listitem [ref=f4e20]:
+              - generic [ref=f4e21]: ✓
+              - generic [ref=f4e22]: До 3 AI-генераций резюме
+            - listitem [ref=f4e23]:
+              - generic [ref=f4e24]: ✓
+              - generic [ref=f4e25]: До 5 сохранённых резюме
+            - listitem [ref=f4e26]:
+              - generic [ref=f4e27]: ✓
+              - generic [ref=f4e28]: Экспорт в PDF
+            - listitem [ref=f4e29]:
+              - generic [ref=f4e30]: ✗
+              - generic [ref=f4e31]: Безлимитные генерации
+            - listitem [ref=f4e32]:
+              - generic [ref=f4e33]: ✗
+              - generic [ref=f4e34]: Безлимитное хранение
+            - listitem [ref=f4e35]:
+              - generic [ref=f4e36]: ✗
+              - generic [ref=f4e37]: Полнофункциональный редактор
+          - link "Начать бесплатно" [ref=f4e38] [cursor=pointer]:
+            - /url: /
+        - generic [ref=f4e39]:
+          - generic [ref=f4e40]: Рекомендуем
+          - generic [ref=f4e41]: Pro
+          - generic [ref=f4e42]: 399 ₽ / мес
+          - generic [ref=f4e43]: 30 календарных дней с момента оплаты
+          - list [ref=f4e44]:
+            - listitem [ref=f4e45]:
+              - generic [ref=f4e46]: ✓
+              - generic [ref=f4e47]: Безлимитные AI-генерации резюме
+            - listitem [ref=f4e48]:
+              - generic [ref=f4e49]: ✓
+              - generic [ref=f4e50]: Безлимитное хранение резюме
+            - listitem [ref=f4e51]:
+              - generic [ref=f4e52]: ✓
+              - generic [ref=f4e53]: Экспорт в PDF
+            - listitem [ref=f4e54]:
+              - generic [ref=f4e55]: ✓
+              - generic [ref=f4e56]: Полнофункциональный редактор
+            - listitem [ref=f4e57]:
+              - generic [ref=f4e58]: ✓
+              - generic [ref=f4e59]: Адаптация резюме под вакансии
+          - button "Оформить Pro — 399 ₽" [ref=f4e60] [cursor=pointer]
+      - generic [ref=f4e61]:
+        - heading "Условия оплаты и предоставления услуги" [level=2] [ref=f4e62]
+        - generic [ref=f4e63]:
+          - generic [ref=f4e64]: 💳
+          - generic [ref=f4e65]:
+            - strong [ref=f4e66]: "Стоимость:"
+            - text: 399 ₽. Оплата производится через платёжный сервис ЮKassa банковской картой или через СБП.
+        - generic [ref=f4e67]:
+          - generic [ref=f4e68]: 📅
+          - generic [ref=f4e69]:
+            - strong [ref=f4e70]: "Срок действия подписки:"
+            - text: 30 календарных дней с момента подтверждения оплаты. Повторная оплата продлевает подписку от текущей даты окончания.
+        - generic [ref=f4e71]:
+          - generic [ref=f4e72]: ⚡
+          - generic [ref=f4e73]:
+            - strong [ref=f4e74]: "Активация:"
+            - text: доступ открывается автоматически после подтверждения платежа — обычно в течение нескольких секунд. Активация отображается в личном кабинете в разделе «Настройки».
+        - generic [ref=f4e75]:
+          - generic [ref=f4e76]: 💻
+          - generic [ref=f4e77]:
+            - strong [ref=f4e78]: "Формат услуги:"
+            - text: цифровая услуга, предоставляется в электронной форме через интерфейс сайта. Физические товары не поставляются.
+        - generic [ref=f4e79]:
+          - generic [ref=f4e80]: 📄
+          - generic [ref=f4e81]:
+            - text: Нажимая кнопку оплаты, вы принимаете условия
+            - link "публичной оферты" [ref=f4e82] [cursor=pointer]:
+              - /url: /offer
+            - text: и
+            - link "политики конфиденциальности" [ref=f4e83] [cursor=pointer]:
+              - /url: /privacy
+            - text: .
+      - generic [ref=f4e84]:
+        - generic [ref=f4e85]:
+          - generic [ref=f4e86]: Как происходит оплата?
+          - generic [ref=f4e87]: Оплата проходит через защищённый платёжный сервис ЮKassa. Поддерживаются карты Visa, Mastercard, МИР, а также оплата через СБП. Данные карты не хранятся на нашем сервере.
+        - generic [ref=f4e88]:
+          - generic [ref=f4e89]: Подписка продлевается автоматически?
+          - generic [ref=f4e90]: Нет. Подписка не продлевается автоматически — оплата списывается только один раз. По окончании 30 дней аккаунт переходит на бесплатный тариф. Чтобы продолжить пользоваться Pro, нужно оплатить снова.
+        - generic [ref=f4e91]:
+          - generic [ref=f4e92]: Можно ли вернуть деньги?
+          - generic [ref=f4e93]:
+            - text: Возврат регулируется ст. 26.1 Закона «О защите прав потребителей» и
+            - link "публичной офертой" [ref=f4e94] [cursor=pointer]:
+              - /url: /offer
+            - text: . Поскольку доступ к Pro открывается сразу после оплаты, возврат за уже оказанную услугу возможен при ненадлежащем качестве по вине Оператора (в течение 3 рабочих дней). Если после оплаты подписка не активировалась — напишите нам, и мы восстановим доступ или вернём средства.
+        - generic [ref=f4e95]:
+          - generic [ref=f4e96]: Что будет с моими резюме после окончания подписки?
+          - generic [ref=f4e97]: Все сохранённые резюме остаются доступны для просмотра и скачивания в PDF. После перехода на бесплатный тариф создание новых AI-генераций будет ограничено.
+  - contentinfo [ref=f4e98]:
+    - generic [ref=f4e99]:
+      - navigation [ref=f4e100]:
+        - link "Тарифы" [ref=f4e101] [cursor=pointer]:
+          - /url: /pricing
+        - link "Публичная оферта" [ref=f4e102] [cursor=pointer]:
+          - /url: /offer
+        - link "Политика конфиденциальности" [ref=f4e103] [cursor=pointer]:
+          - /url: /privacy
+        - link "Контакты" [ref=f4e104] [cursor=pointer]:
+          - /url: /contacts
+      - generic [ref=f4e105]: © 2025 Резюмирую.рф

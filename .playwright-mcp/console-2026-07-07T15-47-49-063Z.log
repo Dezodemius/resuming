@@ -1,0 +1,8 @@
+[     243ms] [INFO] [15:47:49.306] [logger] клиентский логгер активен — все API-запросы логируются @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:51
+[     245ms] [ERROR] [15:47:49.307] [js] необработанная ошибка: Uncaught SyntaxError: missing ) after argument list https://xn--e1aedprev8fe.xn--p1ai/:130 @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:45
+[     246ms] missing ) after argument list
+[     385ms] [INFO] [15:47:49.447] [boot] загрузка страницы @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:15
+[     385ms] [INFO] [15:47:49.448] [api#1] → GET /api/me @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:30
+[     620ms] [INFO] [15:47:49.683] [api#1] ← GET /api/me 200 (235ms) @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:34
+[     621ms] [INFO] [15:47:49.683] [session] анонимный пользователь @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:15
+[     621ms] [INFO] [15:47:49.684] [boot] готово {авторизован: false, профиль: false} @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:14
