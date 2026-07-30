@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v=20260711">
 <script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 {% if telegram_bot_name %}
@@ -382,12 +382,12 @@
         {% endif %}
         {% if vk_enabled %}
         <a href="/auth/vk" class="btn-vk" onclick="appLog('auth','переход на VK OAuth')">
-          <span class="vk-badge">VK</span> Войти через VK ID
+          <svg class="vk-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-1.141-1.539-.629-.145-1.241-.205-1.809-.205-2.273 0-3.841.953-2.95 1.119 1.571.293 1.42 3.692 1.054 5.16-.638 2.556-3.036-2.024-4.035-4.305-.241-.548-.315-.974-1.175-.974H.912c-.492 0-.787.16-.787.516 0 .602 2.96 6.72 5.786 9.77 2.756 2.975 5.48 2.708 7.251 2.708z"/></svg> Войти с VK ID
         </a>
         {% endif %}
         {% if mailru_enabled %}
         <a href="/auth/mailru" class="btn-mailru" onclick="appLog('auth','переход на Mail.ru OAuth')">
-          <span class="mr-badge">@</span> Войти через Mail.ru
+          <svg class="mr-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.61 12c0 1.99-1.62 3.61-3.61 3.61-1.99 0-3.61-1.62-3.61-3.61 0-1.99 1.62-3.61 3.61-3.61 1.99 0 3.61 1.62 3.61 3.61M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12c2.39 0 4.68-.7 6.63-2.02l.033-.023-1.524-1.77-.026.017A9.228 9.228 0 0 1 12 21.23c-5.09 0-9.23-4.14-9.23-9.23S6.91 2.77 12 2.77s9.23 4.14 9.23 9.23c0 .66-.08 1.32-.23 1.96-.29 1.19-1.12 1.56-1.74 1.51-.628-.052-1.363-.5-1.368-1.596V12a5.888 5.888 0 0 0-5.888-5.888A5.888 5.888 0 0 0 6.112 12 5.888 5.888 0 0 0 12 17.888c1.62 0 3.135-.66 4.24-1.83.594 1.157 1.739 1.94 3.045 2.045 1.923.156 3.681-1.19 4.181-3.197.24-.965.353-1.94.353-2.906C24 5.37 18.63 0 12 0"/></svg> Войти через Mail.ru
         </a>
         {% endif %}
       </div>
