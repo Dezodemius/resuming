@@ -105,7 +105,10 @@ async def log_requests(request: Request, call_next):
 
 # ── Rate limiting ────────────────────────────────────────────────────────
 if _RATE_LIMIT:
-    limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+    # Без SlowAPIMiddleware default_limits не применяются, поэтому лимиты
+    # задаются только явным @rate на конкретном маршруте — глобального
+    # backstop'а нет и указывать его здесь было бы обманом.
+    limiter = Limiter(key_func=get_remote_address)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -380,6 +383,7 @@ async def resume_edit_page(resume_id: int, request: Request):
 
 # ── AI section improvement ────────────────────────────────────────────────
 @app.post("/api/improve-text")
+@rate("20/minute")
 async def improve_text(req: ImproveReq, request: Request):
     """Per-section AI improvement, used from the resume editor."""
     user = await get_current_user(request)
@@ -387,6 +391,10 @@ async def improve_text(req: ImproveReq, request: Request):
         raise HTTPException(401, "Войдите в аккаунт")
     if not req.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
+    # Ручка не списывает генерации, поэтому длину ограничиваем явно: иначе
+    # одним запросом можно занять слот семафора AI_CONCURRENCY надолго.
+    if len(req.text) > 10_000:
+        raise HTTPException(400, "Слишком длинный текст — сократите фрагмент")
 
     ctx = f"\nКонтекст: {req.context}" if req.context else ""
     prompts = {
@@ -404,8 +412,11 @@ async def improve_text(req: ImproveReq, request: Request):
     try:
         result = await call_ai(prompt)
         return {"improved": result.strip()}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("improve-text: неожиданная ошибка (user=%s)", user["id"])
+        raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 # ── Page routes ────────────────────────────────────────────────────────────
 @app.get("/resumes", response_class=HTMLResponse)
@@ -473,7 +484,8 @@ async def billing_info(request: Request):
 
 # ── Auth routes ────────────────────────────────────────────────────────────
 @app.post("/auth/telegram")
-async def auth_telegram(data: TgAuthData, response: Response):
+@rate("20/minute")
+async def auth_telegram(data: TgAuthData, request: Request, response: Response):
     if not _verify_telegram(data.dict()):
         raise HTTPException(401, "Неверная подпись Telegram")
     name = f"{data.first_name or ''} {data.last_name or ''}".strip() or data.username or "Пользователь"
@@ -495,7 +507,8 @@ async def auth_telegram(data: TgAuthData, response: Response):
     return {"ok": True, "user": {"name": u["display_name"], "photo": u["tg_photo"], "free_left": u["free_left"]}}
 
 @app.post("/auth/email/request")
-async def auth_email_request(req: EmailReq):
+@rate("5/minute")
+async def auth_email_request(req: EmailReq, request: Request):
     token = str(uuid.uuid4())
     with get_db() as db:
         # Срок (15 мин) считаем в SQLite, чтобы формат совпал с datetime('now') при
@@ -1088,12 +1101,12 @@ async def match_to_job(req: MatchReq, request: Request):
     try:
         raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, req.extra_hint))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="match")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, job_text)
@@ -1101,6 +1114,10 @@ async def match_to_job(req: MatchReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                # Генерация уже потрачена на успешный вызов AI, а сохранить
+                # результат некуда — возвращаем списание, иначе пользователь
+                # платит за упор в лимит хранилища.
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1122,12 +1139,12 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
     try:
         raw  = await call_ai(_general_prompt(json.loads(p["data"]), req.target_role, req.hint))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="from_profile")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
@@ -1135,6 +1152,7 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1152,12 +1170,12 @@ async def generate(req: GenerateReq, request: Request):
     try:
         raw    = await call_ai(_generate_prompt(req))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="generate")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
@@ -1165,6 +1183,7 @@ async def generate(req: GenerateReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1243,6 +1262,7 @@ def _drop_payment(idem: str) -> None:
 
 
 @app.post("/api/pay")
+@rate("10/minute")
 async def create_payment(req: PayReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
@@ -1293,68 +1313,88 @@ async def create_payment(req: PayReq, request: Request):
 
 @app.post("/api/pay/webhook")
 async def payment_webhook(request: Request):
-    body = await request.json()
-    log.info("pay/webhook: event=%s payment_id=%s",
-             body.get("event"), body.get("object", {}).get("id"))
-    if body.get("event") == "payment.succeeded":
-        obj     = body.get("object", {})
-        pid     = obj.get("id")
-        user_id = obj.get("metadata", {}).get("user_id")
-        if pid and user_id:
-            # ── КРИТИЧНО: верифицируем платёж напрямую в ЮKassa ─────────
-            # Не доверяем только webhook — подтверждаем через API
-            confirmed = False
-            try:
-                async with httpx.AsyncClient(timeout=10) as http:
-                    r = await http.get(
-                        f"https://api.yookassa.ru/v3/payments/{pid}",
-                        auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-                    )
-                    if r.status_code == 200:
-                        resp_data = r.json()
-                        if resp_data.get("status") == "succeeded":
-                            amount_value = resp_data.get("amount", {}).get("value", "")
-                            if amount_value == PACK_PRICE:
-                                confirmed = True
-                            else:
-                                log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PACK_PRICE)
-            except Exception:
-                log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
-                confirmed = False  # не выдаём Pro при ошибке проверки
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Некорректное тело запроса")
+    pid = body.get("object", {}).get("id")
+    log.info("pay/webhook: event=%s payment_id=%s", body.get("event"), pid)
+    if body.get("event") != "payment.succeeded" or not pid:
+        return {"ok": True}
 
-            if not confirmed:
-                log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
-                return {"ok": False, "reason": "payment_not_confirmed"}
+    # Получателя берём ТОЛЬКО из своей таблицы payments. Эндпоинт публичный и
+    # ничем не подписан, поэтому metadata.user_id из тела запроса подделывается:
+    # раньше по чужому pay_id можно было выписать Pro любому аккаунту, а для
+    # неизвестного нам pay_id строка payments не обновлялась — и проверка
+    # «уже обработан» не срабатывала, позволяя продлевать Pro повторами вебхука.
+    with get_db() as db:
+        pay_row = db.execute(
+            "SELECT user_id, status FROM payments WHERE pay_id=?", (pid,)
+        ).fetchone()
+    if not pay_row:
+        log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", pid)
+        return {"ok": False, "reason": "unknown_payment"}
+    if pay_row["status"] == "succeeded":
+        log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+        return {"ok": True}
+    user_id = pay_row["user_id"]
 
-            with get_db() as db:
-                already = db.execute(
-                    "SELECT id FROM payments WHERE pay_id=? AND status='succeeded'", (pid,)
-                ).fetchone()
-                if not already:
-                    db.execute("UPDATE payments SET status='succeeded' WHERE pay_id=?", (pid,))
-                    existing = db.execute(
-                        "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user_id,)
-                    ).fetchone()
-                    row_pro = _is_pro(existing) if existing else False
-                    if row_pro and existing["pro_expires_at"]:
-                        try:
-                            base = datetime.fromisoformat(existing["pro_expires_at"])
-                            if base.tzinfo is None:
-                                base = base.replace(tzinfo=timezone.utc)
-                        except Exception:
-                            base = datetime.now(timezone.utc)
+    # ── КРИТИЧНО: верифицируем платёж напрямую в ЮKassa ─────────
+    # Не доверяем только webhook — подтверждаем через API
+    confirmed = False
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"https://api.yookassa.ru/v3/payments/{pid}",
+                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
+            )
+            if r.status_code == 200:
+                resp_data = r.json()
+                if resp_data.get("status") == "succeeded":
+                    amount_value = resp_data.get("amount", {}).get("value", "")
+                    if amount_value == PACK_PRICE:
+                        confirmed = True
                     else:
-                        base = datetime.now(timezone.utc)
-                    new_exp = (base + timedelta(days=PRO_DAYS)).isoformat()
-                    db.execute(
-                        "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
-                        (new_exp, user_id)
-                    )
-                    log_event(db, "payment", user_id=user_id, pay_id=pid)
-                    db.commit()
-                    log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
-                else:
-                    log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+                        log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PACK_PRICE)
+    except Exception:
+        log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
+        confirmed = False  # не выдаём Pro при ошибке проверки
+
+    if not confirmed:
+        log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
+        return {"ok": False, "reason": "payment_not_confirmed"}
+
+    with get_db() as db:
+        # Помечаем обработанным одним UPDATE с условием: параллельный дубль
+        # вебхука получит rowcount=0 и не выдаст Pro второй раз.
+        claimed = db.execute(
+            "UPDATE payments SET status='succeeded' WHERE pay_id=? AND status!='succeeded'",
+            (pid,)
+        ).rowcount
+        if not claimed:
+            log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+            return {"ok": True}
+        existing = db.execute(
+            "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+        row_pro = _is_pro(existing) if existing else False
+        if row_pro and existing["pro_expires_at"]:
+            try:
+                base = datetime.fromisoformat(existing["pro_expires_at"])
+                if base.tzinfo is None:
+                    base = base.replace(tzinfo=timezone.utc)
+            except Exception:
+                base = datetime.now(timezone.utc)
+        else:
+            base = datetime.now(timezone.utc)
+        new_exp = (base + timedelta(days=PRO_DAYS)).isoformat()
+        db.execute(
+            "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
+            (new_exp, user_id)
+        )
+        log_event(db, "payment", user_id=user_id, pay_id=pid)
+        db.commit()
+        log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
     return {"ok": True}
 
 # ── Promo codes ────────────────────────────────────────────────────────────
@@ -1436,7 +1476,9 @@ async def admin_create_promo(body: PromoCreateReq, request: Request):
     user = await get_current_user(request)
     _require_admin(user)
 
-    code = "-".join([secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(12)])
+    # join без разделителя: с "-".join дефисы попадали в исходную строку, и
+    # нарезка ниже давала «X-T--C-H--7-F-» — 7 случайных символов вместо 12.
+    code = "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(12))
     code = f"{code[:4]}-{code[4:8]}-{code[8:12]}"
 
     with get_db() as db:
@@ -1644,6 +1686,7 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
             rid = _save_resume(db, user["id"], resume, "matched", "", "", job_text)
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
                 raise ValueError("Достигнут лимит хранимых резюме (resume_limit) — "
                                  "удалите старые резюме на сайте или оформите Pro")
             raise
