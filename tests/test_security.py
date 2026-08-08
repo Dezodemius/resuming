@@ -90,9 +90,22 @@ def _add_user(email):
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 
+def _add_payment(user_id, pay_id):
+    """Строка платежа, какую создаёт /api/pay до редиректа в ЮKassa."""
+    with main.get_db() as db:
+        db.execute("INSERT INTO payments (user_id, pay_id, idem_key) VALUES (?,?,?)",
+                   (user_id, pay_id, f"idem-{pay_id}"))
+        db.commit()
+
+
+def _ok_payment_resp():
+    return {"status": "succeeded", "amount": {"value": main.PACK_PRICE, "currency": "RUB"}}
+
+
 async def test_webhook_without_confirmation_no_pro(client, monkeypatch):
     main.init_db()
     uid = _add_user("pay-pending@test.com")
+    _add_payment(uid, "p-pending")
     # ЮKassa отвечает 'pending' → платёж не подтверждён
     monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient({"status": "pending"}))
     r = await client.post("/api/pay/webhook", json={
@@ -107,8 +120,8 @@ async def test_webhook_without_confirmation_no_pro(client, monkeypatch):
 async def test_webhook_with_confirmation_grants_pro(client, monkeypatch):
     main.init_db()
     uid = _add_user("pay-ok@test.com")
-    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(
-        {"status": "succeeded", "amount": {"value": main.PACK_PRICE, "currency": "RUB"}}))
+    _add_payment(uid, "p-ok")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_ok_payment_resp()))
     r = await client.post("/api/pay/webhook", json={
         "event": "payment.succeeded",
         "object": {"id": "p-ok", "metadata": {"user_id": uid}},
@@ -124,6 +137,7 @@ async def test_webhook_wrong_amount_no_pro(client, monkeypatch):
     """Платёж подтверждён, но сумма не совпадает с ожидаемой → Pro не выдаём."""
     main.init_db()
     uid = _add_user("pay-wrong@test.com")
+    _add_payment(uid, "p-wrong")
     monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(
         {"status": "succeeded", "amount": {"value": "1.00", "currency": "RUB"}}))
     r = await client.post("/api/pay/webhook", json={
@@ -133,6 +147,58 @@ async def test_webhook_wrong_amount_no_pro(client, monkeypatch):
     assert r.json().get("ok") is False
     with main.get_db() as db:
         assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
+
+
+async def test_webhook_unknown_payment_no_pro(client, monkeypatch):
+    """Эндпоинт публичный: по чужому/выдуманному pay_id Pro не выдаём.
+
+    Без строки в payments прежний код не мог отметить платёж обработанным,
+    поэтому повторы вебхука бесконечно продлевали Pro.
+    """
+    main.init_db()
+    uid = _add_user("pay-unknown@test.com")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_ok_payment_resp()))
+    r = await client.post("/api/pay/webhook", json={
+        "event": "payment.succeeded",
+        "object": {"id": "p-never-created", "metadata": {"user_id": uid}},
+    })
+    assert r.json() == {"ok": False, "reason": "unknown_payment"}
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
+
+
+async def test_webhook_ignores_user_id_from_body(client, monkeypatch):
+    """metadata.user_id из тела запроса не влияет: Pro идёт плательщику из payments."""
+    main.init_db()
+    payer = _add_user("payer@test.com")
+    attacker = _add_user("attacker@test.com")
+    _add_payment(payer, "p-spoof")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_ok_payment_resp()))
+    r = await client.post("/api/pay/webhook", json={
+        "event": "payment.succeeded",
+        "object": {"id": "p-spoof", "metadata": {"user_id": attacker}},
+    })
+    assert r.json().get("ok") is True
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (attacker,)).fetchone()["is_pro"] == 0
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (payer,)).fetchone()["is_pro"] == 1
+
+
+async def test_webhook_replay_does_not_extend_pro(client, monkeypatch):
+    """Повторный вебхук по обработанному платежу не продлевает Pro второй раз."""
+    main.init_db()
+    uid = _add_user("pay-replay@test.com")
+    _add_payment(uid, "p-replay")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_ok_payment_resp()))
+    payload = {"event": "payment.succeeded",
+               "object": {"id": "p-replay", "metadata": {"user_id": uid}}}
+    await client.post("/api/pay/webhook", json=payload)
+    with main.get_db() as db:
+        first_exp = db.execute("SELECT pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()["pro_expires_at"]
+    await client.post("/api/pay/webhook", json=payload)
+    with main.get_db() as db:
+        second_exp = db.execute("SELECT pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()["pro_expires_at"]
+    assert first_exp == second_exp
 
 
 # ── Платёж: понятная ошибка при невыключенной/ненастроенной ЮKassa ──────────

@@ -1,4 +1,6 @@
 """Tests for promo code functionality."""
+import re
+
 import pytest
 import pytest_asyncio
 import main
@@ -190,8 +192,9 @@ async def test_admin_create_promo(client, db, user_session, monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert "code" in data
-    assert len(data["code"]) == 14  # XXXX-XXXX-XXXX
+    # Проверяем именно формат, а не длину: сломанный "-".join тоже давал 14
+    # символов, но вида «X-T--C-H--7-F-» — всего 7 случайных знаков из 12.
+    assert re.fullmatch(r"[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}", data["code"]), data["code"]
 
 
 @pytest.mark.asyncio

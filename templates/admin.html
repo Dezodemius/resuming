@@ -134,6 +134,15 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// Значения из БД (email и имена — пользовательский ввод) попадают в innerHTML,
+// поэтому любую подстановку экранируем: иначе достаточно завести аккаунт
+// с разметкой в имени, чтобы выполнить скрипт в сессии админа.
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[ch]);
+}
+
 async function loadPromos() {
   try {
     const res = await fetch('/api/admin/promo');
@@ -142,15 +151,18 @@ async function loadPromos() {
     const tbody = document.getElementById('promo-list');
     tbody.innerHTML = (d.codes || []).map(c => `
       <tr>
-        <td><div class="code-display">${c.code}</div></td>
-        <td>${c.kind}</td>
-        <td>${c.value}</td>
-        <td>${c.used_count}/${c.max_uses}</td>
+        <td><div class="code-display">${esc(c.code)}</div></td>
+        <td>${esc(c.kind)}</td>
+        <td>${esc(c.value)}</td>
+        <td>${esc(c.used_count)}/${esc(c.max_uses)}</td>
         <td>${c.active ? '✓ Активен' : '✗ Отключен'}</td>
-        <td>${c.expires_at ? c.expires_at.split('T')[0] : '—'}</td>
-        <td><button class="btn btn-danger" onclick="deactivatePromo('${c.code}')">Отключить</button></td>
+        <td>${c.expires_at ? esc(String(c.expires_at).split('T')[0]) : '—'}</td>
+        <td><button class="btn btn-danger" data-code="${esc(c.code)}">Отключить</button></td>
       </tr>
     `).join('');
+    tbody.querySelectorAll('button[data-code]').forEach(
+      b => b.addEventListener('click', () => deactivatePromo(b.dataset.code))
+    );
   } catch(e) {
     showToast('Ошибка загрузки: ' + e.message, 'err');
   }
@@ -238,18 +250,18 @@ async function loadStats() {
     // Generations by day
     document.getElementById('gen-list').innerHTML = (d.generations.by_day || []).map(g => `
       <tr>
-        <td>${g.day}</td>
-        <td>${g.ok}</td>
-        <td>${g.fail}</td>
+        <td>${esc(g.day)}</td>
+        <td>${esc(g.ok)}</td>
+        <td>${esc(g.fail)}</td>
       </tr>
     `).join('');
 
     // Top users
     document.getElementById('top-users').innerHTML = (d.top_users || []).map(u => `
       <tr>
-        <td style="font-size: 12px;">${u.email}</td>
-        <td>${u.name}</td>
-        <td>${u.count}</td>
+        <td style="font-size: 12px;">${esc(u.email)}</td>
+        <td>${esc(u.name)}</td>
+        <td>${esc(u.count)}</td>
       </tr>
     `).join('');
 
