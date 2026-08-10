@@ -110,5 +110,37 @@ SESSION_DAYS     = 30
 MAGIC_MINUTES    = 15
 AI_CONCURRENCY   = 2   # max одновременных вызовов Ollama
 
+# ── Обслуживание БД ─────────────────────────────────────────────────────────
+# Протухшие сессии/токены и старые анонимные счётчики иначе растут бесконечно.
+CLEANUP_INTERVAL_SEC = int(os.getenv("CLEANUP_INTERVAL_SEC", "3600"))
+ANON_USAGE_TTL_DAYS  = int(os.getenv("ANON_USAGE_TTL_DAYS", "30"))
+EVENTS_TTL_DAYS      = int(os.getenv("EVENTS_TTL_DAYS", "180"))
+
+# ── Безопасность ────────────────────────────────────────────────────────────
+# Режим Content-Security-Policy: enforce | report | off.
+# `report` и `off` — аварийные вентили: если сторонний скрипт (Метрика,
+# Telegram-виджет, html2pdf) начнёт блокироваться, прод чинится переменной
+# окружения, без выкатки кода.
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+CSP_MODE = os.getenv("CSP_MODE", "enforce").strip().lower()
+if CSP_MODE not in {"enforce", "report", "off"}:
+    log.warning("CSP_MODE=%r не распознан — используется enforce", CSP_MODE)
+    CSP_MODE = "enforce"
+
+_IS_PROD = APP_URL.startswith("https://")
+
 # Секрет для подписи anon-cookie. ОБЯЗАТЕЛЬНО задайте в .env!
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production-" + os.urandom(16).hex())
+# В проде случайный ключ недопустим: при каждом рестарте он меняется, все
+# анонимные cookie становятся невалидными и лимит бесплатных превью
+# сбрасывается — то есть приложение раздаёт генерации бесплатно.
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY:
+    if _IS_PROD:
+        raise RuntimeError(
+            "SECRET_KEY не задан. В проде (APP_URL=https://…) это обязательная "
+            "переменная: без неё подпись anon-cookie меняется при каждом "
+            "рестарте. Сгенерируйте: python -c \"import secrets;print(secrets.token_hex(32))\""
+        )
+    SECRET_KEY = "dev-insecure-" + os.urandom(16).hex()
+    log.warning("SECRET_KEY не задан — сгенерирован временный ключ (только для разработки)")

@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 import main
 
 
@@ -49,3 +53,45 @@ async def test_mcp_endpoint_without_auth_is_not_5xx(client):
         r = await client.post("/mcp", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
         assert r.status_code < 500
         assert r.status_code in (406, 421)
+
+
+async def test_mcp_adapt_resume_refunds_generation_when_resume_limit_hit(db, monkeypatch):
+    db.execute(
+        "INSERT INTO users (email, free_left, paid_left) VALUES (?,?,?)",
+        ("mcp-limit@test.com", 0, 1),
+    )
+    uid = db.execute(
+        "SELECT id FROM users WHERE email=?", ("mcp-limit@test.com",)
+    ).fetchone()["id"]
+    profile = {
+        "name": "Test User",
+        "phone": "",
+        "city": "",
+        "linkedin": "",
+        "skills": "Python",
+        "languages": "",
+        "experience": [],
+        "education": [],
+    }
+    db.execute(
+        "INSERT INTO profiles (user_id, data) VALUES (?,?)",
+        (uid, json.dumps(profile, ensure_ascii=False)),
+    )
+    for i in range(main.FREE_RESUMES):
+        db.execute(
+            "INSERT INTO resumes (user_id, resume_data, kind) VALUES (?,?,?)",
+            (uid, json.dumps({"name": f"Resume {i}"}), "matched"),
+        )
+    db.commit()
+
+    async def fake_call_ai(_prompt):
+        return json.dumps({"name": "Test User", "target_role": "Developer"})
+
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "call_ai", fake_call_ai)
+
+    with pytest.raises(ValueError, match="resume_limit"):
+        await main.adapt_resume("Senior Python developer with production systems", object())
+
+    row = db.execute("SELECT paid_left FROM users WHERE id=?", (uid,)).fetchone()
+    assert row["paid_left"] == 1

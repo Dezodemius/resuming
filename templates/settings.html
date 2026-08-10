@@ -129,7 +129,7 @@ header{background:var(--navy);color:#fff;padding:0 1.5rem;height:54px;display:fl
 <header>
   <a class="logo" href="/"><img src="/static/banner.png" alt="Резюмирую.рф" height="34"></a>
   <nav class="header-nav">
-    <a class="nav-a" href="/">Генератор</a>
+    <a class="nav-a" href="/new">Генератор</a>
     <a class="nav-a" href="/resumes">Мои резюме</a>
     <a class="nav-a active" href="/settings">Настройки</a>
   </nav>
@@ -218,7 +218,7 @@ let billing = null;
 
 window.addEventListener('DOMContentLoaded', async () => {
   const me = await fetch('/api/me').then(r => r.json());
-  if (!me.authenticated) { window.location.href = '/?auth_required=1'; return; }
+  if (!me.authenticated) { window.location.href = '/new?auth_required=1'; return; }
 
   // Header
   document.getElementById('h-name').textContent = me.name || me.email || '';
@@ -280,7 +280,7 @@ function renderPlanRow(b) {
       <div style="font-size:28px">🎉</div>
       <div style="font-size:13px;font-weight:600;color:var(--navy)">Вы на Pro!</div>
       <div style="font-size:12px;color:var(--muted);line-height:1.5">Все функции доступны.<br>Создавайте резюме для любых вакансий.</div>
-      <a href="/" style="color:var(--navy);font-size:12px;font-weight:600;text-decoration:none">→ Создать резюме</a>
+      <a href="/new" style="color:var(--navy);font-size:12px;font-weight:600;text-decoration:none">→ Создать резюме</a>
     </div>
   ` : `
     <!-- Free plan -->

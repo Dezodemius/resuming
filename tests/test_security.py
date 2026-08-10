@@ -99,7 +99,7 @@ def _add_payment(user_id, pay_id):
 
 
 def _ok_payment_resp():
-    return {"status": "succeeded", "amount": {"value": main.PACK_PRICE, "currency": "RUB"}}
+    return {"status": "succeeded", "amount": {"value": main.PRO_PRICE, "currency": "RUB"}}
 
 
 async def test_webhook_without_confirmation_no_pro(client, monkeypatch):

@@ -23,9 +23,34 @@ def test_init_db_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", db_path)
     main.init_db()
     main.init_db()  # second call must not raise
-    conn = main.get_db()
-    assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
-    conn.close()
+    with main.get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+
+
+def test_get_db_closes_connection_on_exit(db):
+    """get_db() обязан закрывать соединение — иначе дескрипторы текут."""
+    import pytest
+    import sqlite3
+
+    with main.get_db() as conn:
+        conn.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
+
+
+def test_get_db_rolls_back_on_exception(db):
+    """Исключение внутри блока не должно оставлять полузапись в БД."""
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        with main.get_db() as conn:
+            conn.execute("INSERT INTO users (email) VALUES (?)", ("rollback@test.com",))
+            raise RuntimeError("boom")
+
+    row = db.execute(
+        "SELECT COUNT(*) c FROM users WHERE email=?", ("rollback@test.com",)
+    ).fetchone()
+    assert row["c"] == 0
 
 
 def test_new_user_default_free_credits(db):
