@@ -134,7 +134,7 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
       <span data-navlabel>Мои резюме</span>
     </a>
-    <a class="nav__cta nav__cta--active" href="/">
+    <a class="nav__cta nav__cta--active" href="/new">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
       <span data-navlabel>Создать</span>
     </a>
@@ -464,24 +464,29 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   const p = new URLSearchParams(location.search);
   if (p.get('login') === 'success') {
-    history.replaceState({}, '', '/');
+    history.replaceState({}, '', '/new');
     await _afterAuth();
     toast('Вы вошли в аккаунт!', 'ok');
   }
   if (p.get('paid') === '1') {
-    history.replaceState({}, '', '/');
+    history.replaceState({}, '', '/new');
     await refreshSession();
     toast('Оплата прошла! Адаптации добавлены.', 'ok');
   }
   if (p.get('auth_error')) {
     const provider = {yandex: 'Яндекс', vk: 'VK', mailru: 'Mail.ru'}[p.get('auth_error')] || 'соцсеть';
-    history.replaceState({}, '', '/');
+    history.replaceState({}, '', '/new');
     appError('auth', `вход через ${provider} не удался`);
     toast(`Не удалось войти через ${provider}. Попробуйте другой способ.`, 'err');
   }
   if (p.get('auth_required')) {
-    history.replaceState({}, '', '/');
+    history.replaceState({}, '', '/new');
     openAuthModal('Войдите, чтобы открыть «Мои резюме»');
+  }
+  // Кнопка «Войти» на лендинге ведёт сюда: модалка входа живёт на этой странице
+  if (p.get('auth') && !currentUser) {
+    history.replaceState({}, '', '/new');
+    openAuthModal();
   }
   appLog('boot', 'готово', {авторизован: !!currentUser, профиль: hasProfile});
 });

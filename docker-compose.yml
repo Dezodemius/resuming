@@ -44,6 +44,16 @@ services:
       - app_data:/app/data              # SQLite база
     depends_on:
       - ollama
+    # Проверяем сам процесс, а не Ollama: /readyz ушёл бы в unhealthy при любой
+    # заминке модели, хотя сайт при этом продолжает работать.
+    # curl в python:slim нет — ходим встроенным urllib.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ── Nginx (реверс-прокси, порт 80 наружу) ────────────────────────────
   nginx:

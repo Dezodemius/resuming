@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Резюмирую.рф — AI собирает резюме под конкретную вакансию</title>
+<meta name="description" content="Вставьте ссылку на вакансию — AI перепишет ваше резюме под её требования: нужные формулировки, ключевые слова для ATS, аккуратный PDF. Первые {{ anon_limit }} резюме без регистрации.">
+<link rel="canonical" href="{{ app_url }}/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Резюмирую.рф — резюме под каждую вакансию">
+<meta property="og:description" content="AI адаптирует резюме под требования конкретной вакансии за 30 секунд. Без регистрации на старте.">
+<meta property="og:image" content="/static/banner.png">
+<meta property="og:locale" content="ru_RU">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
+<link rel="manifest" href="/static/site.webmanifest">
+<link rel="stylesheet" href="/static/app.css?v=20260808">
+<link rel="stylesheet" href="/static/landing.css?v=20260808">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+{% include '_metrika.html' %}
+</head>
+<body>
+
+<!-- ══ Шапка ═══════════════════════════════════════════════════════════ -->
+<header class="lp-head">
+  <div class="lp-head__in">
+    <a class="appbar__logo" href="/" aria-label="Резюмирую.рф">
+      <span class="logo-mark">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+      </span>
+      <span class="brand">Резюмирую</span>
+    </a>
+    <nav class="lp-head__nav">
+      <a href="#how">Как это работает</a>
+      <a href="#demo">Пример</a>
+      <a href="#features">Возможности</a>
+      <a href="#pricing">Тарифы</a>
+      <a href="#faq">Вопросы</a>
+    </nav>
+    <div class="lp-head__right">
+      <button id="theme-btn" class="theme-btn" type="button" aria-label="Сменить тему">🌙</button>
+      <a class="lp-head__login" href="/new?auth=1">Войти</a>
+      <a class="btn-primary lp-head__cta" href="/new" data-goal="cta_header">Создать резюме</a>
+    </div>
+  </div>
+</header>
+
+<!-- ══ Hero ════════════════════════════════════════════════════════════ -->
+<section class="lp-hero">
+  <div class="lp-wrap">
+    <div class="lp-hero__grid">
+
+      <div>
+        <div class="lp-eyebrow">✨ AI-генератор резюме</div>
+        <h1>Резюме под <span class="lp-accent">каждую вакансию</span>, а не одно на все</h1>
+        <p class="lp-hero__sub">
+          Вставьте ссылку на вакансию и свой опыт — AI перепишет резюме под её требования:
+          нужные формулировки, ключевые слова для ATS-фильтров, ничего лишнего. Готовый PDF за полминуты.
+        </p>
+
+        <div class="lp-cta-row">
+          <a class="btn-primary lp-btn-lg" href="/new" data-goal="cta_hero">
+            Собрать резюме бесплатно
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+          </a>
+          <a class="lp-btn-ghost" href="#demo" data-goal="cta_demo">Посмотреть пример</a>
+        </div>
+
+        <div class="lp-micro">
+          <span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+            Без карты
+          </span>
+          <span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+            {{ anon_limit }} резюме без регистрации
+          </span>
+          <span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+            ещё {{ free_uses }} после входа
+          </span>
+        </div>
+      </div>
+
+      <!-- Визуал: вакансия → резюме -->
+      <div class="lp-visual">
+        <div class="lp-card">
+          <div class="lp-card__label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9h10M7 13h7"></path></svg>
+            Вакансия
+          </div>
+          <p class="lp-vac">
+            Product Manager, финтех.<br>
+            Требуется: <mark>управление кросс-функциональной командой</mark>,
+            <mark>запуск продукта в срок</mark>, работа с <mark>метриками удержания</mark>,
+            опыт в мобильных продуктах.
+          </p>
+        </div>
+
+        <div class="lp-arrow" aria-hidden="true">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"></path></svg>
+        </div>
+
+        <div class="lp-paper">
+          <div class="lp-paper__name">Анна Петрова</div>
+          <div class="lp-paper__role">Product Manager</div>
+          <div class="lp-paper__rule"></div>
+          <div class="lp-paper__h">Опыт работы</div>
+          <ul>
+            <li>Управляла <span class="lp-kw">кросс-функциональной командой</span> из 8 человек: разработка, дизайн, аналитика</li>
+            <li>Вывела мобильное приложение банка <span class="lp-kw">в релиз в запланированный срок</span></li>
+            <li>Настроила отслеживание <span class="lp-kw">метрик удержания</span> и еженедельный разбор когорт</li>
+          </ul>
+        </div>
+
+        <div class="lp-badge-float">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M20 6L9 17l-5-5"></path></svg>
+          <span>Совпадение с вакансией: <b>4 из 4</b></span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══ Полоса доверия ══════════════════════════════════════════════════ -->
+<section class="lp-sec lp-sec--tight" style="padding-top:44px">
+  <div class="lp-wrap">
+    <div class="lp-trust">
+      <div class="lp-trust__i">
+        <div class="lp-trust__ico">🔒</div>
+        <div>
+          <div class="lp-trust__t">Своя AI-модель</div>
+          <div class="lp-trust__d">Тексты обрабатываются на наших серверах, а не в чужих облаках</div>
+        </div>
+      </div>
+      <div class="lp-trust__i">
+        <div class="lp-trust__ico">⚡</div>
+        <div>
+          <div class="lp-trust__t">Резюме за 30–60 секунд</div>
+          <div class="lp-trust__d">От ссылки на вакансию до готового PDF</div>
+        </div>
+      </div>
+      <div class="lp-trust__i">
+        <div class="lp-trust__ico">🗂️</div>
+        <div>
+          <div class="lp-trust__t">Версии по компаниям</div>
+          <div class="lp-trust__d">Каждое резюме хранится отдельно — не путаетесь на собеседованиях</div>
+        </div>
+      </div>
+      <div class="lp-trust__i">
+        <div class="lp-trust__ico">💳</div>
+        <div>
+          <div class="lp-trust__t">Оплата через ЮKassa</div>
+          <div class="lp-trust__d">Карты и СБП. Данные карты у нас не хранятся</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Боль ════════════════════════════════════════════════════════════ -->
+<section class="lp-sec" id="why">
+  <div class="lp-wrap">
+    <div class="lp-eyebrow">Почему отклики уходят в пустоту</div>
+    <h2 class="lp-h2">Одно резюме на пятьдесят вакансий не работает</h2>
+    <p class="lp-lead">
+      Работодатель ищет не «хорошего специалиста», а человека под конкретный список требований.
+      Универсальное резюме отвечает на этот список примерно, и этого хватает, чтобы вас не заметили.
+    </p>
+
+    <div class="lp-pain">
+      <div class="lp-pain__i">
+        <div class="lp-pain__n">01</div>
+        <div class="lp-pain__t">ATS отсеивает до человека</div>
+        <div class="lp-pain__d">
+          Крупные компании фильтруют отклики автоматически: система ищет в резюме слова из вакансии.
+          Опыт у вас есть, но назван другими словами — и резюме не доходит до рекрутера.
+        </div>
+      </div>
+      <div class="lp-pain__i">
+        <div class="lp-pain__n">02</div>
+        <div class="lp-pain__t">Рекрутер смотрит секунды</div>
+        <div class="lp-pain__d">
+          На первый просмотр уходят считанные секунды. Если сверху не то, что просили в вакансии,
+          дальше первого экрана резюме обычно не читают.
+        </div>
+      </div>
+      <div class="lp-pain__i">
+        <div class="lp-pain__n">03</div>
+        <div class="lp-pain__t">Переписывать вручную — часы</div>
+        <div class="lp-pain__d">
+          Под каждую вакансию заново переставлять акценты и переформулировать достижения.
+          На десяти откликах это вечер работы — поэтому почти никто так не делает.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Как это работает ════════════════════════════════════════════════ -->
+<section class="lp-sec" id="how" style="padding-top:0">
+  <div class="lp-wrap lp-center">
+    <div class="lp-eyebrow">Три шага</div>
+    <h2 class="lp-h2">Как это работает</h2>
+    <p class="lp-lead">Профиль заполняется один раз. Дальше каждое новое резюме — это две минуты.</p>
+
+    <div class="lp-steps" style="text-align:left">
+      <div class="lp-step">
+        <div class="lp-step__n">1</div>
+        <div class="lp-step__t">Заполните профиль</div>
+        <div class="lp-step__d">
+          Опыт, образование, навыки — один раз. Это ваш «склад фактов», из которого дальше
+          собираются все версии резюме.
+        </div>
+      </div>
+      <div class="lp-step">
+        <div class="lp-step__n">2</div>
+        <div class="lp-step__t">Дайте вакансию</div>
+        <div class="lp-step__d">
+          Вставьте ссылку — текст подтянется сам, или скопируйте описание вручную.
+          Можно добавить пожелание: «упор на управление командой».
+        </div>
+      </div>
+      <div class="lp-step">
+        <div class="lp-step__n">3</div>
+        <div class="lp-step__t">Заберите PDF</div>
+        <div class="lp-step__d">
+          AI соберёт резюме под требования, покажет, какие ключевые слова попали в текст.
+          Правьте в редакторе и скачивайте PDF.
+        </div>
+      </div>
+    </div>
+
+    <div class="lp-cta-row" style="justify-content:center;margin-top:36px">
+      <a class="btn-primary lp-btn-lg" href="/new" data-goal="cta_how">Попробовать бесплатно</a>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Демо до/после ═══════════════════════════════════════════════════ -->
+<section class="lp-sec" id="demo" style="padding-top:0">
+  <div class="lp-wrap">
+    <div class="lp-eyebrow">Пример</div>
+    <h2 class="lp-h2">Один и тот же опыт — до и после адаптации</h2>
+    <p class="lp-lead">Факты в резюме те же самые. Меняется то, что видит рекрутер в первые секунды.</p>
+
+    <div class="lp-demo">
+      <div class="lp-demo__vac">
+        <div class="lp-demo__vac-l">Вакансия требует</div>
+        <div class="lp-demo__vac-t">
+          <mark>управление кросс-функциональной командой</mark> ·
+          <mark>запуск продукта в срок</mark> ·
+          <mark>метрики удержания</mark> ·
+          <mark>мобильные продукты</mark>
+        </div>
+      </div>
+
+      <div class="lp-demo__grid">
+        <div class="lp-demo__col">
+          <div class="lp-demo__tag lp-demo__tag--before">Было в профиле</div>
+          <p class="lp-demo__text">
+            «Руководил разработкой мобильного приложения банка. В подчинении 8 человек.
+            Занимался развитием продукта, работал с аналитикой. Приложение вышло за год.»
+          </p>
+        </div>
+        <div class="lp-demo__col">
+          <div class="lp-demo__tag lp-demo__tag--after">Стало в резюме под эту вакансию</div>
+          <p class="lp-demo__text lp-demo__text--after">
+            «Управлял <span class="lp-kw">кросс-функциональной командой</span> из 8 человек
+            (разработка, дизайн, аналитика). Вывел <span class="lp-kw">мобильное</span> приложение банка
+            <span class="lp-kw">в релиз в запланированный срок</span>. Выстроил регулярный разбор
+            <span class="lp-kw">метрик удержания</span> по когортам.»
+          </p>
+        </div>
+      </div>
+
+      <div class="lp-demo__note">
+        <span style="font-size:16px;line-height:1">🛡️</span>
+        <div>
+          <b>AI не выдумывает вам опыт.</b> Он берёт только то, что вы указали в профиле,
+          и переводит это на язык вакансии. Если требуемого опыта у вас нет — он не появится в резюме.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Возможности ═════════════════════════════════════════════════════ -->
+<section class="lp-sec" id="features" style="padding-top:0">
+  <div class="lp-wrap lp-center">
+    <div class="lp-eyebrow">Возможности</div>
+    <h2 class="lp-h2">Что входит</h2>
+    <p class="lp-lead">Не только генератор текста — весь путь от вакансии до готового файла.</p>
+
+    <div class="lp-feats" style="text-align:left">
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"></path><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"></path></svg>
+        </div>
+        <div class="lp-feat__t">Вакансия по ссылке</div>
+        <div class="lp-feat__d">Вставьте ссылку на вакансию — текст подтянется автоматически, копировать вручную не нужно.</div>
+      </div>
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h13"></path></svg>
+        </div>
+        <div class="lp-feat__t">Панель ключевых слов</div>
+        <div class="lp-feat__d">Видно, какие требования вакансии попали в резюме — это то, что ищет ATS-фильтр.</div>
+      </div>
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
+        </div>
+        <div class="lp-feat__t">Библиотека по компаниям</div>
+        <div class="lp-feat__d">Каждая версия резюме подписана компанией и вакансией — перед собеседованием видно, что вы отправляли.</div>
+      </div>
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"></path></svg>
+        </div>
+        <div class="lp-feat__t">Редактор с AI-подсказками</div>
+        <div class="lp-feat__d">Любой блок — «о себе», достижения, навыки — можно переписать в один клик, не трогая остальное.</div>
+      </div>
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"></path></svg>
+        </div>
+        <div class="lp-feat__t">Экспорт в PDF</div>
+        <div class="lp-feat__d">Аккуратная типографика без «поехавшей» вёрстки — файл готов к отправке работодателю.</div>
+      </div>
+      <div class="lp-feat">
+        <div class="lp-feat__ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8.4-8 9-4.6-.6-8-4-8-9V7z"></path><path d="M9 12l2 2 4-4"></path></svg>
+        </div>
+        <div class="lp-feat__t">Данные под вашим контролем</div>
+        <div class="lp-feat__d">Резюме и профиль лежат в вашем аккаунте, генерация идёт на наших серверах. Удалить можно в любой момент.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Тарифы ══════════════════════════════════════════════════════════ -->
+<section class="lp-sec" id="pricing" style="padding-top:0">
+  <div class="lp-wrap lp-center">
+    <div class="lp-eyebrow">Тарифы</div>
+    <h2 class="lp-h2">Сначала попробуйте, потом решайте</h2>
+    <p class="lp-lead">Первые {{ anon_limit }} резюме — вообще без регистрации. Карта не нужна.</p>
+
+    <div class="lp-plans" style="text-align:left">
+      <div class="lp-plan">
+        <div class="lp-plan__name">Бесплатно</div>
+        <div class="lp-plan__price">0 ₽</div>
+        <div class="lp-plan__period">навсегда</div>
+        <ul class="lp-plan__list">
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>{{ anon_limit }} резюме без регистрации</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>ещё {{ free_uses }} генерации после входа</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до {{ free_resumes }} сохранённых резюме</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
+          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">безлимитные генерации</span></li>
+        </ul>
+        <a class="btn-primary lp-plan__btn" href="/new" data-goal="cta_plan_free" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border-2);box-shadow:none">Начать бесплатно</a>
+      </div>
+
+      <div class="lp-plan lp-plan--pro">
+        <div class="lp-plan__badge">Для активного поиска</div>
+        <div class="lp-plan__name">Pro</div>
+        <div class="lp-plan__price">{{ pro_price|int }} ₽ <small>/ {{ pro_days }} дней</small></div>
+        <div class="lp-plan__period">разовый платёж, без автопродления</div>
+        <ul class="lp-plan__list">
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span><b>Безлимитные</b> генерации на {{ pro_days }} дней</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>без ограничения на число сохранённых резюме</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>редактор с AI-подсказками по каждому блоку</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация под любое число вакансий</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
+        </ul>
+        <a class="btn-primary lp-plan__btn" href="/pricing" data-goal="cta_plan_pro">Оформить Pro за {{ pro_price|int }} ₽</a>
+      </div>
+    </div>
+
+    <p class="lp-plans__note">
+      Подписка не продлевается автоматически. Условия — в <a href="/offer">публичной оферте</a>,
+      подробное сравнение — на <a href="/pricing">странице тарифов</a>.
+    </p>
+  </div>
+</section>
+
+<!-- ══ FAQ ═════════════════════════════════════════════════════════════ -->
+<section class="lp-sec" id="faq" style="padding-top:0">
+  <div class="lp-wrap lp-center">
+    <div class="lp-eyebrow">Вопросы</div>
+    <h2 class="lp-h2">Что обычно спрашивают</h2>
+
+    <div class="lp-faq" style="text-align:left">
+      <details>
+        <summary>Это правда бесплатно?</summary>
+        <div class="lp-faq__a">
+          Да. {{ anon_limit }} резюме можно собрать вообще без регистрации и без карты.
+          После входа в аккаунт добавляется ещё {{ free_uses }} генерации и возможность сохранять резюме.
+          Платить нужно, только если генераций перестанет хватать.
+        </div>
+      </details>
+      <details>
+        <summary>AI выдумает мне опыт, которого нет?</summary>
+        <div class="lp-faq__a">
+          Нет. Модель работает только с тем, что вы сами указали в профиле: она переставляет акценты
+          и подбирает формулировки под вакансию. Проверить итог всё равно стоит — это ваш документ,
+          и редактор для того и нужен.
+        </div>
+      </details>
+      <details>
+        <summary>Что происходит с моими данными?</summary>
+        <div class="lp-faq__a">
+          Профиль и резюме хранятся в вашем аккаунте, генерация идёт на наших серверах — тексты не уходят
+          в сторонние AI-сервисы. Удалить резюме можно в любой момент.
+          Подробности — в <a href="/privacy">политике конфиденциальности</a>.
+        </div>
+      </details>
+      <details>
+        <summary>Подписка спишется повторно?</summary>
+        <div class="lp-faq__a">
+          Нет. Pro — разовый платёж на {{ pro_days }} дней, автопродления нет.
+          Когда срок закончится, аккаунт просто вернётся на бесплатный тариф, а сохранённые резюме
+          останутся доступны для просмотра и скачивания.
+        </div>
+      </details>
+      <details>
+        <summary>Можно вернуть деньги?</summary>
+        <div class="lp-faq__a">
+          Возврат регулируется ст. 26.1 закона «О защите прав потребителей» и
+          <a href="/offer">публичной офертой</a>. Если после оплаты Pro не активировался —
+          напишите нам, мы восстановим доступ или вернём деньги.
+        </div>
+      </details>
+      <details>
+        <summary>Сколько ждать готовое резюме?</summary>
+        <div class="lp-faq__a">
+          Обычно 30–60 секунд. В часы пиковой нагрузки генерация может занять дольше —
+          страницу при этом закрывать не нужно.
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ══ Финальный CTA ═══════════════════════════════════════════════════ -->
+<div class="lp-wrap">
+  <section class="lp-final">
+    <h2>Следующий отклик — уже под вакансию</h2>
+    <p>Соберите первое резюме прямо сейчас: регистрация не нужна, карта тоже.</p>
+    <div class="lp-cta-row">
+      <a class="btn-primary lp-btn-lg" href="/new" data-goal="cta_final">
+        Создать резюме бесплатно
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+      </a>
+    </div>
+  </section>
+</div>
+
+<!-- ══ Футер ═══════════════════════════════════════════════════════════ -->
+<footer class="foot">
+  <div class="foot__top">
+    <div class="foot__brand">
+      <span class="logo-mark">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
+      </span>
+      <div>
+        <div class="foot__brand-name">Резюмирую.рф</div>
+        <div class="foot__brand-sub">AI-резюме под конкретную вакансию</div>
+      </div>
+    </div>
+    <nav class="foot__nav">
+      <a href="/new">Создать резюме</a>
+      <a href="/pricing">Тарифы</a>
+      <a href="/offer">Публичная оферта</a>
+      <a href="/privacy">Политика конфиденциальности</a>
+      <a href="/contacts">Контакты</a>
+    </nav>
+  </div>
+  <div class="foot__bottom">
+    <div class="foot__bottom-in">© 2026 Резюмирую.рф</div>
+  </div>
+</footer>
+
+<!-- Липкая кнопка на мобильных -->
+<div class="lp-sticky" id="lp-sticky">
+  <a class="btn-primary" href="/new" data-goal="cta_sticky">Собрать резюме бесплатно</a>
+</div>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Резюмирую.рф",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "inLanguage": "ru",
+  "description": "AI-сервис, который адаптирует резюме под требования конкретной вакансии.",
+  "offers": [
+    {"@type": "Offer", "name": "Бесплатно", "price": "0", "priceCurrency": "RUB"},
+    {"@type": "Offer", "name": "Pro", "price": "{{ pro_price }}", "priceCurrency": "RUB"}
+  ]
+}
+</script>
+
+<script>
+// ── Тема ───────────────────────────────────────────────────────────────
+(function () {
+  const btn = document.getElementById('theme-btn');
+  const sync = () => {
+    const light = document.documentElement.getAttribute('data-theme') === 'light';
+    btn.textContent = light ? '☀️' : '🌙';
+  };
+  btn.addEventListener('click', () => {
+    const light = document.documentElement.getAttribute('data-theme') === 'light';
+    if (light) document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'light');
+    try { localStorage.setItem('theme', light ? 'dark' : 'light'); } catch (e) {}
+    sync();
+  });
+  sync();
+})();
+
+// ── Воронка: шаги фиксируем и в Метрике, и на своём сервере ────────────
+const LP_TRACKED = new Set();
+function lpTrack(event, once) {
+  if (once) {
+    if (LP_TRACKED.has(event)) return;
+    LP_TRACKED.add(event);
+  }
+  try { if (window.ym && window.metrikaId) ym(window.metrikaId, 'reachGoal', event); } catch (e) {}
+  try {
+    fetch('/api/track', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({event: event}),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (e) {}
+}
+{% if metrika_id %}window.metrikaId = {{ metrika_id }};{% endif %}
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-goal]');
+  if (el) lpTrack(el.dataset.goal);
+});
+
+lpTrack('landing_view', true);
+
+// Долистал до тарифов — это отдельный шаг воронки
+const priceBlock = document.getElementById('pricing');
+if (priceBlock && 'IntersectionObserver' in window) {
+  new IntersectionObserver((entries, obs) => {
+    if (entries.some(en => en.isIntersecting)) {
+      lpTrack('landing_pricing_view', true);
+      obs.disconnect();
+    }
+  }, {threshold: 0.35}).observe(priceBlock);
+}
+
+// ── Липкая кнопка: показываем, когда первый экран уехал ────────────────
+(function () {
+  const sticky = document.getElementById('lp-sticky');
+  const onScroll = () => sticky.classList.toggle('on', window.scrollY > 640);
+  window.addEventListener('scroll', onScroll, {passive: true});
+  onScroll();
+})();
+</script>
+</body>
+</html>

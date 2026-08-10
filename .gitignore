@@ -10,6 +10,7 @@ env/
 data/
 *.db
 *.sqlite
+*.log
 
 # Окружение
 .env

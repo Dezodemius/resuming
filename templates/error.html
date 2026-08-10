@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>{{ status }} — {{ title }} | Резюмирую.рф</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
+<link rel="stylesheet" href="/static/app.css?v=20260808">
+<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<style>
+.err{min-height:100vh;display:grid;place-items:center;padding:40px 22px}
+.err__box{max-width:520px;text-align:center}
+.err__code{font-size:76px;font-weight:800;letter-spacing:-.04em;line-height:1;
+  background:linear-gradient(140deg,var(--accent-2),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+.err__title{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:14px 0 8px}
+.err__text{font-size:14.5px;color:var(--text-2);line-height:1.6;margin-bottom:26px}
+.err__btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.err__btns .btn-ghost{display:inline-flex;align-items:center;height:46px;padding:0 20px;border-radius:13px;
+  background:var(--surface-2);border:1px solid var(--border);color:var(--text);font-weight:700;font-size:14.5px;text-decoration:none}
+.err__btns .btn-ghost:hover{border-color:var(--border-2)}
+</style>
+</head>
+<body>
+<main class="err">
+  <div class="err__box">
+    <div class="err__code">{{ status }}</div>
+    <h1 class="err__title">{{ title }}</h1>
+    <p class="err__text">{{ text }}</p>
+    <div class="err__btns">
+      <a class="btn-primary" href="/">На главную</a>
+      <a class="btn-ghost" href="/new">Создать резюме</a>
+    </div>
+  </div>
+</main>
+</body>
+</html>
