@@ -1,0 +1,92 @@
+name: Quality gates
+
+# Три последовательных этапа: линтер → Gherkin-сценарии → мутационное
+# тестирование. Каждый следующий стартует только на зелёном предыдущем (needs),
+# чтобы не жечь минуты раннера на мутантах при упавшем линтере.
+#
+# Деплой (ci_cd.yml) намеренно не зависит от этого воркфлоу: пока мутационный
+# балл на существующем коде не подтянут, жёсткий гейт блокировал бы выкатку.
+# Когда будете готовы — включите quality.yml в required status checks ветки.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.12"
+  SECRET_KEY: ci-test-secret-key-not-for-production
+
+jobs:
+  lint:
+    name: "1. Линтер и статический анализ"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+      - name: Синтаксис всех модулей проекта
+        run: python -m compileall -q main.py config.py db.py prompts.py schemas.py tools tests
+
+  bdd:
+    name: "2. Gherkin-сценарии (behave)"
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Все шаги сценариев реализованы
+        run: behave --dry-run
+
+      - name: Прогон сценариев
+        run: behave --junit --junit-directory reports/bdd
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bdd-report
+          path: reports/bdd
+
+  mutation:
+    name: "3. Мутационное тестирование (mutmut)"
+    needs: bdd
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Инкрементальный режим считает дифф с базовой веткой — нужна история.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      # Мутируются только функции, задетые диффом. Сборка падает на любом
+      # невыжившем мутанте (--allow-survived 0 — значение по умолчанию).
+      - name: Мутанты по git-диффу
+        env:
+          MUTATION_BASE_REF: "${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}"
+        run: python tools/mutation_diff.py
