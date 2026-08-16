@@ -54,6 +54,9 @@ log = logging.getLogger("resuming")
 # ── Внешние сервисы ─────────────────────────────────────────────────────────
 OLLAMA_URL           = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL                = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
+# Bearer-токен для внешних OpenAI-совместимых провайдеров (DeepSeek и т.п.).
+# Пусто — заголовок Authorization не отправляется (локальная Ollama его не требует).
+AI_API_KEY           = os.getenv("AI_API_KEY", "")
 YOKASSA_SHOP         = os.getenv("YOKASSA_SHOP_ID", "")
 YOKASSA_SECRET       = os.getenv("YOKASSA_SECRET_KEY", "")
 def _idna_url(url: str) -> str:
