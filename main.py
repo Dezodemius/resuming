@@ -37,7 +37,7 @@ except ImportError:
 # существующий код и тесты обращаются к ним как к main.* (в т.ч. monkeypatch).
 from config import (  # noqa: E402
     log,
-    OLLAMA_URL, MODEL, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
+    OLLAMA_URL, MODEL, AI_API_KEY, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
@@ -522,10 +522,11 @@ async def readyz():
     except Exception:
         pass
     try:
+        headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
         async with httpx.AsyncClient(timeout=5) as http:
-            r = await http.get(f"{OLLAMA_URL}/api/tags")
+            r = await http.get(f"{OLLAMA_URL}/v1/models", headers=headers)
         if r.status_code == 200:
-            models = [m.get("name", "") for m in r.json().get("models", [])]
+            models = [m.get("id", "") for m in r.json().get("data", [])]
             ollama_ok = any(MODEL in m for m in models)
     except Exception:
         pass
@@ -1148,11 +1149,13 @@ async def call_ai(prompt: str) -> str:
         t0 = time.monotonic()
         log.info("AI call start: model=%s prompt_len=%d", MODEL, len(prompt))
         try:
+            headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(120.0, connect=5.0)
             ) as http:
                 r = await http.post(
                     f"{OLLAMA_URL}/v1/chat/completions",
+                    headers=headers,
                     json={
                         "model": MODEL,
                         "messages": [{"role": "user", "content": prompt}],
