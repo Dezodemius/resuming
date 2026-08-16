@@ -14,8 +14,13 @@ data/
 tests/
 docker-compose.yml
 nginx.conf
+deploy/
 README.md
 CLAUDE.md
 LICENSE
 requirements-dev.txt
 pytest.ini
+setup.cfg
+behave.ini
+mutants/
+reports/

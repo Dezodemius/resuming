@@ -21,9 +21,44 @@ docker compose up --build
 
 # Запустить модель вручную (если Ollama уже запущена отдельно)
 ollama pull qwen2.5:14b
+
+# Стенд на timeweb.cloud (VPS по IP, без Ollama — она внешняя)
+export DEPLOY_HOST=… DEPLOY_SSH_KEY=…
+./deploy/deploy.sh            # выкатить рабочее дерево; --status / --logs / --down
+
+# Контроль качества (см. раздел «Quality gates»)
+ruff check .                                 # линтер
+pytest tests/ -q                             # юнит- и интеграционные тесты
+behave                                       # Gherkin-сценарии
+python tools/mutation_diff.py --base origin/main   # мутанты по git-диффу (POSIX)
 ```
 
 В dev-режиме без `SMTP_USER` magic-ссылка печатается в stdout вместо отправки письма.
+
+**Два контура деплоя.** Прод (`резюмирую.рф`) — GitHub Actions на self-hosted
+раннере, `.github/workflows/ci_cd.yml`, полный `docker-compose.yml` с Ollama и
+ops-mcp. Стенд — `deploy/` (см. `deploy/README.md`): архив рабочего дерева по
+SSH, `docker-compose.staging.yml` только с app + nginx. Правки в инфраструктуре
+нужно вносить в оба, они не наследуют друг друга.
+
+## Quality gates
+
+Отдельный воркфлоу `.github/workflows/quality.yml` — три последовательных
+этапа: линтер → Gherkin → мутации. Деплой (`ci_cd.yml`) от него намеренно не
+зависит: мутационный гейт жёсткий (любой выживший мутант = красная сборка), и
+пока балл на старом коде не подтянут, он блокировал бы выкатку.
+
+**Gherkin (behave).** Сценарии — `tests/bdd/features/*.feature` (русский
+Gherkin, `# language: ru`), шаги — `tests/bdd/steps/`, окружение —
+`tests/bdd/environment.py` (свой `DATA_DIR`, выключенный лимитер, клиент поверх
+ASGI без uvicorn). Конфиг — `behave.ini`, запускать из корня проекта.
+
+**Мутации (mutmut).** Конфиг — `[mutmut]` в `setup.cfg`; мутируются только
+`main.py`, `config.py`, `db.py`, `prompts.py`, `schemas.py`. Инкрементальный
+режим — `tools/mutation_diff.py`: берёт дифф с базовой веткой, сужает до
+задетых функций и роняет прогон на любом невыжившем мутанте. Полный прогон по
+`main.py` — десятки минут, поэтому в CI только дифф. **mutmut использует
+`os.fork()` и на Windows не работает** — локально гонять из WSL или контейнера.
 
 ## Architecture
 
