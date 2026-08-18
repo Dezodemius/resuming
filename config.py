@@ -92,6 +92,10 @@ YANDEX_CLIENT_SECRET = os.getenv("YANDEX_CLIENT_SECRET", "")
 VK_CLIENT_ID         = os.getenv("VK_CLIENT_ID", "")  # секрет не нужен: VK ID работает по PKCE
 MAILRU_CLIENT_ID     = os.getenv("MAILRU_CLIENT_ID", "")
 MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
+# Общий рубильник кнопок входа через Яндекс/VK/Mail.ru — по умолчанию выключены
+# (нестабильны, требуют присмотра). Client ID/secret можно оставить настроенными
+# и включить кнопки без смены конфигурации провайдера: OAUTH_LOGIN_ENABLED=1.
+OAUTH_LOGIN_ENABLED  = os.getenv("OAUTH_LOGIN_ENABLED", "0") == "1"
 ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
 # Номер счётчика Метрики — только цифры: значение подставляется в JS и HTML
 # всех страниц, так что произвольная строка (например, случайно вписанный

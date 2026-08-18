@@ -63,7 +63,16 @@ async def test_vk_no_client_id_returns_503(monkeypatch, client):
 
 
 @pytest.mark.asyncio
+async def test_vk_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    r = await client.get("/auth/vk")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
 async def test_vk_start_redirects_to_vk_domain(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/vk", follow_redirects=False)
@@ -74,6 +83,7 @@ async def test_vk_start_redirects_to_vk_domain(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_vk_start_sets_state_cookie(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/vk", follow_redirects=False)
@@ -107,6 +117,7 @@ async def test_mailru_no_client_id_returns_503(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_mailru_start_redirects_to_mailru_domain(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/mailru", follow_redirects=False)
@@ -117,6 +128,7 @@ async def test_mailru_start_redirects_to_mailru_domain(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_mailru_start_sets_state_cookie(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/mailru", follow_redirects=False)
