@@ -63,6 +63,7 @@ def get_ai_sem() -> asyncio.Semaphore:
 
 tpl = Jinja2Templates(directory="templates")
 tpl.env.globals["metrika_id"] = METRIKA_ID
+tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 
 # ── Database ── слой БД вынесен в db.py (get_db/init_db).
 from db import get_db, init_db  # noqa: E402
