@@ -108,7 +108,6 @@ punycode** — провайдеры сравнивают redirect_uri посим
 
 | Провайдер | Где регистрировать | Что вписать у провайдера | Переменные |
 |---|---|---|---|
-| Telegram | [@BotFather](https://t.me/BotFather): `/newbot`, затем `/setdomain` | домен `xn--e1aedprev8fe.xn--p1ai` | `TELEGRAM_BOT_NAME`, `TELEGRAM_BOT_TOKEN` |
 | Яндекс ID | [oauth.yandex.ru](https://oauth.yandex.ru/client/new) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/yandex/callback`, права `login:email` и `login:info` | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET` |
 | VK ID | [id.vk.com](https://id.vk.com/about/business/go/docs/developer) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/vk/callback` | `VK_CLIENT_ID` (секрет не нужен, PKCE) |
 | Mail.ru | [oauth.mail.ru](https://oauth.mail.ru) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/mailru/callback` | `MAILRU_CLIENT_ID`, `MAILRU_CLIENT_SECRET` |
@@ -117,10 +116,6 @@ punycode** — провайдеры сравнивают redirect_uri посим
 не выставлен, кнопки скрыты, а `/auth/{yandex,vk,mailru}` отдают 503 — даже с
 верными ключами. Так и задумано, но именно это чаще всего и забывают, поэтому
 приложение пишет об этом предупреждение при старте.
-
-Telegram рубильником не закрыт, ему достаточно имени бота и токена — но нужны
-**оба**: без токена подпись виджета проверить нечем, и вход всегда падал бы с
-401, поэтому кнопка в таком случае не показывается.
 
 После правки `.env` контейнер надо перезапустить, переменные читаются при
 старте:

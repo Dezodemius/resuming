@@ -7,7 +7,7 @@ AI-генератор резюме: адаптирует резюме под к�
 - **Backend**: Python, FastAPI, SQLite
 - **AI**: Ollama (локально) — `qwen2.5:14b` по умолчанию
 - **Платежи**: Робокасса
-- **Авторизация**: Telegram Login Widget + Email magic link
+- **Авторизация**: Email magic link + OAuth (Яндекс ID, VK ID, Mail.ru)
 
 ## Быстрый старт
 
