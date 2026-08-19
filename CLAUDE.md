@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Резюмирую.рф** — AI-генератор резюме. Адаптирует резюме под конкретную вакансию, хранит версии по компаниям, предоставляет редактор. Использует локальную LLM через Ollama.
 
-Stack: FastAPI + SQLite + Jinja2 + Ollama (`qwen2.5:14b`) + ЮKassa + Telegram Login Widget + Email magic link.
+Stack: FastAPI + SQLite + Jinja2 + Ollama (`qwen2.5:14b`) + Робокасса + Telegram Login Widget + Email magic link.
 
 ## Commands
 
@@ -82,7 +82,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 
 **Лимиты использования** — у каждого пользователя: `free_left` (3 бесплатных), `paid_left` (докупаемые пачки), `is_pro` + `pro_expires_at` (подписка). `_deduct()` / `_refund()` — атомарные списания с откатом при ошибке AI. FREE_RESUMES=5 — лимит хранимых резюме для бесплатных.
 
-**Платежи** — ЮKassa. Вебхук `/api/pay/webhook` верифицирует платёж напрямую через ЮKassa API (не доверяет только webhook-данным) перед выдачей Pro.
+**Платежи** — Робокасса. `POST /api/pay` собирает подписанный redirect URL (`MD5(LOGIN:OutSum:InvId:PASSWORD1)`, `InvId` = `payments.id`) без вызова внешнего API. Вебхук `/api/pay/webhook` — ResultURL Робокассы (form/query, не JSON): проверяет подпись `MD5(OutSum:InvId:PASSWORD2)`, затем подтверждает платёж через `OpStateExt` (не доверяет только вебхуку) и отвечает `OK{InvId}` при успехе.
 
 **Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен). Есть глобальный backstop `240/minute` (`SlowAPIMiddleware` + `default_limits`) поверх точечных `@rate`. Ключ лимита — `_client_key`: `CF-Connecting-IP` → первый `X-Forwarded-For` → peer, иначе за Cloudflare+nginx все посетители попали бы в одно ведро. В тестах лимитер выключен через `RATE_LIMIT_ENABLED=0` (см. `tests/conftest.py`).
 
@@ -98,7 +98,8 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `OLLAMA_MODEL` | Модель (по умолчанию `qwen2.5:14b`) |
 | `SECRET_KEY` | HMAC-ключ для подписи anon-cookie — **обязателен** в проде |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_NAME` | Telegram Login Widget |
-| `YOKASSA_SHOP_ID` / `YOKASSA_SECRET_KEY` | ЮKassa платежи |
+| `ROBOKASSA_LOGIN` / `ROBOKASSA_PASSWORD1` / `ROBOKASSA_PASSWORD2` | Робокасса — платежи |
+| `ROBOKASSA_TEST_MODE` | `1` включает тестовый режим Робокассы (`IsTest=1`) |
 | `SMTP_*` | Email magic link |
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
 | `VK_CLIENT_ID` | Вход через VK ID (OAuth с PKCE; секрет не нужен) |

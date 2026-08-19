@@ -57,8 +57,10 @@ MODEL                = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 # Bearer-токен для внешних OpenAI-совместимых провайдеров (DeepSeek и т.п.).
 # Пусто — заголовок Authorization не отправляется (локальная Ollama его не требует).
 AI_API_KEY           = os.getenv("AI_API_KEY", "")
-YOKASSA_SHOP         = os.getenv("YOKASSA_SHOP_ID", "")
-YOKASSA_SECRET       = os.getenv("YOKASSA_SECRET_KEY", "")
+ROBOKASSA_LOGIN      = os.getenv("ROBOKASSA_LOGIN", "")
+ROBOKASSA_PASSWORD1  = os.getenv("ROBOKASSA_PASSWORD1", "")
+ROBOKASSA_PASSWORD2  = os.getenv("ROBOKASSA_PASSWORD2", "")
+ROBOKASSA_TEST_MODE  = os.getenv("ROBOKASSA_TEST_MODE", "0") == "1"
 def _idna_url(url: str) -> str:
     """Хост URL в punycode (IDNA). Браузер, Origin-заголовок и OAuth-провайдеры
     оперируют ASCII-формой домена, поэтому кириллический APP_URL ломает точное
