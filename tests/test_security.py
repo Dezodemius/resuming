@@ -560,3 +560,90 @@ async def test_fetch_job_survives_broken_encoding(monkeypatch):
     monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
     text = await main._fetch_job_text("https://example.com/job")
     assert "job" in text and "offer" in text
+
+
+async def test_fetch_job_rejects_non_http_scheme(monkeypatch):
+    """Схема не http(s) — отказ до всякой сети, с кодом 400."""
+    def handler(request):                      # pragma: no cover — не должен вызваться
+        raise AssertionError("запрос не должен был уйти")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("ftp://example.com/vacancy")
+    assert exc.value.status_code == 400
+
+
+async def test_fetch_job_maps_network_error_to_502(monkeypatch):
+    """Сеть не ответила — это 502, а не 500 и не проброс исключения наружу."""
+    def handler(request):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("https://example.com/job")
+    assert exc.value.status_code == 502
+
+
+async def test_fetch_job_uses_get(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["method"] = request.method
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>x</p>")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    await main._fetch_job_text("https://example.com/job")
+    assert seen["method"] == "GET"
+
+
+async def test_fetch_job_joins_chunks_without_separator(monkeypatch):
+    """Куски потока склеиваются встык: слово на границе не должно рваться."""
+    async def body():
+        yield "<p>Раз".encode()
+        yield "дватри</p>".encode()
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Раздватри" in await main._fetch_job_text("https://example.com/job")
+
+
+async def test_fetch_job_normalises_text(monkeypatch):
+    """Теги заменяются пробелом, пробельные последовательности схлопываются,
+    края обрезаются — на выходе ровно текст вакансии."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content="<div>\n  <b>Иванов</b>\t\tПётр\n</div>".encode(),
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert await main._fetch_job_text("https://example.com/job") == "Иванов Пётр"
+
+
+async def test_fetch_job_client_is_configured_defensively(monkeypatch):
+    """Параметры клиента — часть защиты, а не стиль оформления.
+
+    follow_redirects=False принципиален: автоследование внутри httpx обошло бы
+    проверку _assert_public_host на каждом хопе, то есть вернуло бы SSRF через
+    редирект на внутренний адрес. Таймаут не даёт зависшему сайту вакансии
+    держать слот AI-очереди, а User-Agent нужен, чтобы job-борды не отдавали
+    заглушку вместо вакансии.
+    """
+    captured: dict = {}
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>x</p>")
+
+    def factory(*args, **kwargs):
+        captured.update(kwargs)
+        return _REAL_ASYNC_CLIENT(*args, **kwargs, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", factory)
+    await main._fetch_job_text("https://example.com/job")
+
+    assert captured["follow_redirects"] is False
+    assert captured["timeout"] == 15
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/")

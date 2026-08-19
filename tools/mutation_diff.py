@@ -34,6 +34,10 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent.parent
 MUTANTS_DIR = ROOT / "mutants"
 
+# Отсев мутантов, которых бессмысленно убивать тестами, живёт рядом.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mutation_ignore  # noqa: E402
+
 # Разделитель класса в мангленных именах mutmut: xǁClassǁmethod__mutmut_1.
 CLASS_SEP = "ǁ"
 
@@ -240,11 +244,26 @@ def mutmut_cmd() -> list[str]:
     return [executable] if executable else [sys.executable, "-m", "mutmut"]
 
 
-def run_mutmut(globs: list[str], extra: list[str]) -> int:
+# mutmut падает с этим текстом, когда под фильтр не попало ни одного мутанта —
+# например если в диффе только декорированные роут-хендлеры, которых он не
+# мутирует вовсе. Это не поломка прогона, а «проверять нечего».
+NOTHING_MATCHES = "Filtered for specific mutants, but nothing matches"
+
+
+def run_mutmut(globs: list[str], extra: list[str]) -> tuple[int, str]:
+    """(код возврата, объединённый вывод).
+
+    Вывод захватываем: по нему отличаем пустой фильтр от настоящего падения,
+    а заодно не тащим в лог CI километр спиннера — печатаем только хвост."""
     command = [*mutmut_cmd(), "run", *extra, *globs]
     print(f"$ {' '.join(command)}\n", flush=True)
-    result = subprocess.run(command, cwd=ROOT, text=True, encoding="utf-8", errors="replace")
-    return result.returncode
+    result = subprocess.run(
+        command, cwd=ROOT, text=True, encoding="utf-8", errors="replace",
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    output = result.stdout or ""
+    print("\n".join(output.splitlines()[-40:]), flush=True)
+    return result.returncode, output
 
 
 def collect_results(globs: list[str], files: list[str]) -> dict[str, list[str]]:
@@ -264,7 +283,8 @@ def collect_results(globs: list[str], files: list[str]) -> dict[str, list[str]]:
     return by_status
 
 
-def report(by_status: dict[str, list[str]], allow_survived: int, mutmut_exit_code: int = 0) -> int:
+def report(by_status: dict[str, list[str]], allow_survived: int, mutmut_exit_code: int = 0,
+           files: list[str] | None = None) -> int:
     total = sum(len(names) for names in by_status.values())
     if not total:
         print("Мутанты не создавались — нечего проверять.")
@@ -282,18 +302,42 @@ def report(by_status: dict[str, list[str]], allow_survived: int, mutmut_exit_cod
     for status in sorted(by_status):
         print(f"  {status:<22} {len(by_status[status])}")
 
-    if alive_count:
-        print("\nНе убитые мутанты (посмотреть диф: mutmut show <имя>):")
-        for status in sorted(alive):
-            for name in sorted(alive[status])[:40]:
-                print(f"  [{status}] {name}")
-            if len(alive[status]) > 40:
-                print(f"  … ещё {len(alive[status]) - 40} со статусом {status}")
+    # Мутанты, которых бессмысленно убивать тестами (лог, текст сообщения,
+    # регистр литерала, разобранные вручную), считаем отдельно и под гейт не
+    # ставим — но показываем, чтобы отсев оставался на виду.
+    alive_names = sorted(name for names in alive.values() for name in names)
+    ignored = mutation_ignore.classify(MUTANTS_DIR, files or [], alive_names) if alive_names else {}
+    remaining = [name for name in alive_names if name not in ignored]
 
-    if alive_count > allow_survived:
-        print(f"\nFAIL: не убито {alive_count} мутантов при допустимых {allow_survived}.")
+    if ignored:
+        by_reason: dict[str, list[str]] = defaultdict(list)
+        for name, reason in ignored.items():
+            by_reason[reason].append(name)
+        print(f"\nОтсеяно как не про поведение: {len(ignored)}")
+        for reason in sorted(by_reason):
+            names = sorted(by_reason[reason])
+            shown = ", ".join(name.rpartition(".")[2] for name in names[:6])
+            more = f" … и ещё {len(names) - 6}" if len(names) > 6 else ""
+            print(f"  {reason}: {len(names)} — {shown}{more}")
+
+    if remaining:
+        print("\nНе убитые мутанты (посмотреть диф: mutmut show <имя>):")
+        for name in remaining[:40]:
+            print(f"  {name}")
+            described = mutation_ignore.describe(MUTANTS_DIR, files or [], name)
+            if described:
+                digest, was, became = described
+                print(f"      - {was}")
+                print(f"      + {became}")
+                print("      если эквивалентный — строка для tools/mutation_ignore.txt:")
+                print(f"      {digest}  # причина")
+        if len(remaining) > 40:
+            print(f"  … ещё {len(remaining) - 40}")
+
+    if len(remaining) > allow_survived:
+        print(f"\nFAIL: не убито {len(remaining)} мутантов при допустимых {allow_survived}.")
         return 1
-    print("\nOK: все мутанты убиты.")
+    print("\nOK: значимых выживших мутантов нет.")
     return 0
 
 
@@ -328,12 +372,22 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    exit_code = run_mutmut(globs, args.mutmut_args)
+    exit_code, output = run_mutmut(globs, args.mutmut_args)
     by_status = collect_results(globs, files)
+    if not by_status and NOTHING_MATCHES in output:
+        # Функции в диффе есть, а мутантов у них нет. Так бывает с
+        # декорированными роут-хендлерами: mutmut их не мутирует вовсе.
+        # Проверять нечего — это не повод ронять сборку.
+        print("\nУ изменённых функций нет мутантов — проверять нечего.")
+        print("Так бывает с декорированными роут-хендлерами (@app.post и т.п.):")
+        print("mutmut их не мутирует, поэтому HTTP-слой под гейт не попадает вовсе.")
+        for glob in globs:
+            print(f"  {glob}")
+        return 0
     if exit_code != 0 and not by_status:
         print(f"\nmutmut завершился с кодом {exit_code} и не оставил результатов.")
         return 2
-    return report(by_status, args.allow_survived, exit_code)
+    return report(by_status, args.allow_survived, exit_code, files)
 
 
 if __name__ == "__main__":
