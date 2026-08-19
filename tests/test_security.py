@@ -4,6 +4,9 @@
 который их нарушит, падал немедленно: SSRF-защита fetch-job, подтверждение
 платежа Робокассы в вебхуке, срок жизни magic-ссылки.
 """
+import hashlib
+import xml.etree.ElementTree as ET
+
 import httpx
 import pytest
 from fastapi import HTTPException
@@ -77,14 +80,17 @@ class _FakeResp:
 
 
 class _FakeClient:
-    """Подменяет httpx.AsyncClient: .get() всегда отдаёт заранее заданный XML-ответ OpStateExt."""
+    """Подменяет httpx.AsyncClient: .get() всегда отдаёт заранее заданный XML-ответ
+    OpStateExt и запоминает (url, kwargs) каждого вызова в self.calls."""
     def __init__(self, text, status=200):
         self._text, self._status = text, status
+        self.calls = []
     async def __aenter__(self):
         return self
     async def __aexit__(self, *a):
         return False
-    async def get(self, *a, **k):
+    async def get(self, url, **kw):
+        self.calls.append((url, kw))
         return _FakeResp(self._text, self._status)
 
 
@@ -124,6 +130,66 @@ def _webhook_form(inv_id, out_sum=None, password2=_TEST_PASSWORD2, extra=None):
     if extra:
         form.update(extra)
     return form
+
+
+# ── Прямые юнит-тесты платёжных хелперов (не только через /api/pay/webhook) ──
+# Вебхук-тесты ниже мокают httpx целиком и не смотрят, с какими параметрами
+# он был вызван, — мутации внутри _robokassa_confirmed (не тот URL, не тот
+# ключ params, перепутанный порядок аргументов подписи) не меняли бы исход
+# теста, значит не были бы пойманы. Эти тесты бьют по самим хелперам напрямую.
+def test_robokassa_signature_is_md5_of_colon_joined_parts():
+    assert main._robokassa_signature("shop", "399.00", "12", "pass1") == \
+        hashlib.md5(b"shop:399.00:12:pass1").hexdigest()
+
+
+def test_robokassa_signature_order_matters():
+    assert main._robokassa_signature("a", "b") != main._robokassa_signature("b", "a")
+
+
+def test_strip_xml_ns_allows_lookup_by_local_name():
+    xml = ('<Root xmlns="http://merchant.roboxchange.com/WebService/">'
+           '<State><Code>100</Code></State></Root>')
+    root = main._strip_xml_ns(ET.fromstring(xml))
+    assert root.findtext(".//State/Code") == "100"
+
+
+async def test_robokassa_confirmed_sends_correct_params(monkeypatch):
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    fake = _FakeClient(_opstate_xml("100"))
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: fake)
+    result = await main._robokassa_confirmed("42", main.PRO_PRICE)
+    assert result is True
+    assert len(fake.calls) == 1
+    url, kw = fake.calls[0]
+    assert url == "https://auth.robokassa.ru/Merchant/WebService/Service.asmx/OpStateExt"
+    assert kw["params"] == {
+        "MerchantLogin": "shop",
+        "InvoiceID": "42",
+        "Signature": main._robokassa_signature("shop", "42", "pass2"),
+    }
+
+
+async def test_robokassa_confirmed_false_when_not_yet_paid(monkeypatch):
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_opstate_xml("5")))
+    assert await main._robokassa_confirmed("1", main.PRO_PRICE) is False
+
+
+async def test_robokassa_confirmed_false_when_amount_mismatch(monkeypatch):
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main.httpx, "AsyncClient",
+                         lambda *a, **k: _FakeClient(_opstate_xml("100", out_sum="1.00")))
+    assert await main._robokassa_confirmed("1", main.PRO_PRICE) is False
+
+
+async def test_robokassa_confirmed_true_when_paid_and_matching(monkeypatch):
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_opstate_xml("100")))
+    assert await main._robokassa_confirmed("1", main.PRO_PRICE) is True
 
 
 async def test_webhook_without_confirmation_no_pro(client, monkeypatch):
