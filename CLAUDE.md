@@ -75,6 +75,13 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 
 **База данных** — SQLite в WAL-режиме. Путь: `/app/data/resume.db` в Docker, `./data/resume.db` локально (задаётся через `DATA_DIR`). Схема инициализируется при старте через `init_db()`. Один воркер + asyncio + SQLite — намеренное решение; для масштабирования потребует переход на PostgreSQL.
 
+**Изменение схемы.** `init_db()` выполняет `CREATE TABLE IF NOT EXISTS` — на
+базе, где таблица уже есть, это не делает ничего. Поэтому новую колонку или
+ограничение мало дописать в `init_db`: на рабочих базах они не появятся.
+Изменения едут шагами миграций в `db.py` (`SCHEMA_VERSION` + `migrate()`,
+версия хранится в `PRAGMA user_version`). Добавили шаг — подняли
+`SCHEMA_VERSION` и дописали тест в `tests/test_db.py`.
+
 `get_db()` — **контекстный менеджер** (`with get_db() as db:`): коммитит при успехе, откатывает при исключении и всегда закрывает соединение. Для «сырого» соединения (тесты, скрипты) есть `db.connect()`. Протухшие сессии, magic-токены и старые `anon_usage`/`usage_events` чистит фоновая задача `_cleanup_loop` → `cleanup_expired()`.
 
 **Ошибки и безопасность** — middleware `security_headers` вешает CSP (режим в `CSP_MODE`), `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` и HSTS (только при https-`APP_URL`). Обработчики `StarletteHTTPException`/`Exception` отдают `error.html` на навигацию браузера и JSON `{"detail": …}` на всё, что под `/api/`, `/auth/`, `/mcp`. MCP смонтирован на `/` через обёртку `_McpMountOr404` — иначе он перехватывал бы все неизвестные URL.
