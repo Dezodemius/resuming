@@ -113,6 +113,15 @@ FREE_RESUMES     = 5
 PRO_PRICE        = "399.00"
 PRO_DAYS         = 30
 ANON_LIMIT_CONST = 2
+# Второй предел — по IP и с суточным окном. Счётчик по cookie не удерживает
+# ничего: клиенту достаточно не возвращать cookie, чтобы каждый раз получать
+# новый anon_id с нулём попыток. Порог заметно выше «домашнего», чтобы
+# несколько человек за одним NAT не блокировали друг друга; при злоупотреблении
+# ужимается переменной окружения без выкатки кода.
+ANON_IP_LIMIT_CONST = int(os.getenv("ANON_IP_LIMIT", "10"))
+ANON_IP_WINDOW_HOURS = 24
+# Окно счётчика по cookie равно сроку жизни самой cookie.
+ANON_COOKIE_WINDOW_HOURS = 7 * 24
 PAID_PACK        = 20
 PACK_PRICE       = PRO_PRICE
 SESSION_DAYS     = 30
