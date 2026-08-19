@@ -150,7 +150,7 @@ async def test_default_rate_limit_is_a_backstop(client):
     try:
         if hasattr(main.limiter, "reset"):
             main.limiter.reset()
-        headers = {"cf-connecting-ip": "203.0.113.7"}
+        headers = {"x-real-ip": "203.0.113.7"}
         statuses = set()
         for _ in range(260):
             statuses.add((await client.get("/healthz", headers=headers)).status_code)
@@ -159,7 +159,7 @@ async def test_default_rate_limit_is_a_backstop(client):
         assert 429 in statuses, "глобальный лимит не сработал"
 
         # Другой посетитель не должен пострадать от чужого всплеска
-        other = await client.get("/healthz", headers={"cf-connecting-ip": "198.51.100.9"})
+        other = await client.get("/healthz", headers={"x-real-ip": "198.51.100.9"})
         assert other.status_code == 200
     finally:
         main.limiter.enabled = False
@@ -167,14 +167,42 @@ async def test_default_rate_limit_is_a_backstop(client):
             main.limiter.reset()
 
 
+class _Req:
+    def __init__(self, headers, client_host="10.0.0.1"):
+        self.headers = headers
+        self.client = type("C", (), {"host": client_host})()
+
+
 def test_rate_limit_key_prefers_real_client_ip():
     """За Cloudflare + nginx peer-адрес всегда один и тот же — ключом должен
     быть IP посетителя, иначе лимит становится общим на весь сайт."""
-    class _Req:
-        def __init__(self, headers, client_host="10.0.0.1"):
-            self.headers = headers
-            self.client = type("C", (), {"host": client_host})()
-
-    assert main._client_key(_Req({"cf-connecting-ip": "1.2.3.4"})) == "1.2.3.4"
-    assert main._client_key(_Req({"x-forwarded-for": "5.6.7.8, 10.0.0.1"})) == "5.6.7.8"
+    assert main._client_key(_Req({"x-real-ip": "1.2.3.4"})) == "1.2.3.4"
     assert main._client_key(_Req({})) == "10.0.0.1"
+
+
+def test_rate_limit_key_ignores_client_supplied_headers():
+    """Ключ нельзя подделать заголовками, которые прислал сам клиент.
+
+    CF-Connecting-IP наш nginx наверх пропускает как есть, а начало
+    X-Forwarded-For клиент задаёт сам. Раньше читались именно они, и обращение
+    к origin мимо Cloudflare с ротацией заголовка обходило и лимитер, и
+    суточный предел анонимных генераций.
+    """
+    forged = {
+        "cf-connecting-ip": "1.1.1.1",
+        "x-forwarded-for": "2.2.2.2, 10.0.0.1",
+    }
+    assert main._client_key(_Req(forged)) == "10.0.0.1"
+
+    # X-Real-IP ставит наш nginx поверх клиентского — он и решает.
+    assert main._client_key(_Req({**forged, "x-real-ip": "203.0.113.5"})) == "203.0.113.5"
+
+
+def test_rate_limit_key_is_stable_under_header_rotation():
+    """Ротация подделываемых заголовков не должна разводить запросы по разным
+    вёдрам — иначе лимит обходится сменой одной строки."""
+    keys = {
+        main._client_key(_Req({"cf-connecting-ip": f"198.51.100.{i}"}))
+        for i in range(1, 20)
+    }
+    assert keys == {"10.0.0.1"}, f"ключ разъехался: {keys}"

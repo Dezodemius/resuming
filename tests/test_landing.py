@@ -155,7 +155,7 @@ async def test_anon_limit_holds_when_cookie_is_dropped(client, monkeypatch):
 
     ok = 0
     for _ in range(8):
-        r = await _preview(client, {"CF-Connecting-IP": "203.0.113.10"})
+        r = await _preview(client, {"X-Real-IP": "203.0.113.10"})
         client.cookies.clear()
         if r.status_code == 200:
             ok += 1
@@ -175,7 +175,7 @@ async def test_anon_limit_per_cookie_still_applies(client, monkeypatch):
 
     ok = 0
     for _ in range(5):
-        r = await _preview(client, {"CF-Connecting-IP": "203.0.113.11"})
+        r = await _preview(client, {"X-Real-IP": "203.0.113.11"})
         if r.status_code == 200:
             ok += 1
     assert ok == main.ANON_LIMIT
@@ -192,11 +192,11 @@ async def test_anon_limit_counts_addresses_separately(client, monkeypatch):
     monkeypatch.setattr(main, "ANON_IP_LIMIT", 2)
 
     for _ in range(2):
-        assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.1"})).status_code == 200
+        assert (await _preview(client, {"X-Real-IP": "198.51.100.1"})).status_code == 200
         client.cookies.clear()
-    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.1"})).status_code == 429
+    assert (await _preview(client, {"X-Real-IP": "198.51.100.1"})).status_code == 429
     client.cookies.clear()
-    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.2"})).status_code == 200
+    assert (await _preview(client, {"X-Real-IP": "198.51.100.2"})).status_code == 200
 
 
 async def test_anon_denied_response_still_sets_cookie(client, monkeypatch):
@@ -209,9 +209,9 @@ async def test_anon_denied_response_still_sets_cookie(client, monkeypatch):
     monkeypatch.setattr(main, "call_ai", fake)
     monkeypatch.setattr(main, "ANON_IP_LIMIT", 1)
 
-    await _preview(client, {"CF-Connecting-IP": "198.51.100.9"})
+    await _preview(client, {"X-Real-IP": "198.51.100.9"})
     client.cookies.clear()
-    r = await _preview(client, {"CF-Connecting-IP": "198.51.100.9"})
+    r = await _preview(client, {"X-Real-IP": "198.51.100.9"})
     assert r.status_code == 429
     assert "anon_id" in r.cookies
 
@@ -226,15 +226,15 @@ async def test_anon_ip_window_expires(client, monkeypatch):
     monkeypatch.setattr(main, "call_ai", fake)
     monkeypatch.setattr(main, "ANON_IP_LIMIT", 1)
 
-    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 200
+    assert (await _preview(client, {"X-Real-IP": "198.51.100.20"})).status_code == 200
     client.cookies.clear()
-    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 429
+    assert (await _preview(client, {"X-Real-IP": "198.51.100.20"})).status_code == 429
     client.cookies.clear()
     # Отматываем запись на двое суток назад — окно должно закрыться
     with main.get_db() as db:
         db.execute("UPDATE anon_usage SET created = datetime('now','-2 days') WHERE anon_id LIKE 'ip:%'")
         db.commit()
-    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 200
+    assert (await _preview(client, {"X-Real-IP": "198.51.100.20"})).status_code == 200
 
 
 async def test_anon_refund_returns_both_counters(client, monkeypatch):
@@ -247,7 +247,7 @@ async def test_anon_refund_returns_both_counters(client, monkeypatch):
     monkeypatch.setattr(main, "call_ai", boom)
     monkeypatch.setattr(main, "ANON_IP_LIMIT", 5)
 
-    r = await _preview(client, {"CF-Connecting-IP": "198.51.100.30"})
+    r = await _preview(client, {"X-Real-IP": "198.51.100.30"})
     assert r.status_code == 503
     with main.get_db() as db:
         rows = db.execute("SELECT anon_id, uses FROM anon_usage").fetchall()
