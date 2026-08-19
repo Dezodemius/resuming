@@ -43,16 +43,16 @@ jobs:
       # секретах. Падаем раньше и по делу.
       - name: Проверить, что доступы настроены
         env:
-          HOST: ${{ secrets.APP01_HOST }}
-          USER: ${{ secrets.APP01_USER }}
-          KEY: ${{ secrets.APP01_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.APP01_KNOWN_HOSTS }}
+          HOST: ${{ secrets.SSH_HOST }}
+          USER: ${{ secrets.SSH_USER }}
+          KEY: ${{ secrets.SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           missing=""
-          [ -n "$HOST" ] || missing="$missing APP01_HOST"
-          [ -n "$USER" ] || missing="$missing APP01_USER"
-          [ -n "$KEY" ] || missing="$missing APP01_SSH_KEY"
-          [ -n "$KNOWN_HOSTS" ] || missing="$missing APP01_KNOWN_HOSTS"
+          [ -n "$HOST" ] || missing="$missing SSH_HOST"
+          [ -n "$USER" ] || missing="$missing SSH_USER"
+          [ -n "$KEY" ] || missing="$missing SSH_KEY"
+          [ -n "$KNOWN_HOSTS" ] || missing="$missing SSH_KNOWN_HOSTS"
           if [ -n "$missing" ]; then
             echo "Не заданы секреты репозитория:$missing"
             echo
@@ -62,24 +62,28 @@ jobs:
             echo "выкатить можно вручную командой из того же раздела."
             exit 1
           fi
-          echo "Все четыре секрета на месте."
+          echo "Секреты на месте. Учтите: непустой SSH_KEY ещё не значит,"
+          echo "что это нужный ключ — если следующий шаг ответит"
+          echo "Permission denied (publickey), замените SSH_KEY."
 
       # Ключ ограничен на стороне сервера forced-command в authorized_keys:
       # он умеет только запустить выкат и не даёт шелл. Настройка — deploy/README.md.
       - name: Ключ доступа к app-01
         run: |
           install -m 700 -d ~/.ssh
-          echo "${{ secrets.APP01_SSH_KEY }}" > ~/.ssh/id_deploy
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
-          echo "${{ secrets.APP01_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       # Обёртка на сервере сама подтягивает origin/main и запускает
       # deploy/deploy-prod.sh из свежего дерева. Команду отсюда не передаём —
       # forced-command её всё равно игнорирует.
       - name: Выкатить на app-01
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 "${{ secrets.APP01_USER }}@${{ secrets.APP01_HOST }}"
+          ssh -i ~/.ssh/id_deploy -p "${SSH_PORT:-22}" -o BatchMode=yes -o ConnectTimeout=20 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
 
       # Через Cloudflare — то, что реально видит пользователь. Healthcheck
       # внутри машины этого не покрывает: хостовой nginx общий с двумя другими
