@@ -1735,7 +1735,11 @@ async def create_payment(req: PayReq, request: Request):
     log.info("pay: платёж создан user=%s inv_id=%s", user["id"], inv_id)
     return {"url": url}
 
-@app.post("/api/pay/webhook")
+# GET и POST — метод ResultURL выбирается в кабинете Робокассы. Раньше роут
+# принимал только POST, а разбор ветвился на request.method: при настройке
+# кабинета на GET каждый вебхук получал бы 405, и оплативший не получал бы
+# Pro — молча, без единой записи в логах приложения.
+@app.api_route("/api/pay/webhook", methods=["GET", "POST"])
 async def payment_webhook(request: Request):
     # ResultURL настраивается в личном кабинете Робокассы методом GET или
     # POST — код не полагается на конкретный выбор.
