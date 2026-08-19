@@ -32,38 +32,37 @@ jobs:
 
   deploy:
     needs: test
-    runs-on: [self-hosted, windows]
+    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    env:
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-    defaults:
-      run:
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
-      - name: Pull latest code
-        run: |
-          cd $env:DEPLOY_PATH
-          git config --global --replace-all safe.directory $env:DEPLOY_PATH
-          git pull "https://x-access-token:${env:DEPLOY_TOKEN}@github.com/${{ github.repository }}.git" main
+      - uses: actions/checkout@v4
 
-      - name: Rebuild and restart containers
+      # Ключ ограничен на стороне сервера forced-command в authorized_keys:
+      # он умеет только запустить выкат и не даёт шелл. Настройка — deploy/README.md.
+      - name: Ключ доступа к app-01
         run: |
-          cd $env:DEPLOY_PATH
-          docker compose up --build -d
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.APP01_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "${{ secrets.APP01_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-      # Прогреваем модель сразу после деплоя, чтобы первый пользователь
-      # не ждал её загрузку (и не ловил таймаут)
-      - name: Warm up Ollama model
-        continue-on-error: true
+      # Обёртка на сервере сама подтягивает origin/main и запускает
+      # deploy/deploy-prod.sh из свежего дерева. Команду отсюда не передаём —
+      # forced-command её всё равно игнорирует.
+      - name: Выкатить на app-01
         run: |
-          cd $env:DEPLOY_PATH
-          $model = (Select-String -Path .env -Pattern '^OLLAMA_MODEL=(\S+)').Matches[0].Groups[1].Value
-          Write-Host "Warming up $model..."
-          Invoke-RestMethod -Method Post -Uri http://localhost:11434/api/generate -ContentType 'application/json' -TimeoutSec 300 -Body (@{model=$model; keep_alive='24h'} | ConvertTo-Json) | Out-Null
-          Write-Host "Model loaded."
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes -o ConnectTimeout=20 "${{ secrets.APP01_USER }}@${{ secrets.APP01_HOST }}"
 
-      - name: Prune dangling images
+      # Через Cloudflare — то, что реально видит пользователь. Healthcheck
+      # внутри машины этого не покрывает: хостовой nginx общий с двумя другими
+      # проектами и может отвалиться отдельно от контейнеров.
+      - name: Проверить снаружи
         run: |
-          cd $env:DEPLOY_PATH
-          docker system prune -f
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://xn--e1aedprev8fe.xn--p1ai/healthz || echo 000)
+            if [ "$code" = "200" ]; then echo "healthz снаружи: 200"; exit 0; fi
+            echo "попытка $i: $code"; sleep 10
+          done
+          echo "ОШИБКА: сайт снаружи не отвечает 200"
+          exit 1

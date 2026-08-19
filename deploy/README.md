@@ -1,8 +1,101 @@
-# Деплой на стенд timeweb.cloud
+# Деплой
+
+Два независимых контура. Ниже сначала прод, потом стенд.
+
+| | Прод | Стенд |
+|---|---|---|
+| Что | `резюмирую.рф` | копия по IP, без домена и TLS |
+| Где | app-01 (Timeweb), `/srv/apps/resuming` | отдельный VPS, `/opt/resuming` |
+| Чем | `ci_cd.yml` → SSH → `deploy/deploy-prod.sh` | `deploy/deploy.sh` с ноутбука |
+| Compose | `deploy/docker-compose.prod.yml` | `deploy/docker-compose.staging.yml` |
+| Что поднимается | `app` + `ops-mcp`, оба на `127.0.0.1` | `app` + `nginx` |
+| Кто держит домен | **хостовой** nginx машины, общий с двумя другими проектами | свой nginx в compose |
+
+Корневой `docker-compose.yml` — третий, самодостаточный вариант (с локальной
+Ollama и собственным nginx на порту 80). **На app-01 его запускать нельзя**: он
+займёт 80-й порт и уронит хостовой прокси, а с ним dndshing.ru и sgorelo.ru.
+
+## Прод: как это работает
+
+Пуш в `main` → джоба `deploy` в `.github/workflows/ci_cd.yml` (на
+`ubuntu-latest`) → SSH на app-01 → серверная обёртка обновляет рабочее дерево до
+`origin/main` и запускает `deploy/deploy-prod.sh` из свежего кода. Скрипт
+помечает текущий образ как точку отката, пересобирает, ждёт healthcheck и
+проверяет `/healthz` и что `POST /api/fetch-job` без сессии отдаёт 401. После
+этого джоба отдельно проверяет сайт снаружи, через Cloudflare.
+
+### Разовая настройка
+
+1. **Ключ.** Сгенерировать отдельную пару только для выката (без пароля, иначе
+   CI не сможет ей воспользоваться):
+
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/resuming_ci -C "resuming-ci-deploy" -N ""
+   ```
+
+2. **Обёртка на сервере.** Она нужна, чтобы ключ не давал шелл: forced-command
+   в `authorized_keys` игнорирует любую присланную команду и запускает только её.
+
+   ```bash
+   ssh app01 'cat > /usr/local/sbin/resuming-deploy <<"EOF"
+   #!/bin/bash
+   set -euo pipefail
+   cd /srv/apps/resuming
+   git fetch --quiet origin main
+   git reset --hard --quiet origin/main
+   exec bash deploy/deploy-prod.sh
+   EOF
+   chmod 700 /usr/local/sbin/resuming-deploy'
+   ```
+
+3. **Публичный ключ с ограничением.** Дописать в `/root/.ssh/authorized_keys`
+   на app-01 одной строкой:
+
+   ```
+   command="/usr/local/sbin/resuming-deploy",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,restrict ssh-ed25519 AAAA... resuming-ci-deploy
+   ```
+
+   Проверить, что шелл этим ключом не даётся:
+   `ssh -i ~/.ssh/resuming_ci root@201.34.132.125 "id"` — должен пойти выкат, а не `id`.
+
+4. **Секреты репозитория** (Settings → Secrets and variables → Actions):
+
+   | Секрет | Значение |
+   |---|---|
+   | `APP01_HOST` | `201.34.132.125` |
+   | `APP01_USER` | `root` |
+   | `APP01_SSH_KEY` | содержимое приватного `~/.ssh/resuming_ci` целиком |
+   | `APP01_KNOWN_HOSTS` | вывод `ssh-keyscan -H 201.34.132.125` |
+
+   `APP01_KNOWN_HOSTS` не косметика: без него `BatchMode` откажется соединяться,
+   а `StrictHostKeyChecking=no` открыл бы выкат для MITM.
+
+### Ручной выкат и откат
+
+```bash
+ssh app01 'cd /srv/apps/resuming && git fetch origin main && git reset --hard origin/main && bash deploy/deploy-prod.sh'
+```
+
+Скрипт перед пересборкой помечает текущий образ `resuming-app:rollback-<дата>`.
+Откатиться на него:
+
+```bash
+ssh app01 'cd /srv/apps/resuming && docker tag resuming-app:rollback-<дата> resuming-app && docker compose -f deploy/docker-compose.prod.yml up -d'
+```
+
+Откат образом не откатывает код в рабочем дереве — если нужен и код, добавьте
+`git reset --hard <коммит>` (предыдущий записан в `/root/resuming-deployed-commit.txt`).
+
+### Осторожно с SSH
+
+На app-01 включён `ufw limit 22/tcp`: частые переподключения начинают молча
+отваливаться по таймауту, и это выглядит как недоступность сервера. Делайте
+одну сессию на задачу и не ретраьте чаще, чем раз в 15–20 секунд.
+
+## Стенд timeweb.cloud
 
 Стенд — отдельная копия сайта на VPS timeweb, открывается **по IP**, без домена
-и TLS. Прод (`резюмирую.рф`) деплоится иначе — через GitHub Actions на
-self-hosted раннер, `.github/workflows/ci_cd.yml`. Эти два пути не пересекаются.
+и TLS.
 
 Что поднимается на стенде: `app` (FastAPI) + `nginx`. **Ollama на стенде нет** —
 приложение ходит на внешний `OLLAMA_URL` из `.env` стенда. `ops-mcp` тоже не
