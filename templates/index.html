@@ -68,8 +68,11 @@
 
 .panel-single{max-width:660px;margin:0 auto}
 
-/* results */
-.results{margin-top:24px}
+/* results — выровнен по ширине левой колонки .gen__col (совпадает с .gen__grid:
+   1fr + 348px сайдбар + 18px gap), а не по всей ширине .gen__grid, иначе
+   карточка резюме «уезжает» правее формы и под ней остаётся пустая полоса
+   на месте сайдбара */
+.results{margin-top:24px;max-width:calc(100% - 366px)}
 .preview-toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .preview-toolbar button{display:none;align-items:center;justify-content:center;gap:7px;height:42px;padding:0 18px;border-radius:12px;font-family:inherit;font-weight:700;font-size:13.5px;cursor:pointer;border:none;transition:transform .15s,filter .15s}
 .preview-toolbar button:hover{filter:brightness(1.06);transform:translateY(-1px)}
@@ -116,6 +119,7 @@
 .r-skill-cat{font-weight:700;color:var(--page-ink);min-width:120px}
 .r-skill-items{color:var(--page-ink)}
 
+@media (max-width:960px){ .results{max-width:none} }
 @media (max-width:760px){ .row2{grid-template-columns:1fr} #resume-paper{padding:30px 22px} }
 </style>
 {% include '_metrika.html' %}
@@ -123,7 +127,7 @@
 <body>
 
 <header class="appbar">
-  <a class="appbar__logo" href="/resumes" aria-label="Резюмирую — мои резюме">
+  <a class="appbar__logo" href="/" aria-label="Резюмирую.рф">
     <span class="logo-mark">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
     </span>
@@ -134,10 +138,10 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
       <span data-navlabel>Мои резюме</span>
     </a>
-    <a class="nav__cta nav__cta--active" href="/new">
+    <span class="nav__cta nav__cta--active" style="cursor:default">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
       <span data-navlabel>Создать</span>
-    </a>
+    </span>
   </nav>
   <div class="appbar__right">
     <button id="theme-btn" class="theme-btn" type="button" aria-label="Сменить тему">🌙</button>
@@ -153,7 +157,7 @@
 
 <div class="crumbs">
   <div class="crumbs__inner">
-    <a class="crumbs__back" href="/resumes">
+    <a class="crumbs__back" href="{{ '/resumes' if user else '/' }}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg>Назад
     </a>
     <span class="crumbs__div"></span>
@@ -299,7 +303,7 @@
         <div class="field"><label>Навыки (через запятую)</label><textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой…"></textarea></div>
         <div class="field"><label>Языки</label><input id="p-langs" value="Русский — родной"></div>
       </section>
-      <button class="btn-build" type="button" onclick="saveProfile()">💾 Сохранить профиль</button>
+      <button class="btn-build" type="button" onclick="saveProfile()">Сохранить профиль</button>
     </div>
   </div>
 

@@ -43,6 +43,7 @@ from config import (  # noqa: E402
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
     VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
+    OAUTH_LOGIN_ENABLED,
     FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
@@ -63,6 +64,7 @@ def get_ai_sem() -> asyncio.Semaphore:
 
 tpl = Jinja2Templates(directory="templates")
 tpl.env.globals["metrika_id"] = METRIKA_ID
+tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 
 # ── Database ── слой БД вынесен в db.py (get_db/init_db).
 from db import get_db, init_db  # noqa: E402
@@ -542,9 +544,9 @@ async def readyz():
 def _auth_ctx(user) -> dict:
     return {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
-        "yandex_enabled": bool(YANDEX_CLIENT_ID),
-        "vk_enabled": bool(VK_CLIENT_ID),
-        "mailru_enabled": bool(MAILRU_CLIENT_ID),
+        "yandex_enabled": OAUTH_LOGIN_ENABLED and bool(YANDEX_CLIENT_ID),
+        "vk_enabled": OAUTH_LOGIN_ENABLED and bool(VK_CLIENT_ID),
+        "mailru_enabled": OAUTH_LOGIN_ENABLED and bool(MAILRU_CLIENT_ID),
         "user": user,
     }
 
@@ -825,7 +827,7 @@ async def auth_email_verify(token: str, response: Response):
 # ── Yandex OAuth ──────────────────────────────────────────────────────────
 @app.get("/auth/yandex")
 async def auth_yandex_start():
-    if not YANDEX_CLIENT_ID:
+    if not (OAUTH_LOGIN_ENABLED and YANDEX_CLIENT_ID):
         raise HTTPException(503, "Вход через Яндекс не настроен")
     state = str(uuid.uuid4())
     params = urlencode({
@@ -891,7 +893,7 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
 # ── VK ID OAuth (с PKCE) ──────────────────────────────────────────────────────
 @app.get("/auth/vk")
 async def auth_vk_start():
-    if not VK_CLIENT_ID:
+    if not (OAUTH_LOGIN_ENABLED and VK_CLIENT_ID):
         raise HTTPException(503, "Вход через VK не настроен")
     state = str(uuid.uuid4())
     code_verifier = secrets.token_urlsafe(64)
@@ -980,7 +982,7 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
 # ── Mail.ru OAuth ─────────────────────────────────────────────────────────────
 @app.get("/auth/mailru")
 async def auth_mailru_start():
-    if not MAILRU_CLIENT_ID:
+    if not (OAUTH_LOGIN_ENABLED and MAILRU_CLIENT_ID):
         raise HTTPException(503, "Вход через Mail.ru не настроен")
     state = str(uuid.uuid4())
     params = urlencode({
