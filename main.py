@@ -1484,11 +1484,22 @@ def _assert_public_host(host: str) -> None:
                 or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             raise HTTPException(400, "Недопустимый адрес — ссылка ведёт во внутреннюю сеть")
 
+# Больше страницы вакансии не бывает, а тело ответа целиком уезжает в память:
+# без этого предела ссылка на большой файл выедала всю RAM сервера.
+MAX_JOB_BYTES = 512 * 1024
+# Вакансия — это текст. Всё остальное качать смысла нет.
+JOB_CONTENT_TYPES = ("text/", "application/xhtml+xml", "application/xml")
+
+
 async def _fetch_job_text(url: str) -> str:
     """Скачивает страницу вакансии и возвращает её текст (без HTML-тегов).
 
     Редиректы следуем вручную и проверяем каждый хоп через _assert_public_host —
     иначе SSRF-защиту можно обойти редиректом с внешнего URL на внутренний адрес.
+
+    Тело читаем потоком и обрываем на MAX_JOB_BYTES: раньше ответ загружался
+    целиком (`r.text`), а обрезка до 4000 символов происходила уже после — то
+    есть ссылка на многогигабайтный файл клала процесс по памяти.
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "Некорректная ссылка на вакансию")
@@ -1498,22 +1509,36 @@ async def _fetch_job_text(url: str) -> str:
             timeout=15, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0"}
         ) as h:
             current = url
-            r = None
+            html, status = "", None
             for _ in range(5):
                 parsed = urlparse(current)
                 if parsed.scheme not in ("http", "https") or not parsed.hostname:
                     raise HTTPException(400, "Некорректная ссылка на вакансию")
                 _assert_public_host(parsed.hostname)
-                r = await h.get(current)
-                if r.is_redirect and r.headers.get("location"):
-                    current = urljoin(current, r.headers["location"])
-                    continue
+                async with h.stream("GET", current) as r:
+                    if r.is_redirect and r.headers.get("location"):
+                        current = urljoin(current, r.headers["location"])
+                        continue
+                    ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+                    if ctype and not ctype.startswith(JOB_CONTENT_TYPES):
+                        raise HTTPException(
+                            400, "По ссылке не страница с текстом — вставьте описание вакансии вручную"
+                        )
+                    chunks, size = [], 0
+                    async for chunk in r.aiter_bytes():
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if size >= MAX_JOB_BYTES:
+                            log.info("fetch-job: ответ обрезан на %d байтах (%s)", size, current)
+                            break
+                    html = b"".join(chunks).decode(r.charset_encoding or "utf-8", errors="replace")
+                    status = r.status_code
                 break
             else:
                 raise HTTPException(400, "Слишком много перенаправлений по ссылке")
-        text = re.sub(r"<[^>]+>", " ", r.text)
+        text = re.sub(r"<[^>]+>", " ", html)
         text = re.sub(r"\s+", " ", text).strip()
-        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), r.status_code)
+        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), status)
         return text[:4000]
     except HTTPException:
         raise
@@ -1524,8 +1549,19 @@ async def _fetch_job_text(url: str) -> str:
 @app.post("/api/fetch-job")
 @rate("20/minute")
 async def fetch_job(request: Request):
+    """Подтягивает текст вакансии по ссылке для редактора.
+
+    Требует сессию: анонимная ручка превращала сервер в открытый прокси —
+    любой мог заставить его скачивать произвольные страницы своим IP и
+    получать содержимое обратно.
+    """
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
     body = await request.json()
-    url  = body.get("url", "").strip()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Некорректная ссылка на вакансию")
+    url = str(body.get("url", "")).strip()
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments (Робокасса) ─────────────────────────────────────────────────
