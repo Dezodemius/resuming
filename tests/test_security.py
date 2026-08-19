@@ -340,3 +340,310 @@ async def test_pay_unconfigured_returns_503(client, monkeypatch):
     assert "недоступна" in r.json()["detail"].lower()
     with main.get_db() as db:
         assert db.execute("SELECT COUNT(*) AS c FROM payments").fetchone()["c"] == 0
+
+
+# ── fetch-job: авторизация и предел размера ответа ───────────────────────────
+# Настоящий класс запоминаем до подмены main.httpx.AsyncClient — иначе
+# фабрика вызывала бы саму себя.
+_REAL_ASYNC_CLIENT = httpx.AsyncClient
+
+
+def _mock_client(handler):
+    """Фабрика AsyncClient поверх MockTransport — сеть не трогаем, но
+    настоящий httpx-стриминг проверяем как есть."""
+    def factory(*a, **k):
+        k["transport"] = httpx.MockTransport(handler)
+        return _REAL_ASYNC_CLIENT(*a, **k)
+    return factory
+
+
+async def test_fetch_job_requires_auth(client):
+    """Анонимная ручка делала из сервера открытый прокси."""
+    main.init_db()
+    r = await client.post("/api/fetch-job", json={"url": "https://example.com/job"})
+    assert r.status_code == 401
+
+
+async def test_fetch_job_stops_reading_after_limit(monkeypatch):
+    """Тело обрывается на MAX_JOB_BYTES, а не читается целиком в память."""
+    produced = {"bytes": 0}
+
+    async def body():
+        for _ in range(100):                      # 100 x 64 КБ = 6.4 МБ, если не оборвать
+            chunk = b"<p>" + b"a" * 65536 + b"</p>"
+            produced["bytes"] += len(chunk)
+            yield chunk
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    text = await main._fetch_job_text("https://example.com/huge")
+
+    assert len(text) <= 4000
+    assert produced["bytes"] < main.MAX_JOB_BYTES * 2, (
+        f"прочитано {produced['bytes']} байт при пределе {main.MAX_JOB_BYTES}"
+    )
+
+
+async def test_fetch_job_rejects_non_text_content_type(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=b"%PDF-1.7")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("https://example.com/file.pdf")
+    assert exc.value.status_code == 400
+
+
+async def test_fetch_job_reads_normal_page(monkeypatch):
+    """Обычная страница по-прежнему разбирается: теги срезаны, текст на месте."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            content="<html><body><h1>Ищем Python-разработчика</h1></body></html>".encode(),
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    text = await main._fetch_job_text("https://example.com/job")
+    assert "Ищем Python-разработчика" in text
+    assert "<h1>" not in text
+
+
+async def test_fetch_job_follows_redirect_and_checks_each_hop(monkeypatch):
+    """Редирект на внутренний адрес не проходит — проверка на каждом хопе."""
+    def handler(request):
+        return httpx.Response(302, headers={"location": "http://127.0.0.1:11434/api/tags"})
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("https://example.com/redirect")
+    assert exc.value.status_code == 400
+
+
+async def test_fetch_job_sends_user_agent(monkeypatch):
+    """Без User-Agent часть job-бордов отдаёт заглушку вместо вакансии."""
+    seen = {}
+
+    def handler(request):
+        seen["ua"] = request.headers.get("user-agent", "")
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>text</p>")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    await main._fetch_job_text("https://example.com/job")
+    assert seen["ua"].startswith("Mozilla/")
+
+
+async def test_fetch_job_accepts_plain_http(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content="<p>вакансия</p>".encode())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "вакансия" in await main._fetch_job_text("http://example.com/job")
+
+
+async def test_fetch_job_rejects_url_without_host(monkeypatch):
+    """Схема на месте, хоста нет — до сети доходить не должны."""
+    def handler(request):                      # pragma: no cover — не должен вызваться
+        raise AssertionError("запрос не должен был уйти")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("http:///no-host")
+    assert exc.value.status_code == 400
+
+
+async def test_fetch_job_follows_redirect_to_public_host(monkeypatch):
+    """Редирект на внешний адрес отрабатывает, текст берётся со второго хопа."""
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "https://example.org/final"})
+        return httpx.Response(200, headers={"content-type": "text/html"},
+                              content="<p>Финальная вакансия</p>".encode())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Финальная вакансия" in await main._fetch_job_text("https://example.com/start")
+
+
+async def test_fetch_job_gives_up_after_five_redirects(monkeypatch):
+    """Пять редиректов подряд — предел; шестой хоп делать не должны."""
+    hops = {"n": 0}
+
+    def handler(request):
+        hops["n"] += 1
+        if hops["n"] <= 5:
+            return httpx.Response(302, headers={"location": f"https://example.org/hop{hops['n']}"})
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>late</p>")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("https://example.com/start")
+    assert exc.value.status_code == 400
+    assert hops["n"] == 5
+
+
+async def test_fetch_job_treats_200_with_location_as_content(monkeypatch):
+    """Заголовок Location на обычном 200 — не редирект: читаем тело."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html", "location": "https://example.org/elsewhere"},
+            content="<p>Настоящая вакансия</p>".encode(),
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Настоящая вакансия" in await main._fetch_job_text("https://example.com/job")
+
+
+async def test_fetch_job_without_content_type_is_read(monkeypatch):
+    """Заголовка нет — не повод падать: проверку типа просто пропускаем."""
+    def handler(request):
+        return httpx.Response(200, content="<p>Вакансия без типа</p>".encode())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Вакансия без типа" in await main._fetch_job_text("https://example.com/job")
+
+
+async def test_fetch_job_respects_declared_charset(monkeypatch):
+    """Кодировка берётся из заголовка, а не предполагается utf-8."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=windows-1251"},
+            content="<p>Требуется инженер</p>".encode("cp1251"),
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Требуется инженер" in await main._fetch_job_text("https://example.com/job")
+
+
+async def test_fetch_job_stops_exactly_at_limit(monkeypatch):
+    """Ровно MAX_JOB_BYTES — уже достаточно, следующий кусок не запрашиваем."""
+    produced = {"chunks": 0}
+
+    async def body():
+        for _ in range(5):
+            produced["chunks"] += 1
+            yield b"a" * main.MAX_JOB_BYTES
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    await main._fetch_job_text("https://example.com/huge")
+    assert produced["chunks"] == 1
+
+
+async def test_fetch_job_follows_relative_redirect(monkeypatch):
+    """Location часто относительный — он должен склеиваться с текущим URL."""
+    def handler(request):
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"location": "/vacancy/42"})
+        assert request.url.path == "/vacancy/42"
+        return httpx.Response(200, headers={"content-type": "text/html"},
+                              content="<p>Относительный редирект</p>".encode())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Относительный редирект" in await main._fetch_job_text("https://example.com/start")
+
+
+async def test_fetch_job_survives_broken_encoding(monkeypatch):
+    """Байты, не бьющиеся с объявленной кодировкой, не должны ронять разбор."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            content=b"<p>job " + bytes([0xFF, 0xFE, 0xFD]) + b" offer</p>",
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    text = await main._fetch_job_text("https://example.com/job")
+    assert "job" in text and "offer" in text
+
+
+async def test_fetch_job_rejects_non_http_scheme(monkeypatch):
+    """Схема не http(s) — отказ до всякой сети, с кодом 400."""
+    def handler(request):                      # pragma: no cover — не должен вызваться
+        raise AssertionError("запрос не должен был уйти")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("ftp://example.com/vacancy")
+    assert exc.value.status_code == 400
+
+
+async def test_fetch_job_maps_network_error_to_502(monkeypatch):
+    """Сеть не ответила — это 502, а не 500 и не проброс исключения наружу."""
+    def handler(request):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    with pytest.raises(HTTPException) as exc:
+        await main._fetch_job_text("https://example.com/job")
+    assert exc.value.status_code == 502
+
+
+async def test_fetch_job_uses_get(monkeypatch):
+    seen = {}
+
+    def handler(request):
+        seen["method"] = request.method
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>x</p>")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    await main._fetch_job_text("https://example.com/job")
+    assert seen["method"] == "GET"
+
+
+async def test_fetch_job_joins_chunks_without_separator(monkeypatch):
+    """Куски потока склеиваются встык: слово на границе не должно рваться."""
+    async def body():
+        yield "<p>Раз".encode()
+        yield "дватри</p>".encode()
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert "Раздватри" in await main._fetch_job_text("https://example.com/job")
+
+
+async def test_fetch_job_normalises_text(monkeypatch):
+    """Теги заменяются пробелом, пробельные последовательности схлопываются,
+    края обрезаются — на выходе ровно текст вакансии."""
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content="<div>\n  <b>Иванов</b>\t\tПётр\n</div>".encode(),
+        )
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    assert await main._fetch_job_text("https://example.com/job") == "Иванов Пётр"
+
+
+async def test_fetch_job_client_is_configured_defensively(monkeypatch):
+    """Параметры клиента — часть защиты, а не стиль оформления.
+
+    follow_redirects=False принципиален: автоследование внутри httpx обошло бы
+    проверку _assert_public_host на каждом хопе, то есть вернуло бы SSRF через
+    редирект на внутренний адрес. Таймаут не даёт зависшему сайту вакансии
+    держать слот AI-очереди, а User-Agent нужен, чтобы job-борды не отдавали
+    заглушку вместо вакансии.
+    """
+    captured: dict = {}
+
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=b"<p>x</p>")
+
+    def factory(*args, **kwargs):
+        captured.update(kwargs)
+        return _REAL_ASYNC_CLIENT(*args, **kwargs, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", factory)
+    await main._fetch_job_text("https://example.com/job")
+
+    assert captured["follow_redirects"] is False
+    assert captured["timeout"] == 15
+    assert captured["headers"]["User-Agent"].startswith("Mozilla/")

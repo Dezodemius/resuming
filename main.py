@@ -47,6 +47,7 @@ from config import (  # noqa: E402
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     OAUTH_LOGIN_ENABLED,
     FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
     ADMIN_EMAILS, METRIKA_ID,
@@ -311,19 +312,35 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # ── Auth helpers ─────────────────────────────────────────────────────────
 def _verify_telegram(data: dict) -> bool:
-    """Verify Telegram Login Widget signature."""
+    """Проверяет подпись Telegram Login Widget.
+
+    `data` — СЫРОЕ тело запроса, а не разобранная pydantic-модель. Telegram
+    подписывает только те поля, которые реально прислал, а незаполненные
+    (username, photo_url, last_name) просто опускает. Модель же подставляет
+    их со значениями None/"", они попадают в строку проверки как
+    `username=None`, и HMAC перестаёт сходиться — пользователь без username
+    не мог войти вообще никогда.
+    """
     if not TELEGRAM_BOT_TOKEN:
         return False
+    # Виджет всегда присылает hash непустой строкой. Отсутствие поля, число или
+    # объект — это не Telegram; без проверки типа compare_digest роняет 500.
+    check_hash = data.get("hash")
+    if not isinstance(check_hash, str) or not check_hash:
+        return False
     d = {k: v for k, v in data.items() if k != "hash"}
-    check_hash = data.get("hash", "")
     data_check = "\n".join(f"{k}={d[k]}" for k in sorted(d))
     secret = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).digest()
     expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, check_hash):
         return False
-    if time.time() - int(data.get("auth_date", 0)) > 3600:
+    # auth_date виджет присылает строкой. Мусор в поле или его отсутствие —
+    # это отказ во входе, а не 500 из-за необработанного исключения.
+    try:
+        auth_date = int(data.get("auth_date"))
+    except (TypeError, ValueError):
         return False
-    return True
+    return time.time() - auth_date <= 3600
 
 def _create_session(db, user_id: int) -> str:
     sid = str(uuid.uuid4())
@@ -442,27 +459,74 @@ from schemas import (  # noqa: E402
 )
 
 ANON_LIMIT = ANON_LIMIT_CONST
+ANON_IP_LIMIT = ANON_IP_LIMIT_CONST
+
+
+def _anon_ip_key(request: Request) -> str:
+    """Ключ счётчика анонимных превью по адресу посетителя.
+
+    В БД кладём HMAC, а не сам адрес: новых персональных данных от этого
+    счётчика не появляется. Точность ключа — ровно та же, что у лимитера:
+    через Cloudflare адрес подлинный, при прямом обращении к origin заголовок
+    подделывается (отдельная задача про доверие к CF-Connecting-IP).
+    """
+    digest = hmac.new(SECRET_KEY.encode(), _client_key(request).encode(), hashlib.sha256).hexdigest()
+    return f"ip:{digest[:32]}"
+
+
+def _set_anon_cookie(response: Response, anon_id: str) -> None:
+    response.set_cookie(
+        "anon_id", _sign_anon(anon_id),
+        max_age=7 * 86400, samesite="lax",
+        secure=APP_URL.startswith("https"), httponly=True,
+    )
+
+
+def _anon_uses(db, key: str, window_hours: int) -> int:
+    """Потрачено попыток внутри окна. Строка старше окна считается нулевой —
+    иначе один NAT выгорал бы навсегда."""
+    row = db.execute(
+        "SELECT uses FROM anon_usage WHERE anon_id=? AND created > datetime('now',?)",
+        (key, f"-{window_hours} hours"),
+    ).fetchone()
+    return row["uses"] if row else 0
+
+
+def _anon_bump(db, key: str, window_hours: int) -> None:
+    """Инкремент счётчика с обнулением протухшего окна."""
+    window = f"-{window_hours} hours"
+    db.execute(
+        "INSERT INTO anon_usage (anon_id, uses) VALUES (?,1)"
+        " ON CONFLICT(anon_id) DO UPDATE SET"
+        "   uses    = CASE WHEN created > datetime('now',?) THEN uses + 1 ELSE 1 END,"
+        "   created = CASE WHEN created > datetime('now',?) THEN created ELSE datetime('now') END",
+        (key, window, window),
+    )
+
+
+def _anon_refund(db, key: str) -> None:
+    db.execute("UPDATE anon_usage SET uses = MAX(uses - 1, 0) WHERE anon_id=?", (key,))
 
 # ── Anonymous preview (no auth, no save) ─────────────────────────────────
 @app.post("/api/generate-preview")
 @rate("10/minute")
 async def generate_preview(req: AnonymousPreviewReq, request: Request, response: Response):
-    """
-    Анонимная генерация: профиль инлайн, результат не сохраняется.
-    Cookie anon_id подписан HMAC — нельзя сбросить лимит очисткой cookie.
+    """Анонимная генерация: профиль инлайн, результат не сохраняется.
+
+    Пределов два. По подписанному cookie anon_id — честный счётчик для
+    обычного посетителя (подпись не даёт присвоить чужой идентификатор, но
+    сбросить свой можно, просто не вернув cookie). По адресу посетителя —
+    предел, который очисткой cookie не обходится.
     """
     # Читаем и верифицируем подписанный cookie
     signed  = request.cookies.get("anon_id", "")
     anon_id = _verify_anon(signed) if signed else None
     if not anon_id:
         anon_id = str(uuid.uuid4())
+    ip_key = _anon_ip_key(request)
 
     # Пишем подписанный cookie обратно (httpOnly)
-    response.set_cookie(
-        "anon_id", _sign_anon(anon_id),
-        max_age=7 * 86400, samesite="lax",
-        secure=APP_URL.startswith("https"), httponly=True,
-    )
+    _set_anon_cookie(response, anon_id)
 
     # Текст вакансии: вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
@@ -472,17 +536,22 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         if len(job_text) < 30:
             raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
 
+    # Считаем по двум ключам сразу. Счёт по cookie — «честный» для обычного
+    # посетителя, но он не удерживает ничего: клиенту достаточно не возвращать
+    # cookie, чтобы каждый раз приходить с новым anon_id и нулём попыток.
+    # Поэтому решает ещё и счётчик по адресу с суточным окном.
     with get_db() as db:
-        row  = db.execute("SELECT uses FROM anon_usage WHERE anon_id=?", (anon_id,)).fetchone()
-        uses = row["uses"] if row else 0
-        if uses >= ANON_LIMIT:
-            return JSONResponse(status_code=429,
-                                content={"error": "anon_limit", "limit": ANON_LIMIT})
-        db.execute(
-            "INSERT INTO anon_usage (anon_id, uses) VALUES (?,1)"
-            " ON CONFLICT(anon_id) DO UPDATE SET uses=uses+1",
-            (anon_id,)
-        )
+        uses = _anon_uses(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
+        ip_uses = _anon_uses(db, ip_key, ANON_IP_WINDOW_HOURS)
+        if uses >= ANON_LIMIT or ip_uses >= ANON_IP_LIMIT:
+            denied = JSONResponse(status_code=429,
+                                  content={"error": "anon_limit", "limit": ANON_LIMIT})
+            # Cookie ставим и на отказе: иначе отказ не закрепляется за
+            # посетителем и следующий заход снова выглядит первым.
+            _set_anon_cookie(denied, anon_id)
+            return denied
+        _anon_bump(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
+        _anon_bump(db, ip_key, ANON_IP_WINDOW_HOURS)
         db.commit()
 
     try:
@@ -495,7 +564,8 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         resume = _parse_ai(raw)
     except HTTPException:
         with get_db() as db:
-            db.execute("UPDATE anon_usage SET uses=uses-1 WHERE anon_id=?", (anon_id,))
+            _anon_refund(db, anon_id)
+            _anon_refund(db, ip_key)
             log_event(db, "generate_fail", anon_id=anon_id, kind="preview")
             db.commit()
         raise
@@ -661,8 +731,8 @@ async def improve_text(req: ImproveReq, request: Request):
         raise HTTPException(401, "Войдите в аккаунт")
     if not req.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
-    # Ручка не списывает генерации, поэтому длину ограничиваем явно: иначе
-    # одним запросом можно занять слот семафора AI_CONCURRENCY надолго.
+    # Длину ограничиваем и при наличии квоты: одним запросом иначе можно занять
+    # слот семафора AI_CONCURRENCY надолго.
     if len(req.text) > 10_000:
         raise HTTPException(400, "Слишком длинный текст — сократите фрагмент")
 
@@ -679,14 +749,30 @@ async def improve_text(req: ImproveReq, request: Request):
             f"Верни ТОЛЬКО отформатированный список:\n\n{req.text}",
     }
     prompt = prompts.get(req.kind, prompts["summary"])
+
+    # Это такой же вызов модели, как и генерация резюме, и списывается так же.
+    # Раньше ручка не трогала счётчик вообще: пользователь с нулевым балансом
+    # получал безлимитный доступ к модели, а пара таких запросов занимала оба
+    # слота AI_CONCURRENCY и выключала генерацию для всех остальных.
+    with get_db() as db:
+        ok, col, uses_left = _deduct(db, user["id"])
+        if not ok:
+            return JSONResponse(status_code=402, content={"error": "no_uses"})
     try:
         result = await call_ai(prompt)
-        return {"improved": result.strip()}
-    except HTTPException:
-        raise
-    except Exception:
+    except Exception as e:
+        with get_db() as db:
+            _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind="improve")
+            db.commit()
+        if isinstance(e, HTTPException):
+            raise
         log.exception("improve-text: неожиданная ошибка (user=%s)", user["id"])
         raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
+    with get_db() as db:
+        log_event(db, "generate", user_id=user["id"], kind="improve", col=col)
+        db.commit()
+    return {"improved": result.strip(), "uses_left": uses_left}
 
 # ── Page routes ────────────────────────────────────────────────────────────
 @app.get("/resumes", response_class=HTMLResponse)
@@ -762,7 +848,13 @@ async def billing_info(request: Request):
 @app.post("/auth/telegram")
 @rate("20/minute")
 async def auth_telegram(data: TgAuthData, request: Request, response: Response):
-    if not _verify_telegram(data.dict()):
+    # Подпись считаем по сырому телу (см. _verify_telegram), а разобранную
+    # модель используем только как типизированный доступ к полям.
+    try:
+        raw = await request.json()
+    except Exception:
+        raw = None
+    if not isinstance(raw, dict) or not _verify_telegram(raw):
         raise HTTPException(401, "Неверная подпись Telegram")
     name = f"{data.first_name or ''} {data.last_name or ''}".strip() or data.username or "Пользователь"
     with get_db() as db:
@@ -1484,11 +1576,22 @@ def _assert_public_host(host: str) -> None:
                 or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             raise HTTPException(400, "Недопустимый адрес — ссылка ведёт во внутреннюю сеть")
 
+# Больше страницы вакансии не бывает, а тело ответа целиком уезжает в память:
+# без этого предела ссылка на большой файл выедала всю RAM сервера.
+MAX_JOB_BYTES = 512 * 1024
+# Вакансия — это текст. Всё остальное качать смысла нет.
+JOB_CONTENT_TYPES = ("text/", "application/xhtml+xml", "application/xml")
+
+
 async def _fetch_job_text(url: str) -> str:
     """Скачивает страницу вакансии и возвращает её текст (без HTML-тегов).
 
     Редиректы следуем вручную и проверяем каждый хоп через _assert_public_host —
     иначе SSRF-защиту можно обойти редиректом с внешнего URL на внутренний адрес.
+
+    Тело читаем потоком и обрываем на MAX_JOB_BYTES: раньше ответ загружался
+    целиком (`r.text`), а обрезка до 4000 символов происходила уже после — то
+    есть ссылка на многогигабайтный файл клала процесс по памяти.
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "Некорректная ссылка на вакансию")
@@ -1498,22 +1601,36 @@ async def _fetch_job_text(url: str) -> str:
             timeout=15, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0"}
         ) as h:
             current = url
-            r = None
+            html, status = "", None
             for _ in range(5):
                 parsed = urlparse(current)
                 if parsed.scheme not in ("http", "https") or not parsed.hostname:
                     raise HTTPException(400, "Некорректная ссылка на вакансию")
                 _assert_public_host(parsed.hostname)
-                r = await h.get(current)
-                if r.is_redirect and r.headers.get("location"):
-                    current = urljoin(current, r.headers["location"])
-                    continue
+                async with h.stream("GET", current) as r:
+                    if r.is_redirect and r.headers.get("location"):
+                        current = urljoin(current, r.headers["location"])
+                        continue
+                    ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+                    if ctype and not ctype.startswith(JOB_CONTENT_TYPES):
+                        raise HTTPException(
+                            400, "По ссылке не страница с текстом — вставьте описание вакансии вручную"
+                        )
+                    chunks, size = [], 0
+                    async for chunk in r.aiter_bytes():
+                        chunks.append(chunk)
+                        size += len(chunk)
+                        if size >= MAX_JOB_BYTES:
+                            log.info("fetch-job: ответ обрезан на %d байтах (%s)", size, current)
+                            break
+                    html = b"".join(chunks).decode(r.charset_encoding or "utf-8", errors="replace")
+                    status = r.status_code
                 break
             else:
                 raise HTTPException(400, "Слишком много перенаправлений по ссылке")
-        text = re.sub(r"<[^>]+>", " ", r.text)
+        text = re.sub(r"<[^>]+>", " ", html)
         text = re.sub(r"\s+", " ", text).strip()
-        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), r.status_code)
+        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), status)
         return text[:4000]
     except HTTPException:
         raise
@@ -1524,8 +1641,19 @@ async def _fetch_job_text(url: str) -> str:
 @app.post("/api/fetch-job")
 @rate("20/minute")
 async def fetch_job(request: Request):
+    """Подтягивает текст вакансии по ссылке для редактора.
+
+    Требует сессию: анонимная ручка превращала сервер в открытый прокси —
+    любой мог заставить его скачивать произвольные страницы своим IP и
+    получать содержимое обратно.
+    """
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
     body = await request.json()
-    url  = body.get("url", "").strip()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Некорректная ссылка на вакансию")
+    url = str(body.get("url", "")).strip()
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments (Робокасса) ─────────────────────────────────────────────────
