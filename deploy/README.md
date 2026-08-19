@@ -90,6 +90,45 @@ Ollama и собственным nginx на порту 80). **На app-01 его
    нет, джоба `deploy` падает на первом же шаге с перечнем недостающих —
    прод при этом продолжает работать на прежней версии.
 
+### Способы входа
+
+Приложение при старте пишет в лог одну строку с тем, что реально включено:
+
+```
+Способы входа: email, telegram, yandex
+Вход: ключи настроены (Яндекс), но OAUTH_LOGIN_ENABLED=0 — кнопки скрыты
+```
+
+Посмотреть на проде: `ssh app01 'docker logs resuming-app 2>&1 | grep "Способы входа" | tail -1'`.
+
+Почта работает всегда (magic-ссылка). Остальное надо зарегистрировать у
+провайдера и вписать в `/srv/apps/resuming/.env`. Домен везде указывается **в
+punycode** — провайдеры сравнивают redirect_uri посимвольно, и кириллическая
+запись даёт `invalid_grant`.
+
+| Провайдер | Где регистрировать | Что вписать у провайдера | Переменные |
+|---|---|---|---|
+| Telegram | [@BotFather](https://t.me/BotFather): `/newbot`, затем `/setdomain` | домен `xn--e1aedprev8fe.xn--p1ai` | `TELEGRAM_BOT_NAME`, `TELEGRAM_BOT_TOKEN` |
+| Яндекс ID | [oauth.yandex.ru](https://oauth.yandex.ru/client/new) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/yandex/callback`, права `login:email` и `login:info` | `YANDEX_CLIENT_ID`, `YANDEX_CLIENT_SECRET` |
+| VK ID | [id.vk.com](https://id.vk.com/about/business/go/docs/developer) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/vk/callback` | `VK_CLIENT_ID` (секрет не нужен, PKCE) |
+| Mail.ru | [oauth.mail.ru](https://oauth.mail.ru) | Redirect URI `https://xn--e1aedprev8fe.xn--p1ai/auth/mailru/callback` | `MAILRU_CLIENT_ID`, `MAILRU_CLIENT_SECRET` |
+
+Три последних вдобавок закрыты общим рубильником: пока `OAUTH_LOGIN_ENABLED=1`
+не выставлен, кнопки скрыты, а `/auth/{yandex,vk,mailru}` отдают 503 — даже с
+верными ключами. Так и задумано, но именно это чаще всего и забывают, поэтому
+приложение пишет об этом предупреждение при старте.
+
+Telegram рубильником не закрыт, ему достаточно имени бота и токена — но нужны
+**оба**: без токена подпись виджета проверить нечем, и вход всегда падал бы с
+401, поэтому кнопка в таком случае не показывается.
+
+После правки `.env` контейнер надо перезапустить, переменные читаются при
+старте:
+
+```bash
+ssh app01 'cd /srv/apps/resuming && docker compose -f deploy/docker-compose.prod.yml up -d'
+```
+
 ### Ручной выкат и откат
 
 ```bash
