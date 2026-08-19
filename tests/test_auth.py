@@ -97,6 +97,33 @@ def test_auth_ctx_passes_through_telegram_and_user(monkeypatch):
     assert ctx["user"] is sentinel_user
 
 
+# ── Yandex OAuth tests ───────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_yandex_no_client_id_returns_503(monkeypatch, client):
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "")
+    r = await client.get("/auth/yandex")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_yandex_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
+    r = await client.get("/auth/yandex")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_yandex_start_redirects_to_yandex_domain(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    r = await client.get("/auth/yandex", follow_redirects=False)
+    assert r.status_code == 302
+    assert "oauth.yandex.ru" in r.headers["location"]
+    assert "client_id=test-yandex-id" in r.headers["location"]
+
+
 # ── VK OAuth tests ──────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_vk_no_client_id_returns_503(monkeypatch, client):
@@ -154,6 +181,14 @@ async def test_vk_callback_no_code_redirects_to_error(monkeypatch, client):
 @pytest.mark.asyncio
 async def test_mailru_no_client_id_returns_503(monkeypatch, client):
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "")
+    r = await client.get("/auth/mailru")
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_mailru_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     r = await client.get("/auth/mailru")
     assert r.status_code == 503
 
