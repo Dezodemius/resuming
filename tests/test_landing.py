@@ -126,3 +126,150 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
     assert qs["OutSum"][0] == main.PRO_PRICE
     assert "Pro" in qs["Description"][0]
     assert str(main.PRO_DAYS) in qs["Description"][0]
+
+
+# ── Анонимные превью: лимит, который не сбрасывается очисткой cookie ─────────
+# Раньше счётчик жил только в cookie: клиент, который её не возвращает,
+# получал новый anon_id и нулевой счёт на каждый запрос — то есть безлимитный
+# доступ к модели без аккаунта.
+
+async def _preview(client, headers=None):
+    return await client.post(
+        "/api/generate-preview",
+        json={"kind": "general", "profile": {"name": "A"}, "target_role": "QA"},
+        headers=headers or {},
+    )
+
+
+async def test_anon_limit_holds_when_cookie_is_dropped(client, monkeypatch):
+    """Клиент выбрасывает cookie на каждом шаге — предел по адресу держит."""
+    main.init_db()
+    calls = {"n": 0}
+
+    async def fake(prompt):
+        calls["n"] += 1
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "call_ai", fake)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 3)
+
+    ok = 0
+    for _ in range(8):
+        r = await _preview(client, {"CF-Connecting-IP": "203.0.113.10"})
+        client.cookies.clear()
+        if r.status_code == 200:
+            ok += 1
+    assert ok == 3, f"без cookie прошло {ok} генераций при пределе 3"
+    assert calls["n"] == 3
+
+
+async def test_anon_limit_per_cookie_still_applies(client, monkeypatch):
+    """Обычный посетитель (cookie возвращается) упирается в ANON_LIMIT раньше."""
+    main.init_db()
+
+    async def fake(prompt):
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "call_ai", fake)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 99)
+
+    ok = 0
+    for _ in range(5):
+        r = await _preview(client, {"CF-Connecting-IP": "203.0.113.11"})
+        if r.status_code == 200:
+            ok += 1
+    assert ok == main.ANON_LIMIT
+
+
+async def test_anon_limit_counts_addresses_separately(client, monkeypatch):
+    """Разные посетители не должны блокировать друг друга."""
+    main.init_db()
+
+    async def fake(prompt):
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "call_ai", fake)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 2)
+
+    for _ in range(2):
+        assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.1"})).status_code == 200
+        client.cookies.clear()
+    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.1"})).status_code == 429
+    client.cookies.clear()
+    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.2"})).status_code == 200
+
+
+async def test_anon_denied_response_still_sets_cookie(client, monkeypatch):
+    """Отказ должен закрепиться за посетителем, а не выглядеть первым заходом."""
+    main.init_db()
+
+    async def fake(prompt):
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "call_ai", fake)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 1)
+
+    await _preview(client, {"CF-Connecting-IP": "198.51.100.9"})
+    client.cookies.clear()
+    r = await _preview(client, {"CF-Connecting-IP": "198.51.100.9"})
+    assert r.status_code == 429
+    assert "anon_id" in r.cookies
+
+
+async def test_anon_ip_window_expires(client, monkeypatch):
+    """Строка старше суточного окна счёт не удерживает."""
+    main.init_db()
+
+    async def fake(prompt):
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "call_ai", fake)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 1)
+
+    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 200
+    client.cookies.clear()
+    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 429
+    client.cookies.clear()
+    # Отматываем запись на двое суток назад — окно должно закрыться
+    with main.get_db() as db:
+        db.execute("UPDATE anon_usage SET created = datetime('now','-2 days') WHERE anon_id LIKE 'ip:%'")
+        db.commit()
+    assert (await _preview(client, {"CF-Connecting-IP": "198.51.100.20"})).status_code == 200
+
+
+async def test_anon_refund_returns_both_counters(client, monkeypatch):
+    """Модель не ответила — обе попытки возвращаются."""
+    main.init_db()
+
+    async def boom(prompt):
+        raise main.HTTPException(503, "нет модели")
+
+    monkeypatch.setattr(main, "call_ai", boom)
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 5)
+
+    r = await _preview(client, {"CF-Connecting-IP": "198.51.100.30"})
+    assert r.status_code == 503
+    with main.get_db() as db:
+        rows = db.execute("SELECT anon_id, uses FROM anon_usage").fetchall()
+    assert rows, "счётчики должны существовать"
+    assert all(row["uses"] == 0 for row in rows), dict((r["anon_id"], r["uses"]) for r in rows)
+
+
+def test_anon_cookie_attributes(monkeypatch):
+    """Атрибуты anon-cookie — часть защиты: JS её не читает, срок ровно 7 суток,
+    Secure появляется только на https."""
+    from fastapi import Response
+
+    monkeypatch.setattr(main, "APP_URL", "http://test")
+    r = Response()
+    main._set_anon_cookie(r, "anon-1")
+    header = r.headers["set-cookie"]
+    assert "HttpOnly" in header
+    assert "samesite=lax" in header.lower()
+    assert "Max-Age=604800" in header
+    assert "Secure" not in header
+
+    monkeypatch.setattr(main, "APP_URL", "https://xn--e1aedprev8fe.xn--p1ai")
+    r2 = Response()
+    main._set_anon_cookie(r2, "anon-1")
+    assert "Secure" in r2.headers["set-cookie"]

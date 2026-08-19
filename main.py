@@ -47,6 +47,7 @@ from config import (  # noqa: E402
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     OAUTH_LOGIN_ENABLED,
     FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
     ADMIN_EMAILS, METRIKA_ID,
@@ -442,27 +443,74 @@ from schemas import (  # noqa: E402
 )
 
 ANON_LIMIT = ANON_LIMIT_CONST
+ANON_IP_LIMIT = ANON_IP_LIMIT_CONST
+
+
+def _anon_ip_key(request: Request) -> str:
+    """Ключ счётчика анонимных превью по адресу посетителя.
+
+    В БД кладём HMAC, а не сам адрес: новых персональных данных от этого
+    счётчика не появляется. Точность ключа — ровно та же, что у лимитера:
+    через Cloudflare адрес подлинный, при прямом обращении к origin заголовок
+    подделывается (отдельная задача про доверие к CF-Connecting-IP).
+    """
+    digest = hmac.new(SECRET_KEY.encode(), _client_key(request).encode(), hashlib.sha256).hexdigest()
+    return f"ip:{digest[:32]}"
+
+
+def _set_anon_cookie(response: Response, anon_id: str) -> None:
+    response.set_cookie(
+        "anon_id", _sign_anon(anon_id),
+        max_age=7 * 86400, samesite="lax",
+        secure=APP_URL.startswith("https"), httponly=True,
+    )
+
+
+def _anon_uses(db, key: str, window_hours: int) -> int:
+    """Потрачено попыток внутри окна. Строка старше окна считается нулевой —
+    иначе один NAT выгорал бы навсегда."""
+    row = db.execute(
+        "SELECT uses FROM anon_usage WHERE anon_id=? AND created > datetime('now',?)",
+        (key, f"-{window_hours} hours"),
+    ).fetchone()
+    return row["uses"] if row else 0
+
+
+def _anon_bump(db, key: str, window_hours: int) -> None:
+    """Инкремент счётчика с обнулением протухшего окна."""
+    window = f"-{window_hours} hours"
+    db.execute(
+        "INSERT INTO anon_usage (anon_id, uses) VALUES (?,1)"
+        " ON CONFLICT(anon_id) DO UPDATE SET"
+        "   uses    = CASE WHEN created > datetime('now',?) THEN uses + 1 ELSE 1 END,"
+        "   created = CASE WHEN created > datetime('now',?) THEN created ELSE datetime('now') END",
+        (key, window, window),
+    )
+
+
+def _anon_refund(db, key: str) -> None:
+    db.execute("UPDATE anon_usage SET uses = MAX(uses - 1, 0) WHERE anon_id=?", (key,))
 
 # ── Anonymous preview (no auth, no save) ─────────────────────────────────
 @app.post("/api/generate-preview")
 @rate("10/minute")
 async def generate_preview(req: AnonymousPreviewReq, request: Request, response: Response):
-    """
-    Анонимная генерация: профиль инлайн, результат не сохраняется.
-    Cookie anon_id подписан HMAC — нельзя сбросить лимит очисткой cookie.
+    """Анонимная генерация: профиль инлайн, результат не сохраняется.
+
+    Пределов два. По подписанному cookie anon_id — честный счётчик для
+    обычного посетителя (подпись не даёт присвоить чужой идентификатор, но
+    сбросить свой можно, просто не вернув cookie). По адресу посетителя —
+    предел, который очисткой cookie не обходится.
     """
     # Читаем и верифицируем подписанный cookie
     signed  = request.cookies.get("anon_id", "")
     anon_id = _verify_anon(signed) if signed else None
     if not anon_id:
         anon_id = str(uuid.uuid4())
+    ip_key = _anon_ip_key(request)
 
     # Пишем подписанный cookie обратно (httpOnly)
-    response.set_cookie(
-        "anon_id", _sign_anon(anon_id),
-        max_age=7 * 86400, samesite="lax",
-        secure=APP_URL.startswith("https"), httponly=True,
-    )
+    _set_anon_cookie(response, anon_id)
 
     # Текст вакансии: вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
@@ -472,17 +520,22 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         if len(job_text) < 30:
             raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
 
+    # Считаем по двум ключам сразу. Счёт по cookie — «честный» для обычного
+    # посетителя, но он не удерживает ничего: клиенту достаточно не возвращать
+    # cookie, чтобы каждый раз приходить с новым anon_id и нулём попыток.
+    # Поэтому решает ещё и счётчик по адресу с суточным окном.
     with get_db() as db:
-        row  = db.execute("SELECT uses FROM anon_usage WHERE anon_id=?", (anon_id,)).fetchone()
-        uses = row["uses"] if row else 0
-        if uses >= ANON_LIMIT:
-            return JSONResponse(status_code=429,
-                                content={"error": "anon_limit", "limit": ANON_LIMIT})
-        db.execute(
-            "INSERT INTO anon_usage (anon_id, uses) VALUES (?,1)"
-            " ON CONFLICT(anon_id) DO UPDATE SET uses=uses+1",
-            (anon_id,)
-        )
+        uses = _anon_uses(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
+        ip_uses = _anon_uses(db, ip_key, ANON_IP_WINDOW_HOURS)
+        if uses >= ANON_LIMIT or ip_uses >= ANON_IP_LIMIT:
+            denied = JSONResponse(status_code=429,
+                                  content={"error": "anon_limit", "limit": ANON_LIMIT})
+            # Cookie ставим и на отказе: иначе отказ не закрепляется за
+            # посетителем и следующий заход снова выглядит первым.
+            _set_anon_cookie(denied, anon_id)
+            return denied
+        _anon_bump(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
+        _anon_bump(db, ip_key, ANON_IP_WINDOW_HOURS)
         db.commit()
 
     try:
@@ -495,7 +548,8 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         resume = _parse_ai(raw)
     except HTTPException:
         with get_db() as db:
-            db.execute("UPDATE anon_usage SET uses=uses-1 WHERE anon_id=?", (anon_id,))
+            _anon_refund(db, anon_id)
+            _anon_refund(db, ip_key)
             log_event(db, "generate_fail", anon_id=anon_id, kind="preview")
             db.commit()
         raise
