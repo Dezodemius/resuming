@@ -82,8 +82,6 @@ _raw_app_url = os.getenv("APP_URL", "http://localhost:8000")
 APP_URL              = _idna_url(_raw_app_url)
 if APP_URL != _raw_app_url:
     log.info("APP_URL нормализован в punycode: %s -> %s", _raw_app_url, APP_URL)
-TELEGRAM_BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_BOT_NAME    = os.getenv("TELEGRAM_BOT_NAME", "")
 SMTP_HOST            = os.getenv("SMTP_HOST", "smtp.yandex.ru")
 SMTP_PORT            = int(os.getenv("SMTP_PORT", "465"))
 SMTP_USER            = os.getenv("SMTP_USER", "")
@@ -104,13 +102,11 @@ OAUTH_LOGIN_ENABLED  = os.getenv("OAUTH_LOGIN_ENABLED", "0") == "1"
 # получится либо кнопка в никуда, либо рабочая ручка без кнопки.
 #
 # Провайдеру мало client_id: Яндексу и Mail.ru нужен ещё секрет для обмена кода
-# на токен (VK ID работает по PKCE и секрета не требует), а Telegram — и имя
-# бота для виджета, и токен для проверки подписи. Настроенный наполовину
+# на токен (VK ID работает по PKCE и секрета не требует). Настроенный наполовину
 # провайдер хуже выключенного: кнопка есть, а вход неизбежно падает.
 YANDEX_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and YANDEX_CLIENT_ID and YANDEX_CLIENT_SECRET)
 VK_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and VK_CLIENT_ID)
 MAILRU_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and MAILRU_CLIENT_ID and MAILRU_CLIENT_SECRET)
-TELEGRAM_LOGIN_ENABLED = bool(TELEGRAM_BOT_NAME and TELEGRAM_BOT_TOKEN)
 
 
 def _login_methods_report() -> tuple[list[str], list[str]]:
@@ -120,8 +116,6 @@ def _login_methods_report() -> tuple[list[str], list[str]]:
     глазами в логе при старте.
     """
     active = ["email"]
-    if TELEGRAM_LOGIN_ENABLED:
-        active.append("telegram")
     if YANDEX_LOGIN_ENABLED:
         active.append("yandex")
     if VK_LOGIN_ENABLED:
@@ -130,11 +124,6 @@ def _login_methods_report() -> tuple[list[str], list[str]]:
         active.append("mailru")
 
     notes = []
-    if bool(TELEGRAM_BOT_NAME) != bool(TELEGRAM_BOT_TOKEN):
-        notes.append(
-            "Telegram настроен наполовину (нужны и TELEGRAM_BOT_NAME, и "
-            "TELEGRAM_BOT_TOKEN) — кнопка скрыта"
-        )
     configured = [
         name for name, value in (
             ("Яндекс", YANDEX_CLIENT_ID),
@@ -201,7 +190,7 @@ EVENTS_TTL_DAYS      = int(os.getenv("EVENTS_TTL_DAYS", "180"))
 # ── Безопасность ────────────────────────────────────────────────────────────
 # Режим Content-Security-Policy: enforce | report | off.
 # `report` и `off` — аварийные вентили: если сторонний скрипт (Метрика,
-# Telegram-виджет, html2pdf) начнёт блокироваться, прод чинится переменной
+# html2pdf) начнёт блокироваться, прод чинится переменной
 # окружения, без выкатки кода.
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
 

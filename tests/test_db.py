@@ -133,7 +133,7 @@ def test_migration_lowercases_existing_emails(tmp_path, monkeypatch):
                  " VALUES ('t', 'Ivan@Ya.RU', datetime('now','+10 minutes'))")
     conn.commit()
 
-    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == db_module.SCHEMA_VERSION
     assert conn.execute("SELECT email FROM users WHERE id=1").fetchone()[0] == "ivan@ya.ru"
     assert conn.execute("SELECT email FROM magic_tokens").fetchone()[0] == "ivan@ya.ru"
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
@@ -192,15 +192,50 @@ def test_migration_keeps_survivor_profile(tmp_path, monkeypatch):
     conn.close()
 
 
-def test_migration_survives_empty_and_null_emails(tmp_path, monkeypatch):
-    """Аккаунты из Telegram живут без email — миграция не должна их трогать."""
+def test_migration_drops_telegram_columns(tmp_path, monkeypatch):
+    """Вход через Telegram убран — колонки уходят вместе с ним."""
     conn = _legacy_db(tmp_path, monkeypatch)
-    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (1, NULL, 111)")
-    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (2, NULL, 222)")
+    conn.execute("INSERT INTO users (id, email, telegram_id, tg_name)"
+                 " VALUES (1, 'ivan@ya.ru', 111, 'Иван')")
     conn.commit()
 
-    assert db_module.migrate(conn) == 1
-    assert conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 2
+    db_module.migrate(conn)
+
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
+    row = conn.execute("SELECT id, email FROM users").fetchone()
+    assert row["id"] == 1 and row["email"] == "ivan@ya.ru", "аккаунт с почтой сохраняется"
+    conn.close()
+
+
+def test_migration_removes_accounts_without_email(tmp_path, monkeypatch):
+    """Аккаунт, у которого был только telegram_id, войти уже не может — его
+    способ входа исчез. Оставлять такую строку значит считать её живым
+    пользователем в статистике."""
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (1, NULL, 111)")
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (2, '', 222)")
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (3, 'ivan@ya.ru', 333)")
+    conn.commit()
+
+    db_module.migrate(conn)
+
+    rows = conn.execute("SELECT id FROM users").fetchall()
+    assert [r["id"] for r in rows] == [3]
+    conn.close()
+
+
+def test_migration_2_is_idempotent_on_new_schema(tmp_path, monkeypatch):
+    """Шаг не должен ничего делать, если колонок уже нет."""
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
+    conn.commit()
+    db_module.migrate(conn)
+    before = conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]
+
+    db_module._migration_2_drop_telegram_columns(conn)
+
+    assert conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == before
     conn.close()
 
 
@@ -264,3 +299,44 @@ def test_pick_survivor_ignores_account_without_expiry_date():
         {"id": 2, "is_pro": 1, "pro_expires_at": "2027-05-05 00:00:00"},
     ]
     assert db_module._pick_survivor(rows)["id"] == 2
+
+
+def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
+    """База, уже прошедшая шаг 1, должна получить ровно один недостающий шаг.
+
+    Если условие версии съедет и шаг 1 выполнится повторно, он пересоберёт
+    users по своему списку колонок и вернёт колонки Telegram обратно.
+    """
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (1, 'ivan@ya.ru', 111)")
+    conn.commit()
+
+    db_module._migration_1_case_insensitive_email(conn)
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1, "должен примениться только шаг 2"
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
+    assert db_module.migrate(conn) == 0, "повторный прогон ничего не делает"
+    conn.close()
+
+
+def test_migration_2_guard_short_circuits(tmp_path, monkeypatch):
+    """Проверка «колонок уже нет» обязана останавливать шаг целиком.
+
+    Иначе он повторно чистит аккаунты без email — а на новой схеме такой
+    аккаунт законен: это ещё не подтверждённая запись, а не остаток Telegram.
+    """
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
+    conn.commit()
+    db_module.migrate(conn)
+
+    conn.execute("INSERT INTO users (id, email) VALUES (2, NULL)")
+    conn.commit()
+    db_module._migration_2_drop_telegram_columns(conn)
+
+    ids = [r["id"] for r in conn.execute("SELECT id FROM users ORDER BY id")]
+    assert ids == [1, 2], "шаг должен был выйти сразу, ничего не трогая"
+    conn.close()

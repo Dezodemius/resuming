@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Резюмирую.рф** — AI-генератор резюме. Адаптирует резюме под конкретную вакансию, хранит версии по компаниям, предоставляет редактор. Использует локальную LLM через Ollama.
 
-Stack: FastAPI + SQLite + Jinja2 + Ollama (`qwen2.5:14b`) + Робокасса + Telegram Login Widget + Email magic link.
+Stack: FastAPI + SQLite + Jinja2 + Ollama (`qwen2.5:14b`) + Робокасса + OAuth (Яндекс/VK/Mail.ru) + Email magic link.
 
 ## Commands
 
@@ -89,8 +89,11 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 **AI-вызовы** — `call_ai()` обращается к Ollama через OpenAI-совместимый endpoint `/v1/chat/completions`. Семафор `_ai_sem` ограничивает параллельность (по умолчанию 2). Промпты — `_match_prompt`, `_general_prompt`, `_generate_prompt` — возвращают строгий JSON-формат резюме.
 
 **Авторизация** — два метода:
-- Telegram Login Widget: верификация HMAC-SHA256 подписи + проверка `auth_date` (не старше 1 часа)
 - Email magic link: UUID-токен в БД, действует 15 минут, отправка через aiosmtplib
+- OAuth: Яндекс ID, VK ID (PKCE, без секрета), Mail.ru — общим рубильником `OAUTH_LOGIN_ENABLED`
+
+Состав включённых способов пишется в лог при старте (`Способы входа: …`), там же
+предупреждения о недонастроенных провайдерах. Вход через Telegram убран.
 
 Сессии — cookie `session_id` (httpOnly, 30 дней). Анонимный превью считается по двум ключам: HMAC-подписанный cookie `anon_id` (`ANON_LIMIT`) и HMAC адреса посетителя с суточным окном (`ANON_IP_LIMIT`). Второй нужен потому, что cookie клиент может просто не возвращать — подпись мешает присвоить чужой идентификатор, но не мешает сбросить свой.
 
@@ -111,7 +114,6 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `OLLAMA_URL` | URL Ollama (по умолчанию `http://localhost:11434`) |
 | `OLLAMA_MODEL` | Модель (по умолчанию `qwen2.5:14b`) |
 | `SECRET_KEY` | HMAC-ключ для подписи anon-cookie — **обязателен** в проде |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_NAME` | Telegram Login Widget |
 | `ROBOKASSA_LOGIN` / `ROBOKASSA_PASSWORD1` / `ROBOKASSA_PASSWORD2` | Робокасса — платежи |
 | `ROBOKASSA_TEST_MODE` | `1` включает тестовый режим Робокассы (`IsTest=1`) |
 | `SMTP_*` | Email magic link |

@@ -30,11 +30,8 @@
   function setAvatar(user) {
     var el = document.getElementById('app-avatar');
     if (!el || !user) return;
-    if (user.photo) {
-      el.innerHTML = '<img src="' + user.photo + '" alt="">';
-    } else {
-      el.textContent = initials(user.name || user.email);
-    }
+    // Фото брать неоткуда: вход по почте и OAuth аватарку не отдают.
+    el.textContent = initials(user.name || user.email);
   }
 
   function init() {
