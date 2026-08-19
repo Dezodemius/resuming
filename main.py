@@ -1530,7 +1530,7 @@ async def fetch_job(request: Request):
 
 # ── Payments (Робокасса) ─────────────────────────────────────────────────
 def _robokassa_signature(*parts: str) -> str:
-    return hashlib.md5(":".join(parts).encode("utf-8")).hexdigest()
+    return hashlib.md5(":".join(parts).encode()).hexdigest()
 
 
 def _strip_xml_ns(elem):

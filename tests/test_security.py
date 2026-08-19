@@ -153,13 +153,29 @@ def test_strip_xml_ns_allows_lookup_by_local_name():
     assert root.findtext(".//State/Code") == "100"
 
 
+def test_strip_xml_ns_splits_only_on_first_brace():
+    """Реальные namespace-теги содержат ровно одну '}', так что split(maxsplit=1),
+    unlimited split и rsplit(maxsplit=1) дают одинаковый результат на них — этот
+    тест бьёт по самому алгоритму искусственным тегом с двумя '}', где они расходятся."""
+    el = ET.Element("{a}b}c")
+    main._strip_xml_ns(el)
+    assert el.tag == "b}c"
+
+
 async def test_robokassa_confirmed_sends_correct_params(monkeypatch):
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
     monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
     fake = _FakeClient(_opstate_xml("100"))
-    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: fake)
+    client_kwargs = {}
+
+    def factory(*a, **k):
+        client_kwargs.update(k)
+        return fake
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", factory)
     result = await main._robokassa_confirmed("42", main.PRO_PRICE)
     assert result is True
+    assert client_kwargs == {"timeout": 10}
     assert len(fake.calls) == 1
     url, kw = fake.calls[0]
     assert url == "https://auth.robokassa.ru/Merchant/WebService/Service.asmx/OpStateExt"
@@ -177,12 +193,18 @@ async def test_robokassa_confirmed_false_when_not_yet_paid(monkeypatch):
     assert await main._robokassa_confirmed("1", main.PRO_PRICE) is False
 
 
-async def test_robokassa_confirmed_false_when_amount_mismatch(monkeypatch):
+async def test_robokassa_confirmed_false_when_amount_mismatch(monkeypatch, caplog):
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
     monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
     monkeypatch.setattr(main.httpx, "AsyncClient",
                          lambda *a, **k: _FakeClient(_opstate_xml("100", out_sum="1.00")))
-    assert await main._robokassa_confirmed("1", main.PRO_PRICE) is False
+    with caplog.at_level("WARNING"):
+        result = await main._robokassa_confirmed("1", main.PRO_PRICE)
+    assert result is False
+    # Точное сообщение, а не просто «где-то встречаются оба числа» — иначе
+    # мутации самой строки лога (переставленные аргументы, обрезка) не ловятся.
+    expected = f"pay/webhook: сумма в OpStateExt 1.00 не совпадает с ожидаемой {main.PRO_PRICE}"
+    assert expected in [r.getMessage() for r in caplog.records]
 
 
 async def test_robokassa_confirmed_true_when_paid_and_matching(monkeypatch):
