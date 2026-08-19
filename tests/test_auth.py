@@ -345,3 +345,61 @@ def test_idna_url_ascii_untouched():
     from config import _idna_url
     assert _idna_url("http://localhost:8000") == "http://localhost:8000"
     assert _idna_url("https://example.com") == "https://example.com"
+
+
+# ── Регистр адреса не создаёт второй аккаунт ────────────────────────────────
+# Один и тот же человек приходит то из формы («Ivan@Ya.ru», как набрал), то из
+# OAuth («ivan@ya.ru», как отдал провайдер). Раньше это были два разных
+# аккаунта: во втором не было ни резюме, ни оплаченного Pro.
+
+async def _login_by_email(client, email, token):
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO magic_tokens (token, email, expires_at, used)"
+            " VALUES (?,?,datetime('now','+10 minutes'),0)",
+            (token, email),
+        )
+        db.commit()
+    await client.get(f"/auth/email/verify?token={token}", follow_redirects=False)
+    return (await client.get("/api/me")).json()
+
+
+@pytest.mark.asyncio
+async def test_same_email_different_case_is_one_account(client):
+    main.init_db()
+    first = await _login_by_email(client, "Ivan@Ya.ru", "tok-upper")
+    second = await _login_by_email(client, "ivan@ya.ru", "tok-lower")
+
+    assert first["authenticated"] and second["authenticated"]
+    assert first["id"] == second["id"], "разный регистр не должен разводить аккаунты"
+    with main.get_db() as db:
+        rows = db.execute("SELECT id, email FROM users").fetchall()
+    assert len(rows) == 1, f"аккаунтов должно быть один, а не {len(rows)}"
+    assert rows[0]["email"] == "ivan@ya.ru", "адрес хранится в нижнем регистре"
+
+
+@pytest.mark.asyncio
+async def test_email_with_spaces_is_trimmed(client):
+    """Пробелы по краям приезжают из форм и мобильных клавиатур постоянно."""
+    main.init_db()
+    me = await _login_by_email(client, "  Petr@Ya.ru  ", "tok-spaces")
+    assert me["authenticated"]
+    with main.get_db() as db:
+        assert db.execute("SELECT email FROM users").fetchone()["email"] == "petr@ya.ru"
+
+
+def test_normalize_email():
+    assert main._normalize_email("Ivan@Ya.RU") == "ivan@ya.ru"
+    # Перевод строки и табуляция приезжают из копипасты не реже пробелов.
+    assert main._normalize_email(" ivan@ya.ru " + chr(10)) == "ivan@ya.ru"
+    assert main._normalize_email(chr(9) + "ivan@ya.ru") == "ivan@ya.ru"
+    assert main._normalize_email("ivan@ya.ru") == "ivan@ya.ru"
+
+
+@pytest.mark.asyncio
+async def test_default_display_name_is_local_part(client):
+    """Имя по умолчанию — часть адреса до собаки: оно показывается в шапке и в
+    админке, и подставлять туда весь адрес значит светить почту пользователя."""
+    main.init_db()
+    me = await _login_by_email(client, "Ivan.Petrov@ya.ru", "tok-name")
+    assert me["name"] == "ivan.petrov"
