@@ -54,6 +54,107 @@ def test_fresh_auth_date_returns_true(monkeypatch):
     assert _verify_telegram(data) is True
 
 
+# ── Подпись считается по фактически присланным полям ───────────────────
+# Telegram опускает незаполненные поля (username, photo_url, last_name), и в
+# подписи их нет. Раньше в _verify_telegram попадала разобранная pydantic-
+# модель, которая добавляла их со значениями None — пользователь без username
+# получал 401 и войти не мог. Тесты ниже гоняют payload через реальную ручку,
+# то есть через ту же схему, что и FastAPI.
+
+
+def _sign(payload: dict, token: str = TEST_TOKEN) -> dict:
+    """Подписывает payload ровно так, как это делает Telegram."""
+    secret = hashlib.sha256(token.encode()).digest()
+    check_str = "\n".join(f"{k}={payload[k]}" for k in sorted(payload))
+    return {**payload, "hash": hmac_module.new(secret, check_str.encode(), hashlib.sha256).hexdigest()}
+
+
+@pytest.mark.asyncio
+async def test_login_works_without_username_and_photo(client, monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    main.init_db()
+    body = _sign({"id": 777001, "first_name": "Иван", "auth_date": int(time.time())})
+    r = await client.post("/auth/telegram", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
+    assert "session_id" in r.cookies
+
+
+@pytest.mark.asyncio
+async def test_login_works_with_all_fields(client, monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    main.init_db()
+    body = _sign({
+        "id": 777002, "first_name": "Иван", "last_name": "Петров",
+        "username": "ivan", "photo_url": "https://t.me/i/userpic/1.jpg",
+        "auth_date": int(time.time()),
+    })
+    r = await client.post("/auth/telegram", json=body)
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_tampered_field(client, monkeypatch):
+    """Подпись остаётся обязательной: подменённое поле не проходит."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    main.init_db()
+    body = _sign({"id": 777003, "first_name": "Иван", "auth_date": int(time.time())})
+    body["first_name"] = "Админ"
+    r = await client.post("/auth/telegram", json=body)
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_extra_unsigned_field(client, monkeypatch):
+    """Дописанное поле меняет строку проверки — вход не проходит (fail-closed)."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    main.init_db()
+    body = _sign({"id": 777004, "first_name": "Иван", "auth_date": int(time.time())})
+    body["username"] = "smuggled"
+    r = await client.post("/auth/telegram", json=body)
+    assert r.status_code == 401
+
+
+def test_non_numeric_auth_date_returns_false(monkeypatch):
+    """Мусор в auth_date — это 401, а не 500 из-за необработанного ValueError."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    data = _sign({"id": 1, "auth_date": "не-число"})
+    assert _verify_telegram(data) is False
+
+
+def test_empty_hash_returns_false(monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    assert _verify_telegram({"id": 1, "auth_date": int(time.time())}) is False
+
+
+def test_non_string_hash_returns_false(monkeypatch):
+    """hash числом — не Telegram. Без проверки типа compare_digest даёт 500."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    assert _verify_telegram({"id": 1, "auth_date": int(time.time()), "hash": 12345}) is False
+
+
+def test_missing_auth_date_returns_false(monkeypatch):
+    """Подпись может сойтись и без auth_date — тогда решает отсутствие поля."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    assert _verify_telegram(_sign({"id": 1, "first_name": "Иван"})) is False
+
+
+def test_auth_date_exactly_at_ttl_is_accepted(monkeypatch):
+    """Граница окна ровно 3600 с: 3600 — ещё валидно."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    now = 1_800_000_000
+    monkeypatch.setattr(main.time, "time", lambda: float(now))
+    assert _verify_telegram(_sign({"id": 1, "auth_date": now - 3600})) is True
+
+
+def test_auth_date_one_second_over_ttl_is_rejected(monkeypatch):
+    """...а 3601 — уже нет."""
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", TEST_TOKEN)
+    now = 1_800_000_000
+    monkeypatch.setattr(main.time, "time", lambda: float(now))
+    assert _verify_telegram(_sign({"id": 1, "auth_date": now - 3601})) is False
+
+
 # ── _auth_ctx ─────────────────────────────────────────────────────────
 def test_auth_ctx_all_providers_off_by_default(monkeypatch):
     monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)

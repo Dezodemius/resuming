@@ -311,19 +311,35 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # ── Auth helpers ─────────────────────────────────────────────────────────
 def _verify_telegram(data: dict) -> bool:
-    """Verify Telegram Login Widget signature."""
+    """Проверяет подпись Telegram Login Widget.
+
+    `data` — СЫРОЕ тело запроса, а не разобранная pydantic-модель. Telegram
+    подписывает только те поля, которые реально прислал, а незаполненные
+    (username, photo_url, last_name) просто опускает. Модель же подставляет
+    их со значениями None/"", они попадают в строку проверки как
+    `username=None`, и HMAC перестаёт сходиться — пользователь без username
+    не мог войти вообще никогда.
+    """
     if not TELEGRAM_BOT_TOKEN:
         return False
+    # Виджет всегда присылает hash непустой строкой. Отсутствие поля, число или
+    # объект — это не Telegram; без проверки типа compare_digest роняет 500.
+    check_hash = data.get("hash")
+    if not isinstance(check_hash, str) or not check_hash:
+        return False
     d = {k: v for k, v in data.items() if k != "hash"}
-    check_hash = data.get("hash", "")
     data_check = "\n".join(f"{k}={d[k]}" for k in sorted(d))
     secret = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).digest()
     expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, check_hash):
         return False
-    if time.time() - int(data.get("auth_date", 0)) > 3600:
+    # auth_date виджет присылает строкой. Мусор в поле или его отсутствие —
+    # это отказ во входе, а не 500 из-за необработанного исключения.
+    try:
+        auth_date = int(data.get("auth_date"))
+    except (TypeError, ValueError):
         return False
-    return True
+    return time.time() - auth_date <= 3600
 
 def _create_session(db, user_id: int) -> str:
     sid = str(uuid.uuid4())
@@ -762,7 +778,13 @@ async def billing_info(request: Request):
 @app.post("/auth/telegram")
 @rate("20/minute")
 async def auth_telegram(data: TgAuthData, request: Request, response: Response):
-    if not _verify_telegram(data.dict()):
+    # Подпись считаем по сырому телу (см. _verify_telegram), а разобранную
+    # модель используем только как типизированный доступ к полям.
+    try:
+        raw = await request.json()
+    except Exception:
+        raw = None
+    if not isinstance(raw, dict) or not _verify_telegram(raw):
         raise HTTPException(401, "Неверная подпись Telegram")
     name = f"{data.first_name or ''} {data.last_name or ''}".strip() or data.username or "Пользователь"
     with get_db() as db:
