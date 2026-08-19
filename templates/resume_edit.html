@@ -833,7 +833,7 @@ async function aiImprove(kind) {
       body: JSON.stringify({ kind, text, context })
     });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail);
+    if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind };
     showAISheet(kind === 'summary' ? 'Профессиональный профиль' : 'Навыки', d.improved);
   } catch(e) { toast('Ошибка AI: ' + e.message, 'err'); }
@@ -855,11 +855,21 @@ async function aiImproveBullets(expIdx) {
       body: JSON.stringify({ kind:'bullets', text, context:`${role} в ${company}` })
     });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail);
+    if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind:'bullets', expIdx };
     showAISheet(`Достижения · ${role || 'опыт'}`, d.improved);
   } catch(e) { toast('Ошибка AI: ' + e.message, 'err'); }
   finally { setLoader(false); }
+}
+
+// Улучшение текста списывает генерацию, как и обычная адаптация: на исчерпании
+// квоты бэкенд отвечает 402 {"error":"no_uses"} — без поля detail, поэтому
+// разбираем ответ отдельно, иначе пользователь видел «Ошибка AI: undefined».
+function aiErrorText(res, body) {
+  if (res.status === 402 && body && body.error === 'no_uses') {
+    return 'Закончились генерации — оформите Pro на странице тарифов';
+  }
+  return (body && body.detail) || 'Не удалось улучшить текст';
 }
 
 function showAISheet(title, text) {
