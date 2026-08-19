@@ -70,6 +70,20 @@ Ollama и собственным nginx на порту 80). **На app-01 его
    `APP01_KNOWN_HOSTS` не косметика: без него `BatchMode` откажется соединяться,
    а `StrictHostKeyChecking=no` открыл бы выкат для MITM.
 
+   Через `gh`, чтобы не ходить в веб-интерфейс (ключ при этом остаётся на вашей
+   машине и в терминал не печатается):
+
+   ```bash
+   gh secret set APP01_HOST --body "201.34.132.125"
+   gh secret set APP01_USER --body "root"
+   gh secret set APP01_SSH_KEY < ~/.ssh/resuming_ci
+   ssh-keyscan -H 201.34.132.125 | gh secret set APP01_KNOWN_HOSTS
+   ```
+
+   Проверить, что все четыре на месте: `gh secret list`. Пока хотя бы одного
+   нет, джоба `deploy` падает на первом же шаге с перечнем недостающих —
+   прод при этом продолжает работать на прежней версии.
+
 ### Ручной выкат и откат
 
 ```bash
