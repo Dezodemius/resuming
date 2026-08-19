@@ -156,42 +156,41 @@ def test_auth_date_one_second_over_ttl_is_rejected(monkeypatch):
 
 
 # ── _auth_ctx ─────────────────────────────────────────────────────────
-def test_auth_ctx_all_providers_off_by_default(monkeypatch):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
-    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
-    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
-    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
-    ctx = main._auth_ctx(None)
-    assert ctx["yandex_enabled"] is False
-    assert ctx["vk_enabled"] is False
-    assert ctx["mailru_enabled"] is False
-
-
-def test_auth_ctx_enabled_toggle_still_needs_client_id(monkeypatch):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
-    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "")
-    monkeypatch.setattr(main, "VK_CLIENT_ID", "")
-    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "")
-    ctx = main._auth_ctx(None)
-    assert ctx["yandex_enabled"] is False
-    assert ctx["vk_enabled"] is False
-    assert ctx["mailru_enabled"] is False
-
-
-def test_auth_ctx_enabled_and_configured_returns_true(monkeypatch):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
-    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
-    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
-    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
+# Что именно включено, решается один раз в config (там же и предупреждения о
+# недонастроенных провайдерах). _auth_ctx обязан лишь честно это отразить:
+# кнопка в шаблоне и проверка в ручке должны решать одинаково, иначе получится
+# либо кнопка в никуда, либо рабочая ручка без кнопки.
+def test_auth_ctx_reflects_enabled_flags(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "VK_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", True)
     ctx = main._auth_ctx(None)
     assert ctx["yandex_enabled"] is True
-    assert ctx["vk_enabled"] is True
+    assert ctx["vk_enabled"] is False
     assert ctx["mailru_enabled"] is True
 
 
-def test_auth_ctx_passes_through_telegram_and_user(monkeypatch):
-    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "")
+def test_auth_ctx_all_providers_off_by_default(monkeypatch):
+    monkeypatch.setattr(main, "YANDEX_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "VK_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", False)
+    ctx = main._auth_ctx(None)
+    assert ctx["yandex_enabled"] is False
+    assert ctx["vk_enabled"] is False
+    assert ctx["mailru_enabled"] is False
+
+
+def test_auth_ctx_hides_telegram_without_token(monkeypatch):
+    """Виджет без токена бесполезен: подпись проверять нечем, и вход всегда
+    заканчивался бы 401. Лучше не показывать кнопку вовсе."""
     monkeypatch.setattr(main, "TELEGRAM_BOT_NAME", "MyResumeBot")
+    monkeypatch.setattr(main, "TELEGRAM_LOGIN_ENABLED", False)
+    assert main._auth_ctx(None)["telegram_bot_name"] == ""
+
+
+def test_auth_ctx_passes_through_telegram_and_user(monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_BOT_NAME", "MyResumeBot")
+    monkeypatch.setattr(main, "TELEGRAM_LOGIN_ENABLED", True)
     sentinel_user = {"id": 42}
     ctx = main._auth_ctx(sentinel_user)
     assert ctx["telegram_bot_name"] == "MyResumeBot"
@@ -208,7 +207,7 @@ async def test_yandex_no_client_id_returns_503(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_yandex_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "YANDEX_LOGIN_ENABLED", False)
     monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
     r = await client.get("/auth/yandex")
     assert r.status_code == 503
@@ -216,7 +215,7 @@ async def test_yandex_oauth_disabled_returns_503_even_with_client_id(monkeypatch
 
 @pytest.mark.asyncio
 async def test_yandex_start_redirects_to_yandex_domain(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "YANDEX_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/yandex", follow_redirects=False)
@@ -235,7 +234,7 @@ async def test_vk_no_client_id_returns_503(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_vk_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "VK_LOGIN_ENABLED", False)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     r = await client.get("/auth/vk")
     assert r.status_code == 503
@@ -243,7 +242,7 @@ async def test_vk_oauth_disabled_returns_503_even_with_client_id(monkeypatch, cl
 
 @pytest.mark.asyncio
 async def test_vk_start_redirects_to_vk_domain(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "VK_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/vk", follow_redirects=False)
@@ -254,7 +253,7 @@ async def test_vk_start_redirects_to_vk_domain(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_vk_start_sets_state_cookie(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "VK_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/vk", follow_redirects=False)
@@ -288,7 +287,7 @@ async def test_mailru_no_client_id_returns_503(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_mailru_oauth_disabled_returns_503_even_with_client_id(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", False)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     r = await client.get("/auth/mailru")
     assert r.status_code == 503
@@ -296,7 +295,7 @@ async def test_mailru_oauth_disabled_returns_503_even_with_client_id(monkeypatch
 
 @pytest.mark.asyncio
 async def test_mailru_start_redirects_to_mailru_domain(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/mailru", follow_redirects=False)
@@ -307,7 +306,7 @@ async def test_mailru_start_redirects_to_mailru_domain(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_mailru_start_sets_state_cookie(monkeypatch, client):
-    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
     r = await client.get("/auth/mailru", follow_redirects=False)
@@ -403,3 +402,77 @@ async def test_default_display_name_is_local_part(client):
     main.init_db()
     me = await _login_by_email(client, "Ivan.Petrov@ya.ru", "tok-name")
     assert me["name"] == "ivan.petrov"
+
+
+# ── Отчёт о способах входа при старте ───────────────────────────────────────
+# Вся конфигурация входа на проде оказалась пустой, и заметить это можно было
+# только чтением шаблонов: наружу сайт выглядел как «умеет только почту».
+# Теперь состав способов пишется в лог, а недонастроенный провайдер даёт
+# предупреждение — молчать о нём хуже всего.
+
+def _report(monkeypatch, **overrides):
+    import config
+    defaults = dict(
+        TELEGRAM_BOT_NAME="", TELEGRAM_BOT_TOKEN="", TELEGRAM_LOGIN_ENABLED=False,
+        OAUTH_LOGIN_ENABLED=False,
+        YANDEX_CLIENT_ID="", YANDEX_CLIENT_SECRET="", YANDEX_LOGIN_ENABLED=False,
+        VK_CLIENT_ID="", VK_LOGIN_ENABLED=False,
+        MAILRU_CLIENT_ID="", MAILRU_CLIENT_SECRET="", MAILRU_LOGIN_ENABLED=False,
+    )
+    defaults.update(overrides)
+    for name, value in defaults.items():
+        monkeypatch.setattr(config, name, value)
+    return config._login_methods_report()
+
+
+def test_login_report_email_always_available(monkeypatch):
+    active, notes = _report(monkeypatch)
+    assert active == ["email"]
+    assert notes == []
+
+
+def test_login_report_lists_every_enabled_method(monkeypatch):
+    active, notes = _report(
+        monkeypatch,
+        TELEGRAM_BOT_NAME="bot", TELEGRAM_BOT_TOKEN="tok", TELEGRAM_LOGIN_ENABLED=True,
+        OAUTH_LOGIN_ENABLED=True,
+        YANDEX_CLIENT_ID="y", YANDEX_CLIENT_SECRET="s", YANDEX_LOGIN_ENABLED=True,
+        VK_CLIENT_ID="v", VK_LOGIN_ENABLED=True,
+        MAILRU_CLIENT_ID="m", MAILRU_CLIENT_SECRET="s", MAILRU_LOGIN_ENABLED=True,
+    )
+    assert active == ["email", "telegram", "yandex", "vk", "mailru"]
+    assert notes == []
+
+
+def test_login_report_warns_about_hidden_configured_providers(monkeypatch):
+    """Ровно та ситуация, ради которой это писалось: ключи есть, рубильник
+    выключен, кнопок нет и никто не понимает почему."""
+    _, notes = _report(monkeypatch, YANDEX_CLIENT_ID="y", MAILRU_CLIENT_ID="m")
+    assert any("OAUTH_LOGIN_ENABLED=0" in n for n in notes)
+    assert any("Яндекс" in n and "Mail.ru" in n for n in notes)
+
+
+def test_login_report_warns_about_half_configured_telegram(monkeypatch):
+    _, notes = _report(monkeypatch, TELEGRAM_BOT_NAME="bot")
+    assert any("Telegram" in n for n in notes)
+
+    _, notes = _report(monkeypatch, TELEGRAM_BOT_TOKEN="tok")
+    assert any("Telegram" in n for n in notes)
+
+
+def test_login_report_warns_about_missing_secrets(monkeypatch):
+    """Client ID без секрета — кнопка была бы, а обмен кода на токен падал."""
+    _, notes = _report(monkeypatch, OAUTH_LOGIN_ENABLED=True, YANDEX_CLIENT_ID="y")
+    assert any("YANDEX_CLIENT_SECRET" in n for n in notes)
+
+    _, notes = _report(monkeypatch, OAUTH_LOGIN_ENABLED=True, MAILRU_CLIENT_ID="m")
+    assert any("MAILRU_CLIENT_SECRET" in n for n in notes)
+
+
+def test_login_report_vk_needs_no_secret(monkeypatch):
+    """VK ID работает по PKCE — требовать у него секрет было бы неверно."""
+    active, notes = _report(
+        monkeypatch, OAUTH_LOGIN_ENABLED=True, VK_CLIENT_ID="v", VK_LOGIN_ENABLED=True
+    )
+    assert "vk" in active
+    assert notes == []

@@ -98,6 +98,70 @@ MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
 # (нестабильны, требуют присмотра). Client ID/secret можно оставить настроенными
 # и включить кнопки без смены конфигурации провайдера: OAUTH_LOGIN_ENABLED=1.
 OAUTH_LOGIN_ENABLED  = os.getenv("OAUTH_LOGIN_ENABLED", "0") == "1"
+# ── Какие способы входа реально включены ────────────────────────────────────
+# Считаем это здесь, в одном месте, а не тремя одинаковыми выражениями в main:
+# кнопка в шаблоне и проверка в самой ручке обязаны решать одинаково, иначе
+# получится либо кнопка в никуда, либо рабочая ручка без кнопки.
+#
+# Провайдеру мало client_id: Яндексу и Mail.ru нужен ещё секрет для обмена кода
+# на токен (VK ID работает по PKCE и секрета не требует), а Telegram — и имя
+# бота для виджета, и токен для проверки подписи. Настроенный наполовину
+# провайдер хуже выключенного: кнопка есть, а вход неизбежно падает.
+YANDEX_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and YANDEX_CLIENT_ID and YANDEX_CLIENT_SECRET)
+VK_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and VK_CLIENT_ID)
+MAILRU_LOGIN_ENABLED = bool(OAUTH_LOGIN_ENABLED and MAILRU_CLIENT_ID and MAILRU_CLIENT_SECRET)
+TELEGRAM_LOGIN_ENABLED = bool(TELEGRAM_BOT_NAME and TELEGRAM_BOT_TOKEN)
+
+
+def _login_methods_report() -> tuple[list[str], list[str]]:
+    """(активные способы входа, замечания по недонастроенным).
+
+    Вынесено в функцию, чтобы это можно было проверить тестом, а не только
+    глазами в логе при старте.
+    """
+    active = ["email"]
+    if TELEGRAM_LOGIN_ENABLED:
+        active.append("telegram")
+    if YANDEX_LOGIN_ENABLED:
+        active.append("yandex")
+    if VK_LOGIN_ENABLED:
+        active.append("vk")
+    if MAILRU_LOGIN_ENABLED:
+        active.append("mailru")
+
+    notes = []
+    if bool(TELEGRAM_BOT_NAME) != bool(TELEGRAM_BOT_TOKEN):
+        notes.append(
+            "Telegram настроен наполовину (нужны и TELEGRAM_BOT_NAME, и "
+            "TELEGRAM_BOT_TOKEN) — кнопка скрыта"
+        )
+    configured = [
+        name for name, value in (
+            ("Яндекс", YANDEX_CLIENT_ID),
+            ("VK", VK_CLIENT_ID),
+            ("Mail.ru", MAILRU_CLIENT_ID),
+        ) if value
+    ]
+    if configured and not OAUTH_LOGIN_ENABLED:
+        notes.append(
+            f"ключи настроены ({', '.join(configured)}), но OAUTH_LOGIN_ENABLED=0 "
+            "— кнопки скрыты"
+        )
+    if OAUTH_LOGIN_ENABLED and YANDEX_CLIENT_ID and not YANDEX_CLIENT_SECRET:
+        notes.append("у Яндекса нет YANDEX_CLIENT_SECRET — кнопка скрыта")
+    if OAUTH_LOGIN_ENABLED and MAILRU_CLIENT_ID and not MAILRU_CLIENT_SECRET:
+        notes.append("у Mail.ru нет MAILRU_CLIENT_SECRET — кнопка скрыта")
+    return active, notes
+
+
+_active_logins, _login_notes = _login_methods_report()
+# Одна строка в логе на старте: молчаливо отвалившаяся конфигурация входа
+# выглядит для пользователя как «сайт умеет только почту», и понять это можно
+# было лишь чтением шаблонов.
+log.info("Способы входа: %s", ", ".join(_active_logins))
+for _note in _login_notes:
+    log.warning("Вход: %s", _note)
+
 ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
 # Номер счётчика Метрики — только цифры: значение подставляется в JS и HTML
 # всех страниц, так что произвольная строка (например, случайно вписанный
