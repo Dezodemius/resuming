@@ -1,3 +1,6 @@
+import sqlite3
+
+import db as db_module
 import main
 
 
@@ -59,3 +62,205 @@ def test_new_user_default_free_credits(db):
     row = db.execute("SELECT free_left, paid_left FROM users WHERE email=?", ("u@test.com",)).fetchone()
     assert row["free_left"] == 3
     assert row["paid_left"] == 0
+
+
+# ── Миграции схемы ──────────────────────────────────────────────────────────
+# `CREATE TABLE IF NOT EXISTS` не трогает уже существующие таблицы, поэтому
+# изменения схемы едут отдельными шагами. Проверяем и сам механизм, и первый
+# шаг — тот, что делает email ключом аккаунта без учёта регистра.
+
+
+# Схема users до миграции 1: UNIQUE сравнивает побайтово.
+_OLD_USERS = """
+    CREATE TABLE users (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        email       TEXT UNIQUE,
+        telegram_id INTEGER UNIQUE,
+        tg_name     TEXT,
+        tg_photo    TEXT,
+        display_name TEXT,
+        free_left    INTEGER NOT NULL DEFAULT 3,
+        paid_left    INTEGER NOT NULL DEFAULT 0,
+        is_pro       INTEGER NOT NULL DEFAULT 0,
+        pro_expires_at TEXT,
+        created      TEXT DEFAULT (datetime('now'))
+    );
+"""
+
+
+def _legacy_db(tmp_path, monkeypatch):
+    """База со старой схемой users и остальными таблицами из init_db."""
+    import config
+
+    path = str(tmp_path / "legacy.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    main.init_db()                      # создаёт всё и прогоняет миграции
+    conn = db_module.connect()
+    # Откатываем users к старому виду и обнуляем версию — как если бы база
+    # осталась с прежнего релиза.
+    conn.executescript("DROP TABLE users;" + _OLD_USERS + "PRAGMA user_version = 0;")
+    conn.commit()
+    return conn
+
+
+def test_fresh_db_email_is_case_insensitive(db):
+    db.execute("INSERT INTO users (email) VALUES ('Ivan@ya.ru')")
+    db.commit()
+    row = db.execute("SELECT id FROM users WHERE email='ivan@YA.RU'").fetchone()
+    assert row is not None, "поиск по адресу должен игнорировать регистр"
+
+
+def test_fresh_db_rejects_case_variant_duplicate(db):
+    db.execute("INSERT INTO users (email) VALUES ('ivan@ya.ru')")
+    db.commit()
+    try:
+        db.execute("INSERT INTO users (email) VALUES ('IVAN@ya.ru')")
+        db.commit()
+        assert False, "второй аккаунт на тот же адрес создаваться не должен"
+    except sqlite3.IntegrityError:
+        pass
+
+
+def test_migrate_is_idempotent(db):
+    assert db.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+    assert db_module.migrate(db) == 0, "повторный прогон не должен ничего делать"
+
+
+def test_migration_lowercases_existing_emails(tmp_path, monkeypatch):
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'Ivan@Ya.RU')")
+    conn.execute("INSERT INTO magic_tokens (token, email, expires_at)"
+                 " VALUES ('t', 'Ivan@Ya.RU', datetime('now','+10 minutes'))")
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1
+    assert conn.execute("SELECT email FROM users WHERE id=1").fetchone()[0] == "ivan@ya.ru"
+    assert conn.execute("SELECT email FROM magic_tokens").fetchone()[0] == "ivan@ya.ru"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+    conn.close()
+
+
+def test_migration_merges_duplicates_keeping_paid_account(tmp_path, monkeypatch):
+    """Главное свойство: оплаченный Pro не должен пропасть при слиянии."""
+    conn = _legacy_db(tmp_path, monkeypatch)
+    # id=1 — бесплатный, id=2 — тот же человек с оплаченным Pro.
+    conn.execute("INSERT INTO users (id, email, free_left, paid_left, is_pro, pro_expires_at)"
+                 " VALUES (1, 'Ivan@ya.ru', 1, 5, 0, NULL)")
+    conn.execute("INSERT INTO users (id, email, free_left, paid_left, is_pro, pro_expires_at)"
+                 " VALUES (2, 'ivan@ya.ru', 3, 20, 1, '2099-01-01 00:00:00')")
+    conn.execute("INSERT INTO resumes (user_id, resume_data) VALUES (1, '{}')")
+    conn.execute("INSERT INTO profiles (user_id, data) VALUES (1, '{}')")
+    conn.execute("INSERT INTO payments (user_id, pay_id) VALUES (1, 'p1')")
+    conn.commit()
+
+    db_module.migrate(conn)
+
+    rows = conn.execute("SELECT * FROM users").fetchall()
+    assert len(rows) == 1, "дубли должны схлопнуться в один аккаунт"
+    survivor = rows[0]
+    assert survivor["id"] == 2, "выживает аккаунт с оплаченной подпиской"
+    assert survivor["email"] == "ivan@ya.ru"
+    assert survivor["is_pro"] == 1
+    assert survivor["pro_expires_at"] == "2099-01-01 00:00:00"
+    assert survivor["paid_left"] == 25, "купленные генерации складываются"
+    assert survivor["free_left"] == 3, "бесплатные не суммируются, берётся максимум"
+
+    # Данные проигравшего перевешены, а не потеряны.
+    assert conn.execute("SELECT user_id FROM resumes").fetchone()["user_id"] == 2
+    assert conn.execute("SELECT user_id FROM profiles").fetchone()["user_id"] == 2
+    assert conn.execute("SELECT user_id FROM payments").fetchone()["user_id"] == 2
+    conn.close()
+
+
+def test_migration_keeps_survivor_profile(tmp_path, monkeypatch):
+    """profiles.user_id UNIQUE: если профиль есть у обоих, остаётся один."""
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'a@b.ru')")
+    conn.execute("INSERT INTO users (id, email) VALUES (2, 'A@B.ru')")
+    conn.execute("INSERT INTO profiles (user_id, data) VALUES (1, '{\"n\":1}')")
+    conn.execute("INSERT INTO profiles (user_id, data) VALUES (2, '{\"n\":2}')")
+    conn.commit()
+
+    db_module.migrate(conn)
+
+    profiles = conn.execute("SELECT user_id, data FROM profiles").fetchall()
+    assert len(profiles) == 1
+    assert profiles[0]["user_id"] == 1, "при равных правах выживает старший аккаунт"
+    assert profiles[0]["data"] == '{"n":1}', "остаётся профиль выжившего"
+    survivor = conn.execute("SELECT is_pro FROM users").fetchone()
+    assert survivor["is_pro"] == 0, "слияние двух бесплатных не выдаёт Pro"
+    conn.close()
+
+
+def test_migration_survives_empty_and_null_emails(tmp_path, monkeypatch):
+    """Аккаунты из Telegram живут без email — миграция не должна их трогать."""
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (1, NULL, 111)")
+    conn.execute("INSERT INTO users (id, email, telegram_id) VALUES (2, NULL, 222)")
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1
+    assert conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 2
+    conn.close()
+
+
+def test_migration_makes_column_case_insensitive(tmp_path, monkeypatch):
+    conn = _legacy_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
+    conn.commit()
+    db_module.migrate(conn)
+    try:
+        conn.execute("INSERT INTO users (email) VALUES ('IVAN@YA.RU')")
+        conn.commit()
+        assert False, "после миграции дубль по регистру создаваться не должен"
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+
+
+# ── Выбор выжившего при слиянии ─────────────────────────────────────────────
+# Правило: дороже всего потерять оплаченное, поэтому решает сначала активная
+# подписка и её срок, и лишь при равенстве — возраст аккаунта.
+
+def test_pick_survivor_prefers_furthest_paid_subscription():
+    rows = [
+        {"id": 1, "is_pro": 1, "pro_expires_at": "2026-01-01 00:00:00"},
+        {"id": 2, "is_pro": 1, "pro_expires_at": "2099-01-01 00:00:00"},
+    ]
+    assert db_module._pick_survivor(rows)["id"] == 2
+
+
+def test_pick_survivor_prefers_paid_over_free_at_equal_dates():
+    """Флаг подписки должен решать сам по себе, а не только через срок."""
+    rows = [
+        {"id": 1, "is_pro": 0, "pro_expires_at": "2099-01-01 00:00:00"},
+        {"id": 2, "is_pro": 1, "pro_expires_at": "2099-01-01 00:00:00"},
+    ]
+    assert db_module._pick_survivor(rows)["id"] == 2
+
+
+def test_pick_survivor_handles_missing_expiry():
+    """pro_expires_at пустой у большинства аккаунтов — сравнение не должно
+    падать и не должно ставить их выше оплаченных."""
+    rows = [
+        {"id": 1, "is_pro": 0, "pro_expires_at": None},
+        {"id": 2, "is_pro": 1, "pro_expires_at": "2099-01-01 00:00:00"},
+    ]
+    assert db_module._pick_survivor(rows)["id"] == 2
+
+    both_empty = [
+        {"id": 5, "is_pro": 0, "pro_expires_at": None},
+        {"id": 9, "is_pro": 0, "pro_expires_at": None},
+    ]
+    assert db_module._pick_survivor(both_empty)["id"] == 5, "при равенстве — старший"
+
+
+def test_pick_survivor_ignores_account_without_expiry_date():
+    """Оба помечены Pro, но у одного срок не проставлен. Побеждать должен тот,
+    у кого срок есть: заглушка для пустого значения обязана быть «меньше» любой
+    настоящей даты, иначе аккаунт без срока перевесит оплаченный."""
+    rows = [
+        {"id": 1, "is_pro": 1, "pro_expires_at": None},
+        {"id": 2, "is_pro": 1, "pro_expires_at": "2027-05-05 00:00:00"},
+    ]
+    assert db_module._pick_survivor(rows)["id"] == 2

@@ -403,7 +403,20 @@ async def get_current_user(request: Request) -> Optional[dict]:
         ).fetchone()
     return dict(row) if row else None
 
+def _normalize_email(email: str) -> str:
+    """Адрес как ключ аккаунта — всегда в нижнем регистре.
+
+    Домен регистронезависим по RFC, локальная часть формально нет, но её
+    регистр игнорируют все массовые почтовые провайдеры. Значение имеет другое:
+    один и тот же человек приходит то из формы («Ivan@ya.ru», как набрал), то
+    из OAuth («ivan@ya.ru», как отдал провайдер). Без нормализации это два
+    разных аккаунта, и во втором нет ни его резюме, ни оплаченного Pro.
+    """
+    return email.strip().lower()
+
+
 def _upsert_user_by_email(db, email: str) -> dict:
+    email = _normalize_email(email)
     db.execute(
         "INSERT OR IGNORE INTO users (email, display_name) VALUES (?,?)",
         (email, email.split("@")[0])
@@ -900,10 +913,10 @@ async def auth_email_request(req: EmailReq, request: Request):
         db.execute(
             "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at)"
             " VALUES (?,?,datetime('now',?))",
-            (token, req.email, f"+{MAGIC_MINUTES} minutes")
+            (token, _normalize_email(req.email), f"+{MAGIC_MINUTES} minutes")
         )
         db.commit()
-    err = await _send_magic_email(req.email, token)
+    err = await _send_magic_email(_normalize_email(req.email), token)
     if err:
         raise HTTPException(500, f"Не удалось отправить письмо. {err}")
     return {"ok": True}
