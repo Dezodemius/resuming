@@ -60,24 +60,30 @@ Ollama и собственным nginx на порту 80). **На app-01 его
 
 4. **Секреты репозитория** (Settings → Secrets and variables → Actions):
 
-   | Секрет | Значение |
-   |---|---|
-   | `APP01_HOST` | `201.34.132.125` |
-   | `APP01_USER` | `root` |
-   | `APP01_SSH_KEY` | содержимое приватного `~/.ssh/resuming_ci` целиком |
-   | `APP01_KNOWN_HOSTS` | вывод `ssh-keyscan -H 201.34.132.125` |
+   | Секрет | Значение | Обязателен |
+   |---|---|---|
+   | `SSH_HOST` | `201.34.132.125` | да |
+   | `SSH_USER` | `root` | да |
+   | `SSH_KEY` | содержимое приватного `~/.ssh/resuming_ci` целиком | да |
+   | `SSH_KNOWN_HOSTS` | вывод `ssh-keyscan -H 201.34.132.125` | да |
+   | `SSH_PORT` | порт SSH; без него подразумевается `22` | нет |
 
-   `APP01_KNOWN_HOSTS` не косметика: без него `BatchMode` откажется соединяться,
+   Имена намеренно общие, а не `APP01_*`: те же секреты пригодятся, если
+   прод переедет на другую машину. Обратная сторона — по имени не видно, на
+   что они указывают, поэтому значение `SSH_HOST` стоит перепроверять при
+   любой смене сервера.
+
+   `SSH_KNOWN_HOSTS` не косметика: без него `BatchMode` откажется соединяться,
    а `StrictHostKeyChecking=no` открыл бы выкат для MITM.
 
    Через `gh`, чтобы не ходить в веб-интерфейс (ключ при этом остаётся на вашей
    машине и в терминал не печатается):
 
    ```bash
-   gh secret set APP01_HOST --body "201.34.132.125"
-   gh secret set APP01_USER --body "root"
-   gh secret set APP01_SSH_KEY < ~/.ssh/resuming_ci
-   ssh-keyscan -H 201.34.132.125 | gh secret set APP01_KNOWN_HOSTS
+   gh secret set SSH_HOST --body "201.34.132.125"
+   gh secret set SSH_USER --body "root"
+   gh secret set SSH_KEY < ~/.ssh/resuming_ci
+   ssh-keyscan -H 201.34.132.125 | gh secret set SSH_KNOWN_HOSTS
    ```
 
    Проверить, что все четыре на месте: `gh secret list`. Пока хотя бы одного
