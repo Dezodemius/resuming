@@ -11,6 +11,10 @@
 #
 # Пути в файле относительны каталога deploy/ (compose берёт рабочим
 # каталогом директорию compose-файла).
+#
+# ВАЖНО: корневой docker-compose.yml на app01 запускать нельзя — он поднимет
+# свой nginx на порту 80 и уронит host-level nginx, а с ним dndshing.ru и
+# sgorelo.ru, живущие на этой же машине.
 name: resuming
 
 x-logging: &default-logging
@@ -39,6 +43,7 @@ services:
       retries: 3
       start_period: 20s
 
+  # ВНИМАНИЕ: монтирует docker.sock — это эквивалент root на хосте.
   ops-mcp:
     build:
       context: ../ops_mcp

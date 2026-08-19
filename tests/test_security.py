@@ -241,6 +241,36 @@ async def test_webhook_with_confirmation_grants_pro(client, monkeypatch):
     assert row["pro_expires_at"]
 
 
+async def test_webhook_works_over_get(client, monkeypatch):
+    """ResultURL в кабинете Робокассы можно настроить и на GET. Роут принимал
+    только POST, и такая настройка молча съедала бы все платежи: 405 в ответ,
+    ни строчки в логах приложения, Pro не выдан."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", _TEST_PASSWORD2)
+    uid = _add_user("pay-get@test.com")
+    _add_payment(uid, "150")
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_opstate_xml("100")))
+    r = await client.get("/api/pay/webhook", params=_webhook_form("150"))
+    assert r.text == "OK150"
+    with main.get_db() as db:
+        row = db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()
+    assert row["is_pro"] == 1
+
+
+async def test_webhook_bad_signature_over_get_no_pro(client, monkeypatch):
+    """Подпись проверяется одинаково на обоих методах."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", _TEST_PASSWORD2)
+    uid = _add_user("pay-get-bad@test.com")
+    _add_payment(uid, "151")
+    params = dict(_webhook_form("151"))
+    params["SignatureValue"] = "0" * 32
+    r = await client.get("/api/pay/webhook", params=params)
+    assert r.status_code == 400
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
+
+
 async def test_webhook_bad_signature_no_pro(client, monkeypatch):
     """Подпись не сходится с PASSWORD2 → запрос не от Робокассы, Pro не выдаём."""
     main.init_db()
