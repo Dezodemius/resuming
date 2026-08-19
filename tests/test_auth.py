@@ -54,6 +54,49 @@ def test_fresh_auth_date_returns_true(monkeypatch):
     assert _verify_telegram(data) is True
 
 
+# ── _auth_ctx ─────────────────────────────────────────────────────────
+def test_auth_ctx_all_providers_off_by_default(monkeypatch):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", False)
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
+    ctx = main._auth_ctx(None)
+    assert ctx["yandex_enabled"] is False
+    assert ctx["vk_enabled"] is False
+    assert ctx["mailru_enabled"] is False
+
+
+def test_auth_ctx_enabled_toggle_still_needs_client_id(monkeypatch):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "")
+    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "")
+    ctx = main._auth_ctx(None)
+    assert ctx["yandex_enabled"] is False
+    assert ctx["vk_enabled"] is False
+    assert ctx["mailru_enabled"] is False
+
+
+def test_auth_ctx_enabled_and_configured_returns_true(monkeypatch):
+    monkeypatch.setattr(main, "OAUTH_LOGIN_ENABLED", True)
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
+    ctx = main._auth_ctx(None)
+    assert ctx["yandex_enabled"] is True
+    assert ctx["vk_enabled"] is True
+    assert ctx["mailru_enabled"] is True
+
+
+def test_auth_ctx_passes_through_telegram_and_user(monkeypatch):
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(main, "TELEGRAM_BOT_NAME", "MyResumeBot")
+    sentinel_user = {"id": 42}
+    ctx = main._auth_ctx(sentinel_user)
+    assert ctx["telegram_bot_name"] == "MyResumeBot"
+    assert ctx["user"] is sentinel_user
+
+
 # ── VK OAuth tests ──────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_vk_no_client_id_returns_503(monkeypatch, client):
