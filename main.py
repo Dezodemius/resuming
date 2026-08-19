@@ -10,6 +10,7 @@ import uuid
 import hashlib
 import hmac
 import time
+import xml.etree.ElementTree as ET
 from urllib.parse import urlencode, urljoin, urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -37,7 +38,8 @@ except ImportError:
 # существующий код и тесты обращаются к ним как к main.* (в т.ч. monkeypatch).
 from config import (  # noqa: E402
     log,
-    OLLAMA_URL, MODEL, AI_API_KEY, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
+    OLLAMA_URL, MODEL, AI_API_KEY, APP_URL,
+    ROBOKASSA_LOGIN, ROBOKASSA_PASSWORD1, ROBOKASSA_PASSWORD2, ROBOKASSA_TEST_MODE,
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
@@ -1526,15 +1528,39 @@ async def fetch_job(request: Request):
     url  = body.get("url", "").strip()
     return {"text": await _fetch_job_text(url)}
 
-# ── Payments ───────────────────────────────────────────────────────────────
-def _drop_payment(idem: str) -> None:
-    """Удаляет «висячую» строку платежа, если создать платёж в ЮKassa не удалось."""
-    try:
-        with get_db() as db:
-            db.execute("DELETE FROM payments WHERE idem_key=? AND pay_id IS NULL", (idem,))
-            db.commit()
-    except Exception:
-        log.exception("pay: не удалось удалить висячую строку платежа idem=%s", idem)
+# ── Payments (Робокасса) ─────────────────────────────────────────────────
+def _robokassa_signature(*parts: str) -> str:
+    return hashlib.md5(":".join(parts).encode("utf-8")).hexdigest()
+
+
+def _strip_xml_ns(elem):
+    """Убирает namespace из тегов, чтобы искать по локальному имени
+    (State/Code/Info/OutSum) не завися от точного xmlns ответа Робокассы."""
+    for e in elem.iter():
+        if "}" in e.tag:
+            e.tag = e.tag.split("}", 1)[1]
+    return elem
+
+
+async def _robokassa_confirmed(inv_id: str, expected_sum: str) -> bool:
+    """Независимая проверка платежа через OpStateExt — не доверяем только
+    подписи вебхука, как раньше не доверяли только телу вебхука ЮKassa."""
+    signature = _robokassa_signature(ROBOKASSA_LOGIN, inv_id, ROBOKASSA_PASSWORD2)
+    async with httpx.AsyncClient(timeout=10) as http:
+        r = await http.get(
+            "https://auth.robokassa.ru/Merchant/WebService/Service.asmx/OpStateExt",
+            params={"MerchantLogin": ROBOKASSA_LOGIN, "InvoiceID": inv_id, "Signature": signature},
+        )
+    r.raise_for_status()
+    root = _strip_xml_ns(ET.fromstring(r.text))
+    code = root.findtext(".//State/Code")
+    out_sum = root.findtext(".//Info/OutSum")
+    if code != "100":
+        return False
+    if out_sum != expected_sum:
+        log.warning("pay/webhook: сумма в OpStateExt %s не совпадает с ожидаемой %s", out_sum, expected_sum)
+        return False
+    return True
 
 
 @app.post("/api/pay")
@@ -1544,115 +1570,102 @@ async def create_payment(req: PayReq, request: Request):
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
 
-    # ЮKassa ещё не подключена (нет ключей) — не дёргаем API впустую,
-    # отдаём понятную ошибку и явно пишем причину в лог.
-    if not YOKASSA_SHOP or not YOKASSA_SECRET:
-        log.warning("pay: ЮKassa не настроена (YOKASSA_SHOP_ID/SECRET_KEY пусты), user=%s", user["id"])
+    # Робокасса ещё не подключена (нет ключей) — отдаём понятную ошибку.
+    if not (ROBOKASSA_LOGIN and ROBOKASSA_PASSWORD1 and ROBOKASSA_PASSWORD2):
+        log.warning("pay: Робокасса не настроена (ROBOKASSA_LOGIN/PASSWORD1/PASSWORD2 пусты), user=%s", user["id"])
         raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
 
+    # В отличие от ЮKassa, у Робокассы нет отдельного вызова API для создания
+    # платежа — просто собираем подписанный redirect URL сами. insert+update
+    # в одном db-блоке: при любой ошибке он откатится целиком сам (get_db()),
+    # отдельная очистка «висячей» строки не нужна.
     idem = str(uuid.uuid4())
     with get_db() as db:
-        db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
+        cur = db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
+        inv_id = cur.lastrowid
+        db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (str(inv_id), idem))
         db.commit()
 
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as http:
-            r = await http.post(
-                "https://api.yookassa.ru/v3/payments",
-                headers={"Idempotence-Key": idem},
-                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-                json={
-                    # Описание должно совпадать с тем, что реально выдаёт
-                    # вебхук (Pro на PRO_DAYS дней): иначе в чеке ЮKassa у
-                    # покупателя одна услуга, а в аккаунте — другая.
-                    "amount": {"value": PRO_PRICE, "currency": "RUB"},
-                    "confirmation": {"type": "redirect",
-                                     "return_url": f"{APP_URL}/new?paid=1"},
-                    "capture": True,
-                    "description": f"Резюмирую.рф Pro — {PRO_DAYS} дней безлимитных генераций",
-                    "metadata": {"user_id": user["id"], "idem": idem},
-                },
-            )
-        data = r.json()
-    except Exception:
-        log.exception("pay: ошибка обращения к ЮKassa (user=%s, idem=%s)", user["id"], idem)
-        _drop_payment(idem)
-        raise HTTPException(502, "Не удалось создать платёж. Попробуйте позже.")
-
-    if "id" not in data or "confirmation" not in data:
-        log.error("pay: неожиданный ответ ЮKassa (status=%s): %s", r.status_code, str(data)[:500])
-        _drop_payment(idem)
-        raise HTTPException(502, "Платёжная система отклонила запрос. Попробуйте позже.")
-
-    with get_db() as db:
-        db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (data["id"], idem))
-        db.commit()
-    log.info("pay: платёж создан user=%s pay_id=%s", user["id"], data["id"])
-    return {"url": data["confirmation"]["confirmation_url"]}
+    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
+    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
+    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
+    signature = _robokassa_signature(ROBOKASSA_LOGIN, PRO_PRICE, str(inv_id), ROBOKASSA_PASSWORD1)
+    params = {
+        "MerchantLogin": ROBOKASSA_LOGIN,
+        "OutSum": PRO_PRICE,
+        "InvId": inv_id,
+        "Description": description,
+        "SignatureValue": signature,
+        "Culture": "ru",
+    }
+    if user.get("email"):
+        params["Email"] = user["email"]
+    if ROBOKASSA_TEST_MODE:
+        params["IsTest"] = 1
+    url = f"https://auth.robokassa.ru/Merchant/Index.aspx?{urlencode(params)}"
+    log.info("pay: платёж создан user=%s inv_id=%s", user["id"], inv_id)
+    return {"url": url}
 
 @app.post("/api/pay/webhook")
 async def payment_webhook(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(400, "Некорректное тело запроса")
-    pid = body.get("object", {}).get("id")
-    log.info("pay/webhook: event=%s payment_id=%s", body.get("event"), pid)
-    if body.get("event") != "payment.succeeded" or not pid:
-        return {"ok": True}
+    # ResultURL настраивается в личном кабинете Робокассы методом GET или
+    # POST — код не полагается на конкретный выбор.
+    data = request.query_params if request.method == "GET" else await request.form()
+    out_sum = data.get("OutSum", "")
+    inv_id = data.get("InvId", "")
+    received_signature = data.get("SignatureValue", "")
+    log.info("pay/webhook: InvId=%s", inv_id)
+    if not (out_sum and inv_id and received_signature):
+        return PlainTextResponse("bad request", status_code=400)
 
-    # Получателя берём ТОЛЬКО из своей таблицы payments. Эндпоинт публичный и
-    # ничем не подписан, поэтому metadata.user_id из тела запроса подделывается:
-    # раньше по чужому pay_id можно было выписать Pro любому аккаунту, а для
-    # неизвестного нам pay_id строка payments не обновлялась — и проверка
-    # «уже обработан» не срабатывала, позволяя продлевать Pro повторами вебхука.
+    # Подпись Робокассы (Password#2) — единственное, что доказывает, что
+    # запрос реально пришёл от Робокассы, а не подделан снаружи.
+    expected_signature = _robokassa_signature(out_sum, inv_id, ROBOKASSA_PASSWORD2)
+    if not hmac.compare_digest(expected_signature.lower(), received_signature.lower()):
+        log.warning("pay/webhook: неверная подпись для InvId=%s", inv_id)
+        return PlainTextResponse("bad signature", status_code=400)
+
+    # Получателя берём ТОЛЬКО из своей таблицы payments по InvId, который мы
+    # сами сгенерировали при создании платежа — так же, как раньше искали по
+    # pay_id ЮKassa, а не по чему-либо присланному в теле запроса.
     with get_db() as db:
         pay_row = db.execute(
-            "SELECT user_id, status FROM payments WHERE pay_id=?", (pid,)
+            "SELECT user_id, status FROM payments WHERE pay_id=?", (inv_id,)
         ).fetchone()
     if not pay_row:
-        log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", pid)
-        return {"ok": False, "reason": "unknown_payment"}
+        log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", inv_id)
+        return PlainTextResponse("unknown payment", status_code=400)
     if pay_row["status"] == "succeeded":
-        log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
-        return {"ok": True}
+        log.info("pay/webhook: повторный webhook для обработанного платежа %s", inv_id)
+        return PlainTextResponse(f"OK{inv_id}")
     user_id = pay_row["user_id"]
 
-    # ── КРИТИЧНО: верифицируем платёж напрямую в ЮKassa ─────────
-    # Не доверяем только webhook — подтверждаем через API
-    confirmed = False
+    if out_sum != PRO_PRICE:
+        log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, PRO_PRICE)
+        return PlainTextResponse("amount mismatch", status_code=400)
+
+    # ── КРИТИЧНО: подтверждаем платёж напрямую через OpStateExt Робокассы ──
+    # Не доверяем только вебхуку, даже с верной подписью — подтверждаем через API.
     try:
-        async with httpx.AsyncClient(timeout=10) as http:
-            r = await http.get(
-                f"https://api.yookassa.ru/v3/payments/{pid}",
-                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-            )
-            if r.status_code == 200:
-                resp_data = r.json()
-                if resp_data.get("status") == "succeeded":
-                    amount_value = resp_data.get("amount", {}).get("value", "")
-                    if amount_value == PRO_PRICE:
-                        confirmed = True
-                    else:
-                        log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PRO_PRICE)
+        confirmed = await _robokassa_confirmed(inv_id, PRO_PRICE)
     except Exception:
-        log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
+        log.exception("pay/webhook: ошибка проверки платежа %s в Робокассе", inv_id)
         confirmed = False  # не выдаём Pro при ошибке проверки
 
     if not confirmed:
-        log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
-        return {"ok": False, "reason": "payment_not_confirmed"}
+        log.warning("pay/webhook: платёж %s не подтверждён Робокассой, Pro не выдан", inv_id)
+        return PlainTextResponse("payment not confirmed", status_code=400)
 
     with get_db() as db:
         # Помечаем обработанным одним UPDATE с условием: параллельный дубль
         # вебхука получит rowcount=0 и не выдаст Pro второй раз.
         claimed = db.execute(
             "UPDATE payments SET status='succeeded' WHERE pay_id=? AND status!='succeeded'",
-            (pid,)
+            (inv_id,)
         ).rowcount
         if not claimed:
-            log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
-            return {"ok": True}
+            log.info("pay/webhook: повторный webhook для обработанного платежа %s", inv_id)
+            return PlainTextResponse(f"OK{inv_id}")
         existing = db.execute(
             "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user_id,)
         ).fetchone()
@@ -1671,10 +1684,10 @@ async def payment_webhook(request: Request):
             "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
             (new_exp, user_id)
         )
-        log_event(db, "payment", user_id=user_id, pay_id=pid)
+        log_event(db, "payment", user_id=user_id, pay_id=inv_id)
         db.commit()
-        log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
-    return {"ok": True}
+        log.info("pay/webhook: Pro выдан user=%s inv_id=%s до %s", user_id, inv_id, new_exp)
+    return PlainTextResponse(f"OK{inv_id}")
 
 # ── Promo codes ────────────────────────────────────────────────────────────
 @app.post("/api/promo/activate")

@@ -425,7 +425,7 @@
       <li>✓ Безлимитные сохранённые резюме</li>
       <li>✓ PDF всегда бесплатно</li>
     </ul>
-    <button class="btn-build" onclick="doPay()" type="button">Оплатить через ЮKassa</button>
+    <button class="btn-build" onclick="doPay()" type="button">Оплатить через Робокассу</button>
     <button class="btn-soft" onclick="closePayModal()" type="button" style="width:100%;justify-content:center;height:42px;margin-top:8px">Отмена</button>
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);line-height:1.7;text-align:left">
       <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 дней</div>
@@ -1026,7 +1026,7 @@ async function doPay(){
   try {
     const res = await fetch('/api/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     const d = await res.json();
-    if(d.url){appLog('pay','переход на ЮKassa');window.location.href=d.url;}
+    if(d.url){appLog('pay','переход на Робокассу');window.location.href=d.url;}
     else throw new Error('Ошибка');
   } catch(e){appError('pay', e.message);toast('Ошибка: '+e.message,'err');setLoader(false)}
 }

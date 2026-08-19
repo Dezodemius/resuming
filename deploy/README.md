@@ -20,7 +20,8 @@ cp deploy/.env.staging.example deploy/.env.staging
 ```
 
    Обязательно: `OLLAMA_URL` (внешний адрес Ollama), `APP_URL=http://<IP стенда>`,
-   `SECRET_KEY`. `METRIKA_ID` оставь пустым, ключи ЮKassa — тестовые или пустые.
+   `SECRET_KEY`. `METRIKA_ID` оставь пустым, ключи Робокассы — тестовый магазин
+   с `ROBOKASSA_TEST_MODE=1` или пустые.
 
 3. Задай доступы и выкатывай:
 
@@ -115,8 +116,8 @@ export STAGING_AUTH_PASSWORD='длинный-пароль'
 - nginx перетирает `CF-Connecting-IP` реальным адресом соединения. Перед
   стендом нет Cloudflare, а приложение берёт из этого заголовка ключ
   rate-limit — иначе лимиты обходились бы подделкой заголовка;
-- `deploy.sh` отказывается заливать `.env` с боевым ключом ЮKassa (`live_…`);
-  осознанно — флаг `--allow-live-keys`.
+- `deploy.sh` отказывается заливать `.env` с боевым `ROBOKASSA_LOGIN` без
+  `ROBOKASSA_TEST_MODE=1`; осознанно — флаг `--allow-live-keys`.
 
 ## Если что-то пошло не так
 

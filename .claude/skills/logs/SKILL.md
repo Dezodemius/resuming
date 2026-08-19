@@ -65,7 +65,7 @@ gh run view <id> --repo Dezodemius/resuming --log | Out-File -Encoding utf8 $env
 ## Известные режимы отказа проекта
 
 - **(а) Ollama OOM при загрузке модели** → контейнер ollama умирает/рестартится → app не получает ответ → Cloudflare отдаёт 522. Самый частый сценарий «сайт лежит».
-- **(б) Вебхук ЮKassa** (`/api/pay/webhook`) — ошибки верификации платежа через API ЮKassa; искать в логах app по `webhook`, `yookassa`, `pay`.
+- **(б) Вебхук Робокассы** (`/api/pay/webhook`) — ошибки проверки подписи или `OpStateExt`; искать в логах app по `webhook`, `robokassa`, `pay`.
 - **(в) SMTP при отправке magic link** — таймауты/ошибки aiosmtplib; пользователи «не получают письмо для входа»; искать по `smtp`, `magic`, `mail`.
 
 ## Когда НЕ использовать
