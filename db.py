@@ -42,13 +42,17 @@ def get_db() -> Iterator[sqlite3.Connection]:
 
 def init_db():
     with get_db() as db:
+        # Новую базу метим текущей версией и миграции по ней не гоняем: скрипт
+        # ниже уже создаёт итоговую схему, а шаги миграций пересобирают таблицы
+        # по тому виду, который был актуален на момент их написания, — на свежей
+        # базе такой шаг откатил бы схему назад.
+        fresh = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone() is None
         db.executescript("""
             CREATE TABLE IF NOT EXISTS users (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 email       TEXT UNIQUE COLLATE NOCASE,
-                telegram_id INTEGER UNIQUE,
-                tg_name     TEXT,
-                tg_photo    TEXT,
                 display_name TEXT,
                 free_left    INTEGER NOT NULL DEFAULT 3,
                 paid_left    INTEGER NOT NULL DEFAULT 0,
@@ -162,7 +166,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
             CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
         """)
-        migrate(db)
+        if fresh:
+            db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            db.commit()
+        else:
+            migrate(db)
 
 
 # ── Миграции ────────────────────────────────────────────────────────────────
@@ -181,7 +189,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -191,6 +199,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 1:
         _migration_1_case_insensitive_email(db)
         db.execute("PRAGMA user_version = 1")
+        applied += 1
+    if version < 2:
+        _migration_2_drop_telegram_columns(db)
+        db.execute("PRAGMA user_version = 2")
         applied += 1
     if applied:
         db.commit()
@@ -312,6 +324,43 @@ def _migration_1_case_insensitive_email(db: sqlite3.Connection) -> None:
              free_left, paid_left, is_pro, pro_expires_at, created)
         SELECT id, email, telegram_id, tg_name, tg_photo, display_name,
                free_left, paid_left, is_pro, pro_expires_at, created
+        FROM users;
+        DROP TABLE users;
+        ALTER TABLE users_migrated RENAME TO users;
+    """)
+
+
+def _migration_2_drop_telegram_columns(db: sqlite3.Connection) -> None:
+    """Вход через Telegram убран — вместе с ним уходят и его колонки.
+
+    `telegram_id`, `tg_name`, `tg_photo` заполнялись только ручкой
+    /auth/telegram. Её больше нет, писать в них некому, а мёртвая колонка со
+    своим UNIQUE-индексом сбивает с толку при следующей правке схемы.
+
+    Аккаунты, у которых был только telegram_id и не было email, входить всё
+    равно уже не могут: их способ входа исчез. Такие строки удаляем — иначе в
+    таблице остаются записи без единого способа авторизации, и они попадают в
+    статистику как живые пользователи.
+    """
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if not columns & {"telegram_id", "tg_name", "tg_photo"}:
+        return
+
+    db.execute("DELETE FROM users WHERE email IS NULL OR trim(email) = ''")
+    db.executescript("""
+        CREATE TABLE users_migrated (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            email       TEXT UNIQUE COLLATE NOCASE,
+            display_name TEXT,
+            free_left    INTEGER NOT NULL DEFAULT 3,
+            paid_left    INTEGER NOT NULL DEFAULT 0,
+            is_pro       INTEGER NOT NULL DEFAULT 0,
+            pro_expires_at TEXT,
+            created      TEXT DEFAULT (datetime('now'))
+        );
+        INSERT INTO users_migrated
+            (id, email, display_name, free_left, paid_left, is_pro, pro_expires_at, created)
+        SELECT id, email, display_name, free_left, paid_left, is_pro, pro_expires_at, created
         FROM users;
         DROP TABLE users;
         ALTER TABLE users_migrated RENAME TO users;

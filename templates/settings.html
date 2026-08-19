@@ -197,15 +197,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   const me = await fetch('/api/me').then(r => r.json());
   if (!me.authenticated) { window.location.href = '/new?auth_required=1'; return; }
 
-  // Avatar
-  const av = document.getElementById('av');
-  if (me.photo) {
-    const img = document.createElement('img');
-    img.className = 'avatar-img'; img.src = me.photo; img.alt = '';
-    av.replaceWith(img);
-  } else {
-    av.textContent = (me.name || '?').charAt(0).toUpperCase();
-  }
+  // Avatar. Фото брать неоткуда — вход по почте и OAuth его не отдают.
+  document.getElementById('av').textContent = (me.name || '?').charAt(0).toUpperCase();
   document.getElementById('u-name').textContent = me.name || me.email || 'Пользователь';
   document.getElementById('u-meta').textContent = me.email || '';
 

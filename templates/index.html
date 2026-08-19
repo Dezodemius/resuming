@@ -16,14 +16,6 @@
 <link rel="stylesheet" href="/static/app.css?v=20260711">
 <script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-{% if telegram_bot_name %}
-<script async src="https://telegram.org/js/telegram-widget.js?22"
-  data-telegram-login="{{ telegram_bot_name }}"
-  data-size="large"
-  data-radius="8"
-  data-onauth="onTelegramAuth(user)"
-  data-request-access="write"></script>
-{% endif %}
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
 <style>
@@ -371,12 +363,6 @@
     <div id="auth-main">
       <h2>Войдите в аккаунт</h2>
       <p class="modal__sub" id="auth-sub">Чтобы сохранять резюме и использовать все функции</p>
-      {% if telegram_bot_name %}
-      <div id="tg-block" style="display:none">
-        <div class="tg-widget-wrap" id="tg-widget-wrap" style="display:flex;align-items:center;justify-content:center"></div>
-        <div class="auth-divider">или</div>
-      </div>
-      {% endif %}
       {% if yandex_enabled or vk_enabled or mailru_enabled %}
       <div class="oauth-buttons">
         {% if yandex_enabled %}
@@ -533,10 +519,9 @@ function refreshAuthUI() {
 
   if (loggedIn) {
     const av = document.getElementById('user-avatar');
-    if (av) {
-      if (currentUser.photo) av.innerHTML = `<img src="${esc(currentUser.photo)}" alt="">`;
-      else av.textContent = (currentUser.name || currentUser.email || 'U').charAt(0).toUpperCase();
-    }
+    // Аватарку брать неоткуда: провайдеры входа по почте и OAuth её не отдают,
+    // поэтому всегда инициал.
+    if (av) av.textContent = (currentUser.name || currentUser.email || 'U').charAt(0).toUpperCase();
     document.getElementById('user-name').textContent = currentUser.name || currentUser.email || 'Пользователь';
 
     const chip = document.getElementById('uses-chip');
@@ -571,54 +556,8 @@ function openAuthModal(sub) {
   document.getElementById('auth-main').style.display = '';
   document.getElementById('magic-sent').style.display = 'none';
   if (sub) document.getElementById('auth-sub').textContent = sub;
-
-  // Re-inject Telegram widget into modal if not already there
-  const wrap = document.getElementById('tg-widget-wrap');
-  if (wrap && !wrap.querySelector('iframe')) {
-    const script = document.createElement('script');
-    script.async = true;
-    script.src   = 'https://telegram.org/js/telegram-widget.js?22';
-    script.setAttribute('data-telegram-login', '{{ telegram_bot_name }}');
-    script.setAttribute('data-size', 'large');
-    script.setAttribute('data-radius', '8');
-    script.setAttribute('data-onauth', 'onTelegramAuth(user)');
-    wrap.appendChild(script);
-  }
-  // Показываем блок Telegram только когда виджет реально отрисовался (iframe),
-  // иначе он остаётся скрытым — без пустого места и «висячего» разделителя «или».
-  const tgBlock = document.getElementById('tg-block');
-  if (tgBlock && wrap) {
-    if (wrap.querySelector('iframe')) { tgBlock.style.display = ''; }
-    else {
-      let tries = 0;
-      const iv = setInterval(() => {
-        if (wrap.querySelector('iframe')) { tgBlock.style.display = ''; clearInterval(iv); }
-        else if (++tries > 20) { clearInterval(iv); }   // ~3 c и сдаёмся
-      }, 150);
-    }
-  }
 }
 function closeAuthModal() { document.getElementById('modal-auth').classList.remove('on'); }
-
-// Telegram callback (global, called by widget)
-window.onTelegramAuth = async function(user) {
-  appLog('auth', 'вход через Telegram', {id: user.id});
-  setLoader(true, 'Входим через Telegram...');
-  try {
-    const res = await fetch('/auth/telegram', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(user)
-    });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || 'Ошибка');
-    currentUser = {...d.user, total: d.user.free_left};
-    closeAuthModal();
-    await _afterAuth();
-    toast(`Добро пожаловать, ${d.user.name || ''}!`, 'ok');
-    if (pendingAction) { pendingAction(); pendingAction = null; }
-  } catch(e) { toast('Ошибка Telegram: ' + e.message, 'err'); }
-  finally { setLoader(false); }
-};
 
 async function requestMagicLink() {
   const email = v('auth-email');

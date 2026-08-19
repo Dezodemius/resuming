@@ -40,13 +40,11 @@ from config import (  # noqa: E402
     log,
     OLLAMA_URL, MODEL, AI_API_KEY, APP_URL,
     ROBOKASSA_LOGIN, ROBOKASSA_PASSWORD1, ROBOKASSA_PASSWORD2, ROBOKASSA_TEST_MODE,
-    TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
     VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     YANDEX_LOGIN_ENABLED, VK_LOGIN_ENABLED, MAILRU_LOGIN_ENABLED,
-    TELEGRAM_LOGIN_ENABLED,
     FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
     ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
@@ -226,7 +224,7 @@ def rate(limit: str):
 
 # ── Security headers ─────────────────────────────────────────────────────
 # Перечислены ровно те внешние источники, которые реально используются в
-# шаблонах: шрифты Google, html2pdf с cdnjs, виджет Telegram, Яндекс.Метрика.
+# шаблонах: шрифты Google, html2pdf с cdnjs, Яндекс.Метрика.
 _CSP = "; ".join([
     "default-src 'self'",
     "base-uri 'self'",
@@ -236,15 +234,15 @@ _CSP = "; ".join([
     # inline-обработчики (onclick) и <style> прямо в шаблонах требуют
     # 'unsafe-inline'; 'unsafe-eval' нужен сборщику PDF
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
-    "https://cdnjs.cloudflare.com https://telegram.org https://mc.yandex.ru",
+    "https://cdnjs.cloudflare.com https://mc.yandex.ru",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
-    # Аватарки приходят с доменов Telegram/VK/Яндекса/Mail.ru — перечислять
+    # Аватарки приходят с доменов VK/Яндекса/Mail.ru — перечислять
     # все хрупко, а картинка не исполняется: разрешаем любой https.
     "img-src 'self' data: blob: https:",
     "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com",
     # blob:/'self' — html2pdf клонирует страницу в служебный iframe
-    "frame-src 'self' blob: data: https://oauth.telegram.org https://mc.yandex.ru",
+    "frame-src 'self' blob: data: https://mc.yandex.ru",
     "worker-src 'self' blob:",
 ])
 
@@ -326,37 +324,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 # ── Auth helpers ─────────────────────────────────────────────────────────
-def _verify_telegram(data: dict) -> bool:
-    """Проверяет подпись Telegram Login Widget.
-
-    `data` — СЫРОЕ тело запроса, а не разобранная pydantic-модель. Telegram
-    подписывает только те поля, которые реально прислал, а незаполненные
-    (username, photo_url, last_name) просто опускает. Модель же подставляет
-    их со значениями None/"", они попадают в строку проверки как
-    `username=None`, и HMAC перестаёт сходиться — пользователь без username
-    не мог войти вообще никогда.
-    """
-    if not TELEGRAM_BOT_TOKEN:
-        return False
-    # Виджет всегда присылает hash непустой строкой. Отсутствие поля, число или
-    # объект — это не Telegram; без проверки типа compare_digest роняет 500.
-    check_hash = data.get("hash")
-    if not isinstance(check_hash, str) or not check_hash:
-        return False
-    d = {k: v for k, v in data.items() if k != "hash"}
-    data_check = "\n".join(f"{k}={d[k]}" for k in sorted(d))
-    secret = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).digest()
-    expected = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, check_hash):
-        return False
-    # auth_date виджет присылает строкой. Мусор в поле или его отсутствие —
-    # это отказ во входе, а не 500 из-за необработанного исключения.
-    try:
-        auth_date = int(data.get("auth_date"))
-    except (TypeError, ValueError):
-        return False
-    return time.time() - auth_date <= 3600
-
 def _create_session(db, user_id: int) -> str:
     sid = str(uuid.uuid4())
     # Срок жизни считаем внутри SQLite (datetime('now', ...)), чтобы формат хранения
@@ -481,7 +448,7 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
 
 # Pydantic-схемы вынесены в schemas.py.
 from schemas import (  # noqa: E402
-    TgAuthData, EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
+    EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
     PromoActivateReq, PromoCreateReq, TrackReq,
 )
@@ -642,9 +609,6 @@ async def readyz():
 # ── Static pages ──────────────────────────────────────────────────────────
 def _auth_ctx(user) -> dict:
     return {
-        # Виджет Telegram бесполезен без токена: подпись проверять нечем,
-        # поэтому имя бота отдаём в шаблон только когда настроено и то и другое.
-        "telegram_bot_name": TELEGRAM_BOT_NAME if TELEGRAM_LOGIN_ENABLED else "",
         "yandex_enabled": YANDEX_LOGIN_ENABLED,
         "vk_enabled": VK_LOGIN_ENABLED,
         "mailru_enabled": MAILRU_LOGIN_ENABLED,
@@ -747,7 +711,6 @@ async def resume_edit_page(resume_id: int, request: Request):
         return RedirectResponse(url="/resumes", status_code=303)
     return tpl.TemplateResponse(request, "resume_edit.html", {
         "resume_id":  resume_id,
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
     })
 
@@ -811,7 +774,6 @@ async def resumes_page(request: Request):
     if not user:
         return RedirectResponse(url="/new?auth_required=1", status_code=303)
     return tpl.TemplateResponse(request, "resumes.html", {
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
     })
 
@@ -821,7 +783,6 @@ async def settings_page(request: Request):
     if not user:
         return RedirectResponse(url="/new?auth_required=1", status_code=303)
     return tpl.TemplateResponse(request, "settings.html", {
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
     })
 
@@ -875,35 +836,6 @@ async def billing_info(request: Request):
     }
 
 # ── Auth routes ────────────────────────────────────────────────────────────
-@app.post("/auth/telegram")
-@rate("20/minute")
-async def auth_telegram(data: TgAuthData, request: Request, response: Response):
-    # Подпись считаем по сырому телу (см. _verify_telegram), а разобранную
-    # модель используем только как типизированный доступ к полям.
-    try:
-        raw = await request.json()
-    except Exception:
-        raw = None
-    if not isinstance(raw, dict) or not _verify_telegram(raw):
-        raise HTTPException(401, "Неверная подпись Telegram")
-    name = f"{data.first_name or ''} {data.last_name or ''}".strip() or data.username or "Пользователь"
-    with get_db() as db:
-        db.execute(
-            "INSERT INTO users (telegram_id, tg_name, tg_photo, display_name)"
-            " VALUES (?,?,?,?)"
-            " ON CONFLICT(telegram_id) DO UPDATE SET"
-            "   tg_name=excluded.tg_name, tg_photo=excluded.tg_photo, display_name=excluded.display_name",
-            (data.id, data.username, data.photo_url, name)
-        )
-        db.commit()
-        u = db.execute("SELECT * FROM users WHERE telegram_id=?", (data.id,)).fetchone()
-        sid = _create_session(db, u["id"])
-        log_event(db, "login", user_id=u["id"], method="telegram")
-        db.commit()
-    log.info("auth/telegram: login ok user_id=%s", u["id"])
-    _set_session_cookie(response, sid)
-    return {"ok": True, "user": {"name": u["display_name"], "photo": u["tg_photo"], "free_left": u["free_left"]}}
-
 @app.post("/auth/email/request")
 @rate("5/minute")
 async def auth_email_request(req: EmailReq, request: Request):
@@ -1195,7 +1127,6 @@ async def me(request: Request):
         "id":             user["id"],
         "email":          user.get("email"),
         "name":           user.get("display_name"),
-        "photo":          user.get("tg_photo"),
         "is_pro":         pro_active,
         "pro_expires_at": user.get("pro_expires_at"),
         "free_left":      user["free_left"],
@@ -1870,7 +1801,6 @@ async def pay_success(request: Request):
     user = await get_current_user(request)
     resp = tpl.TemplateResponse(request, "pay_success.html", {
         "user": user,
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
         "pro_days": PRO_DAYS,
     })
     # Ответ зависит от состояния сессии и от того, доехал ли вебхук, — не кешируем.
@@ -1883,7 +1813,6 @@ async def pay_fail(request: Request):
     user = await get_current_user(request)
     resp = tpl.TemplateResponse(request, "pay_fail.html", {
         "user": user,
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
         "pro_price": PRO_PRICE,
     })
     resp.headers["Cache-Control"] = "no-store"
@@ -1961,7 +1890,6 @@ async def admin_page(request: Request):
     user = await get_current_user(request)
     _require_admin(user)
     return tpl.TemplateResponse(request, "admin.html", {
-        "telegram_bot_name": TELEGRAM_BOT_NAME,
     })
 
 @app.post("/api/admin/promo")
