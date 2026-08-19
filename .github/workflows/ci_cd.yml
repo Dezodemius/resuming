@@ -37,6 +37,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Без этой проверки отсутствующий секрет разворачивался в пустую строку,
+      # ssh получал destination "@" и вываливал свою справку по использованию —
+      # по такому логу невозможно понять, что дело всего лишь в ненастроенных
+      # секретах. Падаем раньше и по делу.
+      - name: Проверить, что доступы настроены
+        env:
+          HOST: ${{ secrets.APP01_HOST }}
+          USER: ${{ secrets.APP01_USER }}
+          KEY: ${{ secrets.APP01_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.APP01_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          [ -n "$HOST" ] || missing="$missing APP01_HOST"
+          [ -n "$USER" ] || missing="$missing APP01_USER"
+          [ -n "$KEY" ] || missing="$missing APP01_SSH_KEY"
+          [ -n "$KNOWN_HOSTS" ] || missing="$missing APP01_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "Не заданы секреты репозитория:$missing"
+            echo
+            echo "Выкат на app-01 без них невозможен. Как настроить —"
+            echo "deploy/README.md, раздел «Прод: разовая настройка»."
+            echo "Прод при этом продолжает работать на прежней версии,"
+            echo "выкатить можно вручную командой из того же раздела."
+            exit 1
+          fi
+          echo "Все четыре секрета на месте."
+
       # Ключ ограничен на стороне сервера forced-command в authorized_keys:
       # он умеет только запустить выкат и не даёт шелл. Настройка — deploy/README.md.
       - name: Ключ доступа к app-01
