@@ -21,15 +21,56 @@ docker compose up --build
 
 # Запустить модель вручную (если Ollama уже запущена отдельно)
 ollama pull qwen2.5:14b
+
+# Стенд на timeweb.cloud (VPS по IP, без Ollama — она внешняя)
+export DEPLOY_HOST=… DEPLOY_SSH_KEY=…
+./deploy/deploy.sh            # выкатить рабочее дерево; --status / --logs / --down
+
+# Контроль качества (см. раздел «Quality gates»)
+ruff check .                                 # линтер
+pytest tests/ -q                             # юнит- и интеграционные тесты
+behave                                       # Gherkin-сценарии
+python tools/mutation_diff.py --base origin/main   # мутанты по git-диффу (POSIX)
 ```
 
 В dev-режиме без `SMTP_USER` magic-ссылка печатается в stdout вместо отправки письма.
+
+**Два контура деплоя.** Прод (`резюмирую.рф`) — GitHub Actions на self-hosted
+раннере, `.github/workflows/ci_cd.yml`, полный `docker-compose.yml` с Ollama и
+ops-mcp. Стенд — `deploy/` (см. `deploy/README.md`): архив рабочего дерева по
+SSH, `docker-compose.staging.yml` только с app + nginx. Правки в инфраструктуре
+нужно вносить в оба, они не наследуют друг друга.
+
+## Quality gates
+
+Отдельный воркфлоу `.github/workflows/quality.yml` — три последовательных
+этапа: линтер → Gherkin → мутации. Деплой (`ci_cd.yml`) от него намеренно не
+зависит: мутационный гейт жёсткий (любой выживший мутант = красная сборка), и
+пока балл на старом коде не подтянут, он блокировал бы выкатку.
+
+**Gherkin (behave).** Сценарии — `tests/bdd/features/*.feature` (русский
+Gherkin, `# language: ru`), шаги — `tests/bdd/steps/`, окружение —
+`tests/bdd/environment.py` (свой `DATA_DIR`, выключенный лимитер, клиент поверх
+ASGI без uvicorn). Конфиг — `behave.ini`, запускать из корня проекта.
+
+**Мутации (mutmut).** Конфиг — `[mutmut]` в `setup.cfg`; мутируются только
+`main.py`, `config.py`, `db.py`, `prompts.py`, `schemas.py`. Инкрементальный
+режим — `tools/mutation_diff.py`: берёт дифф с базовой веткой, сужает до
+задетых функций и роняет прогон на любом невыжившем мутанте. Полный прогон по
+`main.py` — десятки минут, поэтому в CI только дифф. **mutmut использует
+`os.fork()` и на Windows не работает** — локально гонять из WSL или контейнера.
 
 ## Architecture
 
 Весь бэкенд — один файл `main.py` (~1100 строк). Нет отдельных модулей, роутеров или сервисов.
 
+**Страницы** — `/` отдаёт лендинг (`landing.html`) анонимам и редиректит залогиненных на `/new`; `/new` — сам генератор (`index.html`). Ссылки «Создать резюме» во всех шаблонах ведут на `/new`, логотип и `doLogout()` — на `/`. Шаги воронки лендинга пишутся в `usage_events` через `POST /api/track` (белый список `_FUNNEL_EVENTS`).
+
 **База данных** — SQLite в WAL-режиме. Путь: `/app/data/resume.db` в Docker, `./data/resume.db` локально (задаётся через `DATA_DIR`). Схема инициализируется при старте через `init_db()`. Один воркер + asyncio + SQLite — намеренное решение; для масштабирования потребует переход на PostgreSQL.
+
+`get_db()` — **контекстный менеджер** (`with get_db() as db:`): коммитит при успехе, откатывает при исключении и всегда закрывает соединение. Для «сырого» соединения (тесты, скрипты) есть `db.connect()`. Протухшие сессии, magic-токены и старые `anon_usage`/`usage_events` чистит фоновая задача `_cleanup_loop` → `cleanup_expired()`.
+
+**Ошибки и безопасность** — middleware `security_headers` вешает CSP (режим в `CSP_MODE`), `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` и HSTS (только при https-`APP_URL`). Обработчики `StarletteHTTPException`/`Exception` отдают `error.html` на навигацию браузера и JSON `{"detail": …}` на всё, что под `/api/`, `/auth/`, `/mcp`. MCP смонтирован на `/` через обёртку `_McpMountOr404` — иначе он перехватывал бы все неизвестные URL.
 
 **AI-вызовы** — `call_ai()` обращается к Ollama через OpenAI-совместимый endpoint `/v1/chat/completions`. Семафор `_ai_sem` ограничивает параллельность (по умолчанию 2). Промпты — `_match_prompt`, `_general_prompt`, `_generate_prompt` — возвращают строгий JSON-формат резюме.
 
@@ -43,11 +84,11 @@ ollama pull qwen2.5:14b
 
 **Платежи** — ЮKassa. Вебхук `/api/pay/webhook` верифицирует платёж напрямую через ЮKassa API (не доверяет только webhook-данным) перед выдачей Pro.
 
-**Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен).
+**Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен). Есть глобальный backstop `240/minute` (`SlowAPIMiddleware` + `default_limits`) поверх точечных `@rate`. Ключ лимита — `_client_key`: `CF-Connecting-IP` → первый `X-Forwarded-For` → peer, иначе за Cloudflare+nginx все посетители попали бы в одно ведро. В тестах лимитер выключен через `RATE_LIMIT_ENABLED=0` (см. `tests/conftest.py`).
 
 **MCP** — FastMCP (streamable-http, stateless, json_response) смонтирован в конце `main.py` через `app.mount("/")`; endpoint — `/mcp`, session manager стартует внутри lifespan. Инструменты `get_profile` / `adapt_resume` авторизуются по `Authorization: Bearer <token>` через таблицу `api_tokens`; токен выдаёт `POST /api/mcp-token` (один активный на пользователя).
 
-**Фронтенд** — Jinja2-шаблоны в `templates/`. JS-логика встроена прямо в HTML. `_footer.html` и `_legal_base.html` — переиспользуемые части.
+**Фронтенд** — Jinja2-шаблоны в `templates/`. JS-логика встроена прямо в HTML. `_footer.html` и `_legal_base.html` — переиспользуемые части. Дизайн-каркас и токены — `static/app.css`, блоки лендинга и `/pricing` — `static/landing.css` (префикс `.lp-`).
 
 ## Key env vars
 
@@ -60,13 +101,16 @@ ollama pull qwen2.5:14b
 | `YOKASSA_SHOP_ID` / `YOKASSA_SECRET_KEY` | ЮKassa платежи |
 | `SMTP_*` | Email magic link |
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
-| `VK_CLIENT_ID` / `VK_CLIENT_SECRET` | Вход через VK ID (OAuth с PKCE) |
+| `VK_CLIENT_ID` | Вход через VK ID (OAuth с PKCE; секрет не нужен) |
 | `MAILRU_CLIENT_ID` / `MAILRU_CLIENT_SECRET` | Вход через Mail.ru (OAuth) |
 | `LOG_LEVEL` | Уровень логов бэкенда (по умолчанию `INFO`) |
 | `APP_URL` | Публичный URL (влияет на secure-cookie и CORS) |
 | `AI_CONCURRENCY` | Параллельных вызовов Ollama (по умолчанию 2) |
 | `ADMIN_EMAILS` | Email админов (через запятую), им доступен `/admin` |
 | `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
+| `CSP_MODE` | `enforce` (по умолчанию) / `report` / `off` — аварийный вентиль для CSP |
+| `RATE_LIMIT_ENABLED` | `0` выключает лимитер (тесты, отладка) |
+| `CLEANUP_INTERVAL_SEC` / `ANON_USAGE_TTL_DAYS` / `EVENTS_TTL_DAYS` | Фоновая уборка БД |
 
 ## Context management (экономия токенов)
 

@@ -1,0 +1,3 @@
+[     367ms] [INFO] [15:47:14.141] [logger] клиентский логгер активен — все API-запросы логируются @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:51
+[     368ms] [ERROR] [15:47:14.142] [js] необработанная ошибка: Uncaught SyntaxError: missing ) after argument list https://xn--e1aedprev8fe.xn--p1ai/pricing:77 @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:45
+[     371ms] missing ) after argument list

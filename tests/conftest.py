@@ -6,6 +6,10 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
 # Клиент в тестах ходит по http://test: при https-значении APP_URL (из .env)
 # session-cookie ставилась бы с Secure и не возвращалась бы клиентом.
 os.environ["APP_URL"] = "http://test"
+# Лимитер держит счётчики в памяти процесса: включённым он копил бы запросы
+# всех тестов в одно ведро и ронял бы поздние тесты 429-й. Тест самого
+# бэкстопа включает лимитер сам (см. test_security).
+os.environ["RATE_LIMIT_ENABLED"] = "0"
 
 
 @pytest.fixture
@@ -14,11 +18,15 @@ def db(tmp_path, monkeypatch):
     import config
     import main
 
+    from db import connect
+
     db_path = str(tmp_path / "test.db")
     # get_db/init_db читают config.DB_PATH в момент вызова
     monkeypatch.setattr(config, "DB_PATH", db_path)
     main.init_db()
-    conn = main.get_db()
+    # get_db() — контекстный менеджер (коммит + close на выходе), а фикстуре
+    # нужно «сырое» соединение на всё время теста: берём connect().
+    conn = connect()
     yield conn
     conn.close()
 

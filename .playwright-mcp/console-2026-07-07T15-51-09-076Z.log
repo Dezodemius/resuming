@@ -1,0 +1,6 @@
+[     371ms] [INFO] [15:51:09.446] [logger] клиентский логгер активен — все API-запросы логируются @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:51
+[     476ms] [INFO] [15:51:09.552] [boot] загрузка страницы @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:15
+[     477ms] [INFO] [15:51:09.553] [api#1] → GET /api/me @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:30
+[     718ms] [INFO] [15:51:09.793] [api#1] ← GET /api/me 200 (241ms) @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:34
+[     718ms] [INFO] [15:51:09.794] [session] анонимный пользователь @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:15
+[     719ms] [INFO] [15:51:09.794] [boot] готово {авторизован: false, профиль: false} @ https://xn--e1aedprev8fe.xn--p1ai/static/logger.js:14

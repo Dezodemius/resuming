@@ -18,16 +18,16 @@ from email.mime.text import MIMEText
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
-    from slowapi.util import get_remote_address
     from slowapi.errors import RateLimitExceeded
     _RATE_LIMIT = True
 except ImportError:
@@ -37,16 +37,18 @@ except ImportError:
 # существующий код и тесты обращаются к ним как к main.* (в т.ч. monkeypatch).
 from config import (  # noqa: E402
     log,
-    OLLAMA_URL, MODEL, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
+    OLLAMA_URL, MODEL, AI_API_KEY, YOKASSA_SHOP, YOKASSA_SECRET, APP_URL,
     TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_NAME,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
-    VK_CLIENT_ID, VK_CLIENT_SECRET,
+    VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
-    FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
-    PAID_PACK, PACK_PRICE, SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
+    FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
     ADMIN_EMAILS, METRIKA_ID,
+    CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
+    RATE_LIMIT_ENABLED,
 )
 
 # Семафор: не более AI_CONCURRENCY параллельных генераций.
@@ -65,13 +67,72 @@ tpl.env.globals["metrika_id"] = METRIKA_ID
 # ── Database ── слой БД вынесен в db.py (get_db/init_db).
 from db import get_db, init_db  # noqa: E402
 
+
+# ── Обслуживание БД ──────────────────────────────────────────────────────
+def cleanup_expired() -> dict[str, int]:
+    """Удалить протухшие сессии, токены и старые служебные записи.
+
+    Без этого таблицы растут бесконечно: sessions и magic_tokens пополняются
+    на каждый вход, anon_usage — на каждого анонимного посетителя. Возвращает
+    число удалённых строк по таблицам (для логов и тестов).
+    """
+    removed: dict[str, int] = {}
+    with get_db() as db:
+        removed["sessions"] = db.execute(
+            "DELETE FROM sessions WHERE expires_at < datetime('now')"
+        ).rowcount
+        # Использованный токен держим сутки: если пользователь кликнет по
+        # ссылке дважды, честнее ответить «ссылка уже использована», чем
+        # «ссылка недействительна».
+        removed["magic_tokens"] = db.execute(
+            "DELETE FROM magic_tokens"
+            " WHERE expires_at < datetime('now','-1 day')"
+            "    OR (used=1 AND created < datetime('now','-1 day'))"
+        ).rowcount
+        # Cookie anon_id живёт 7 дней — записи старше TTL уже никому не
+        # соответствуют и лимит не удерживают.
+        removed["anon_usage"] = db.execute(
+            f"DELETE FROM anon_usage WHERE created < datetime('now','-{ANON_USAGE_TTL_DAYS} days')"
+        ).rowcount
+        removed["usage_events"] = db.execute(
+            f"DELETE FROM usage_events WHERE created < datetime('now','-{EVENTS_TTL_DAYS} days')"
+        ).rowcount
+        db.commit()
+    return removed
+
+
+async def _cleanup_loop():
+    """Фоновая уборка раз в CLEANUP_INTERVAL_SEC. Падение цикла не должно
+    ронять приложение — любую ошибку логируем и ждём следующего круга."""
+    while True:
+        try:
+            removed = await asyncio.to_thread(cleanup_expired)
+            if any(removed.values()):
+                log.info("cleanup: удалено %s", removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("cleanup: ошибка уборки БД")
+        try:
+            await asyncio.sleep(CLEANUP_INTERVAL_SEC)
+        except asyncio.CancelledError:
+            raise
+
 @asynccontextmanager
 async def lifespan(app):
     init_db()
-    # Session manager MCP-сервера должен жить весь срок работы приложения
-    # (mcp_server определён ниже; смонтирован в конце файла)
-    async with mcp_server.session_manager.run():
-        yield
+    cleaner = asyncio.create_task(_cleanup_loop())
+    try:
+        # Session manager MCP-сервера должен жить весь срок работы приложения
+        # (mcp_server определён ниже; смонтирован в конце файла)
+        async with mcp_server.session_manager.run():
+            yield
+    finally:
+        cleaner.cancel()
+        try:
+            await cleaner
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(title="Резюмирую.рф", lifespan=lifespan)
 os.makedirs("static", exist_ok=True)
@@ -104,10 +165,36 @@ async def log_requests(request: Request, call_next):
     return response
 
 # ── Rate limiting ────────────────────────────────────────────────────────
+def _client_key(request: Request) -> str:
+    """Ключ лимитера — IP конечного пользователя.
+
+    Сайт стоит за Cloudflare → nginx, поэтому peer-адрес это всегда прокси:
+    без разбора заголовков все посетители попали бы в одно ведро и первый же
+    всплеск трафика заблокировал бы сайт целиком.
+    """
+    cf = request.headers.get("cf-connecting-ip", "").strip()
+    if cf:
+        return cf
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 if _RATE_LIMIT:
-    limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+    from slowapi.middleware import SlowAPIMiddleware
+
+    # default_limits — глобальный backstop: он применяется ко всем маршрутам,
+    # а не только к помеченным @rate. Порог высокий: живой пользователь его не
+    # достигает, а скрипт, долбящий генерацию или вебхук, упирается.
+    limiter = Limiter(
+        key_func=_client_key,
+        default_limits=["240/minute"],
+        enabled=RATE_LIMIT_ENABLED,
+    )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
 def rate(limit: str):
     """Декоратор-заглушка если slowapi не установлен."""
@@ -116,6 +203,107 @@ def rate(limit: str):
             return limiter.limit(limit)(fn)
         return fn
     return decorator
+
+# ── Security headers ─────────────────────────────────────────────────────
+# Перечислены ровно те внешние источники, которые реально используются в
+# шаблонах: шрифты Google, html2pdf с cdnjs, виджет Telegram, Яндекс.Метрика.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    # inline-обработчики (onclick) и <style> прямо в шаблонах требуют
+    # 'unsafe-inline'; 'unsafe-eval' нужен сборщику PDF
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+    "https://cdnjs.cloudflare.com https://telegram.org https://mc.yandex.ru",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    # Аватарки приходят с доменов Telegram/VK/Яндекса/Mail.ru — перечислять
+    # все хрупко, а картинка не исполняется: разрешаем любой https.
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com",
+    # blob:/'self' — html2pdf клонирует страницу в служебный iframe
+    "frame-src 'self' blob: data: https://oauth.telegram.org https://mc.yandex.ru",
+    "worker-src 'self' blob:",
+])
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    ),
+}
+_CSP_HEADER = {
+    "enforce": "Content-Security-Policy",
+    "report":  "Content-Security-Policy-Report-Only",
+}.get(CSP_MODE)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if _CSP_HEADER:
+        response.headers.setdefault(_CSP_HEADER, _CSP)
+    if APP_URL.startswith("https://"):
+        # Без includeSubDomains: поддомен ops.* обслуживается отдельно и не
+        # должен зависеть от политики основного домена.
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
+
+# ── Обработчики ошибок ───────────────────────────────────────────────────
+def _wants_html(request: Request) -> bool:
+    """Навигация браузера (а не запрос из JS): только ей отдаём HTML-страницу.
+
+    API обязано и дальше отвечать JSON с полем detail — на него завязан весь
+    фронтенд, а Accept у fetch подделать может и сам браузер (например,
+    prefetch-запросом). Поэтому решает не только Accept, но и префикс пути.
+    """
+    path = request.url.path
+    if path.startswith(("/api/", "/auth/", "/mcp")):
+        return False
+    if request.method not in ("GET", "HEAD"):
+        return False
+    return "text/html" in request.headers.get("accept", "")
+
+
+_ERROR_TEXTS = {
+    404: ("Страница не найдена", "Похоже, ссылка устарела или в адресе опечатка."),
+    403: ("Доступ закрыт", "У вас нет прав на эту страницу."),
+    500: ("Что-то сломалось", "Мы уже знаем о проблеме. Попробуйте обновить страницу через минуту."),
+}
+
+
+def _error_response(request: Request, status: int, detail: str):
+    if _wants_html(request):
+        title, text = _ERROR_TEXTS.get(status, ("Ошибка", detail or "Что-то пошло не так."))
+        return tpl.TemplateResponse(
+            request, "error.html",
+            {"status": status, "title": title, "text": text},
+            status_code=status,
+        )
+    return JSONResponse({"detail": detail}, status_code=status)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    resp = _error_response(request, exc.status_code, exc.detail)
+    for name, value in (getattr(exc, "headers", None) or {}).items():
+        resp.headers[name] = value
+    return resp
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Сам трейс уже записан в log_requests; наружу его не отдаём.
+    return _error_response(
+        request, 500, "Внутренняя ошибка сервера. Попробуйте позже."
+    )
 
 # ── Auth helpers ─────────────────────────────────────────────────────────
 def _verify_telegram(data: dict) -> bool:
@@ -246,7 +434,7 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
 from schemas import (  # noqa: E402
     TgAuthData, EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
-    PromoActivateReq, PromoCreateReq,
+    PromoActivateReq, PromoCreateReq, TrackReq,
 )
 
 ANON_LIMIT = ANON_LIMIT_CONST
@@ -334,10 +522,11 @@ async def readyz():
     except Exception:
         pass
     try:
+        headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
         async with httpx.AsyncClient(timeout=5) as http:
-            r = await http.get(f"{OLLAMA_URL}/api/tags")
+            r = await http.get(f"{OLLAMA_URL}/v1/models", headers=headers)
         if r.status_code == 200:
-            models = [m.get("name", "") for m in r.json().get("models", [])]
+            models = [m.get("id", "") for m in r.json().get("data", [])]
             ollama_ok = any(MODEL in m for m in models)
     except Exception:
         pass
@@ -350,22 +539,102 @@ async def readyz():
     )
 
 # ── Static pages ──────────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    user = await get_current_user(request)
-    return tpl.TemplateResponse(request, "index.html", {
+def _auth_ctx(user) -> dict:
+    return {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "yandex_enabled": bool(YANDEX_CLIENT_ID),
         "vk_enabled": bool(VK_CLIENT_ID),
         "mailru_enabled": bool(MAILRU_CLIENT_ID),
         "user": user,
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Публичный лендинг. Залогиненного пользователя маркетинг не интересует —
+    отправляем сразу в генератор."""
+    user = await get_current_user(request)
+    if user:
+        return RedirectResponse(url="/new", status_code=302, headers=_NO_STORE)
+    resp = tpl.TemplateResponse(request, "landing.html", {
+        **_auth_ctx(user),
+        "app_url": APP_URL,
+        "pro_price": PRO_PRICE,
+        "pro_days": PRO_DAYS,
+        "free_uses": FREE_USES,
+        "free_resumes": FREE_RESUMES,
+        "anon_limit": ANON_LIMIT_CONST,
     })
+    # Ответ зависит от cookie сессии: без no-store прокси может отдать лендинг
+    # залогиненному пользователю (и наоборот).
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.get("/new", response_class=HTMLResponse)
+async def generator_page(request: Request):
+    """Генератор резюме. Доступен и анонимам — это шаг воронки «попробовать»."""
+    user = await get_current_user(request)
+    return tpl.TemplateResponse(request, "index.html", _auth_ctx(user))
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots():
+    return PlainTextResponse(
+        "User-agent: *\n"
+        "Disallow: /admin\n"
+        "Disallow: /settings\n"
+        "Disallow: /resumes\n"
+        "Disallow: /api/\n"
+        "Disallow: /auth/\n"
+        f"Sitemap: {APP_URL}/sitemap.xml\n"
+    )
+
+
+# Шаги воронки лендинга. Ручка публичная и пишет в БД, поэтому список закрытый:
+# произвольные строки от клиента в usage_events не попадают.
+_FUNNEL_EVENTS = {
+    "landing_view", "landing_pricing_view",
+    "cta_header", "cta_hero", "cta_demo", "cta_how",
+    "cta_plan_free", "cta_plan_pro", "cta_final", "cta_sticky",
+    "pricing_view", "pricing_buy_click",
+}
+
+
+@app.post("/api/track")
+@rate("60/minute")
+async def track_funnel(req: TrackReq, request: Request):
+    """Серверный счётчик шагов воронки — чтобы конверсия считалась и без Метрики
+    (её режут блокировщики). Событие вне белого списка молча игнорируем."""
+    event = req.event.strip()
+    if event not in _FUNNEL_EVENTS:
+        return {"ok": False}
+    user = await get_current_user(request)
+    anon_id = None
+    if not user:
+        signed = request.cookies.get("anon_id", "")
+        anon_id = _verify_anon(signed) if signed else None
+    with get_db() as db:
+        log_event(db, event, user_id=(user["id"] if user else None), anon_id=anon_id)
+        db.commit()
+    return {"ok": True}
+
+
+@app.get("/sitemap.xml")
+async def sitemap():
+    pages = ["/", "/new", "/pricing", "/offer", "/privacy", "/contacts"]
+    urls = "".join(f"<url><loc>{APP_URL}{p}</loc></url>" for p in pages)
+    return Response(
+        content=f'<?xml version="1.0" encoding="UTF-8"?>'
+                f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',
+        media_type="application/xml",
+    )
 
 @app.get("/resumes/{resume_id}", response_class=HTMLResponse)
 async def resume_edit_page(resume_id: int, request: Request):
     user = await get_current_user(request)
     if not user:
-        return RedirectResponse(url="/?auth_required=1", status_code=303)
+        return RedirectResponse(url="/new?auth_required=1", status_code=303)
     with get_db() as db:
         exists = db.execute(
             "SELECT id FROM resumes WHERE id=? AND user_id=?", (resume_id, user["id"])
@@ -380,6 +649,7 @@ async def resume_edit_page(resume_id: int, request: Request):
 
 # ── AI section improvement ────────────────────────────────────────────────
 @app.post("/api/improve-text")
+@rate("20/minute")
 async def improve_text(req: ImproveReq, request: Request):
     """Per-section AI improvement, used from the resume editor."""
     user = await get_current_user(request)
@@ -387,6 +657,10 @@ async def improve_text(req: ImproveReq, request: Request):
         raise HTTPException(401, "Войдите в аккаунт")
     if not req.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
+    # Ручка не списывает генерации, поэтому длину ограничиваем явно: иначе
+    # одним запросом можно занять слот семафора AI_CONCURRENCY надолго.
+    if len(req.text) > 10_000:
+        raise HTTPException(400, "Слишком длинный текст — сократите фрагмент")
 
     ctx = f"\nКонтекст: {req.context}" if req.context else ""
     prompts = {
@@ -404,15 +678,18 @@ async def improve_text(req: ImproveReq, request: Request):
     try:
         result = await call_ai(prompt)
         return {"improved": result.strip()}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("improve-text: неожиданная ошибка (user=%s)", user["id"])
+        raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 # ── Page routes ────────────────────────────────────────────────────────────
 @app.get("/resumes", response_class=HTMLResponse)
 async def resumes_page(request: Request):
     user = await get_current_user(request)
     if not user:
-        return RedirectResponse(url="/?auth_required=1", status_code=303)
+        return RedirectResponse(url="/new?auth_required=1", status_code=303)
     return tpl.TemplateResponse(request, "resumes.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
@@ -422,7 +699,7 @@ async def resumes_page(request: Request):
 async def settings_page(request: Request):
     user = await get_current_user(request)
     if not user:
-        return RedirectResponse(url="/?auth_required=1", status_code=303)
+        return RedirectResponse(url="/new?auth_required=1", status_code=303)
     return tpl.TemplateResponse(request, "settings.html", {
         "telegram_bot_name": TELEGRAM_BOT_NAME,
         "user": user,
@@ -431,7 +708,13 @@ async def settings_page(request: Request):
 # ── Public / legal pages (no auth required) ───────────────────────────────
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page(request: Request):
-    return tpl.TemplateResponse(request, "pricing.html")
+    return tpl.TemplateResponse(request, "pricing.html", {
+        "pro_price": PRO_PRICE,
+        "pro_days": PRO_DAYS,
+        "free_uses": FREE_USES,
+        "free_resumes": FREE_RESUMES,
+        "anon_limit": ANON_LIMIT_CONST,
+    })
 
 @app.get("/offer", response_class=HTMLResponse)
 async def offer_page(request: Request):
@@ -473,7 +756,8 @@ async def billing_info(request: Request):
 
 # ── Auth routes ────────────────────────────────────────────────────────────
 @app.post("/auth/telegram")
-async def auth_telegram(data: TgAuthData, response: Response):
+@rate("20/minute")
+async def auth_telegram(data: TgAuthData, request: Request, response: Response):
     if not _verify_telegram(data.dict()):
         raise HTTPException(401, "Неверная подпись Telegram")
     name = f"{data.first_name or ''} {data.last_name or ''}".strip() or data.username or "Пользователь"
@@ -495,7 +779,8 @@ async def auth_telegram(data: TgAuthData, response: Response):
     return {"ok": True, "user": {"name": u["display_name"], "photo": u["tg_photo"], "free_left": u["free_left"]}}
 
 @app.post("/auth/email/request")
-async def auth_email_request(req: EmailReq):
+@rate("5/minute")
+async def auth_email_request(req: EmailReq, request: Request):
     token = str(uuid.uuid4())
     with get_db() as db:
         # Срок (15 мин) считаем в SQLite, чтобы формат совпал с datetime('now') при
@@ -533,7 +818,7 @@ async def auth_email_verify(token: str, response: Response):
         sid = _create_session(db, u["id"])
         log_event(db, "login", user_id=u["id"], method="email")
         db.commit()
-    r = RedirectResponse(url="/?login=success", status_code=303)
+    r = RedirectResponse(url="/new?login=success", status_code=303)
     _set_session_cookie(r, sid)
     return r
 
@@ -559,10 +844,10 @@ async def auth_yandex_start():
 async def auth_yandex_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/yandex callback error: %s", error or "no code")
-        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
     if not state or state != request.cookies.get("ya_state"):
         log.warning("auth/yandex callback: state mismatch")
-        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             tr = await http.post("https://oauth.yandex.ru/token", data={
@@ -574,19 +859,19 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/yandex: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+                return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
             ir = await http.get("https://login.yandex.ru/info",
                                 params={"format": "json"},
                                 headers={"Authorization": f"OAuth {access}"})
             info = ir.json()
     except Exception:
         log.exception("auth/yandex: OAuth request failed")
-        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
 
     email = info.get("default_email") or ""
     if not email:
         log.error("auth/yandex: no default_email in userinfo")
-        return RedirectResponse(url="/?auth_error=yandex", status_code=303)
+        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
 
     with get_db() as db:
         u = _upsert_user_by_email(db, email)
@@ -598,7 +883,7 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
         log_event(db, "login", user_id=u["id"], method="yandex")
         db.commit()
     log.info("auth/yandex: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/?login=success", status_code=303)
+    r = RedirectResponse(url="/new?login=success", status_code=303)
     r.delete_cookie("ya_state")
     _set_session_cookie(r, sid)
     return r
@@ -634,22 +919,23 @@ async def auth_vk_start():
 async def auth_vk_callback(request: Request, code: str = "", state: str = "", device_id: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/vk callback error: %s", error or "no code")
-        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
     if not state or state != request.cookies.get("vk_state"):
         log.warning("auth/vk callback: state mismatch")
-        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
     try:
         code_verifier = request.cookies.get("vk_verifier")
         if not code_verifier:
             log.error("auth/vk: missing code_verifier cookie")
-            return RedirectResponse(url="/?auth_error=vk", status_code=303)
+            return RedirectResponse(url="/new?auth_error=vk", status_code=303)
         async with httpx.AsyncClient(timeout=15) as http:
+            # PKCE: code_verifier заменяет client_secret — «Защищённый ключ»
+            # из кабинета VK ID в этом флоу не участвует.
             tr = await http.post("https://id.vk.com/oauth2/auth", data={
                 "grant_type":     "authorization_code",
                 "code":           code,
                 "code_verifier":  code_verifier,
                 "client_id":      VK_CLIENT_ID,
-                "client_secret":  VK_CLIENT_SECRET,
                 "device_id":      device_id,
                 "redirect_uri":   f"{APP_URL}/auth/vk/callback",
                 "state":          state,
@@ -657,7 +943,7 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/vk: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/?auth_error=vk", status_code=303)
+                return RedirectResponse(url="/new?auth_error=vk", status_code=303)
             ir = await http.post("https://id.vk.com/oauth2/user_info", data={
                 "access_token": access,
                 "client_id":    VK_CLIENT_ID,
@@ -665,13 +951,13 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
             info = ir.json()
     except Exception:
         log.exception("auth/vk: OAuth request failed")
-        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
 
     user_data = info.get("user", {})
     email = user_data.get("email") or ""
     if not email:
         log.error("auth/vk: no email in userinfo")
-        return RedirectResponse(url="/?auth_error=vk", status_code=303)
+        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
 
     with get_db() as db:
         u = _upsert_user_by_email(db, email)
@@ -685,7 +971,7 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
         log_event(db, "login", user_id=u["id"], method="vk")
         db.commit()
     log.info("auth/vk: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/?login=success", status_code=303)
+    r = RedirectResponse(url="/new?login=success", status_code=303)
     r.delete_cookie("vk_state")
     r.delete_cookie("vk_verifier")
     _set_session_cookie(r, sid)
@@ -714,10 +1000,10 @@ async def auth_mailru_start():
 async def auth_mailru_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/mailru callback error: %s", error or "no code")
-        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
     if not state or state != request.cookies.get("mr_state"):
         log.warning("auth/mailru callback: state mismatch")
-        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             tr = await http.post("https://oauth.mail.ru/token", data={
@@ -730,18 +1016,18 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/mailru: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+                return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
             ir = await http.get("https://oauth.mail.ru/userinfo",
                                 params={"access_token": access})
             info = ir.json()
     except Exception:
         log.exception("auth/mailru: OAuth request failed")
-        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
 
     email = info.get("email") or ""
     if not email:
         log.error("auth/mailru: no email in userinfo")
-        return RedirectResponse(url="/?auth_error=mailru", status_code=303)
+        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
 
     with get_db() as db:
         u = _upsert_user_by_email(db, email)
@@ -753,7 +1039,7 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
         log_event(db, "login", user_id=u["id"], method="mailru")
         db.commit()
     log.info("auth/mailru: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/?login=success", status_code=303)
+    r = RedirectResponse(url="/new?login=success", status_code=303)
     r.delete_cookie("mr_state")
     _set_session_cookie(r, sid)
     return r
@@ -863,11 +1149,13 @@ async def call_ai(prompt: str) -> str:
         t0 = time.monotonic()
         log.info("AI call start: model=%s prompt_len=%d", MODEL, len(prompt))
         try:
+            headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(120.0, connect=5.0)
             ) as http:
                 r = await http.post(
                     f"{OLLAMA_URL}/v1/chat/completions",
+                    headers=headers,
                     json={
                         "model": MODEL,
                         "messages": [{"role": "user", "content": prompt}],
@@ -1087,12 +1375,12 @@ async def match_to_job(req: MatchReq, request: Request):
     try:
         raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, req.extra_hint))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="match")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, job_text)
@@ -1100,6 +1388,10 @@ async def match_to_job(req: MatchReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                # Генерация уже потрачена на успешный вызов AI, а сохранить
+                # результат некуда — возвращаем списание, иначе пользователь
+                # платит за упор в лимит хранилища.
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1121,12 +1413,12 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
     try:
         raw  = await call_ai(_general_prompt(json.loads(p["data"]), req.target_role, req.hint))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="from_profile")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
@@ -1134,6 +1426,7 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1151,12 +1444,12 @@ async def generate(req: GenerateReq, request: Request):
     try:
         raw    = await call_ai(_generate_prompt(req))
         resume = _parse_ai(raw)
-    except Exception as e:
+    except Exception:
         with get_db() as db:
             _refund(db, user["id"], col)
             log_event(db, "generate_fail", user_id=user["id"], kind="generate")
             db.commit()
-        raise HTTPException(500, str(e))
+        raise
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "general")
@@ -1164,6 +1457,7 @@ async def generate(req: GenerateReq, request: Request):
             db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
@@ -1242,6 +1536,7 @@ def _drop_payment(idem: str) -> None:
 
 
 @app.post("/api/pay")
+@rate("10/minute")
 async def create_payment(req: PayReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
@@ -1265,11 +1560,14 @@ async def create_payment(req: PayReq, request: Request):
                 headers={"Idempotence-Key": idem},
                 auth=(YOKASSA_SHOP, YOKASSA_SECRET),
                 json={
-                    "amount": {"value": PACK_PRICE, "currency": "RUB"},
+                    # Описание должно совпадать с тем, что реально выдаёт
+                    # вебхук (Pro на PRO_DAYS дней): иначе в чеке ЮKassa у
+                    # покупателя одна услуга, а в аккаунте — другая.
+                    "amount": {"value": PRO_PRICE, "currency": "RUB"},
                     "confirmation": {"type": "redirect",
-                                     "return_url": f"{APP_URL}/?paid=1"},
+                                     "return_url": f"{APP_URL}/new?paid=1"},
                     "capture": True,
-                    "description": f"{PAID_PACK} адаптаций резюме",
+                    "description": f"Резюмирую.рф Pro — {PRO_DAYS} дней безлимитных генераций",
                     "metadata": {"user_id": user["id"], "idem": idem},
                 },
             )
@@ -1292,68 +1590,88 @@ async def create_payment(req: PayReq, request: Request):
 
 @app.post("/api/pay/webhook")
 async def payment_webhook(request: Request):
-    body = await request.json()
-    log.info("pay/webhook: event=%s payment_id=%s",
-             body.get("event"), body.get("object", {}).get("id"))
-    if body.get("event") == "payment.succeeded":
-        obj     = body.get("object", {})
-        pid     = obj.get("id")
-        user_id = obj.get("metadata", {}).get("user_id")
-        if pid and user_id:
-            # ── КРИТИЧНО: верифицируем платёж напрямую в ЮKassa ─────────
-            # Не доверяем только webhook — подтверждаем через API
-            confirmed = False
-            try:
-                async with httpx.AsyncClient(timeout=10) as http:
-                    r = await http.get(
-                        f"https://api.yookassa.ru/v3/payments/{pid}",
-                        auth=(YOKASSA_SHOP, YOKASSA_SECRET),
-                    )
-                    if r.status_code == 200:
-                        resp_data = r.json()
-                        if resp_data.get("status") == "succeeded":
-                            amount_value = resp_data.get("amount", {}).get("value", "")
-                            if amount_value == PACK_PRICE:
-                                confirmed = True
-                            else:
-                                log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PACK_PRICE)
-            except Exception:
-                log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
-                confirmed = False  # не выдаём Pro при ошибке проверки
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Некорректное тело запроса")
+    pid = body.get("object", {}).get("id")
+    log.info("pay/webhook: event=%s payment_id=%s", body.get("event"), pid)
+    if body.get("event") != "payment.succeeded" or not pid:
+        return {"ok": True}
 
-            if not confirmed:
-                log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
-                return {"ok": False, "reason": "payment_not_confirmed"}
+    # Получателя берём ТОЛЬКО из своей таблицы payments. Эндпоинт публичный и
+    # ничем не подписан, поэтому metadata.user_id из тела запроса подделывается:
+    # раньше по чужому pay_id можно было выписать Pro любому аккаунту, а для
+    # неизвестного нам pay_id строка payments не обновлялась — и проверка
+    # «уже обработан» не срабатывала, позволяя продлевать Pro повторами вебхука.
+    with get_db() as db:
+        pay_row = db.execute(
+            "SELECT user_id, status FROM payments WHERE pay_id=?", (pid,)
+        ).fetchone()
+    if not pay_row:
+        log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", pid)
+        return {"ok": False, "reason": "unknown_payment"}
+    if pay_row["status"] == "succeeded":
+        log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+        return {"ok": True}
+    user_id = pay_row["user_id"]
 
-            with get_db() as db:
-                already = db.execute(
-                    "SELECT id FROM payments WHERE pay_id=? AND status='succeeded'", (pid,)
-                ).fetchone()
-                if not already:
-                    db.execute("UPDATE payments SET status='succeeded' WHERE pay_id=?", (pid,))
-                    existing = db.execute(
-                        "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user_id,)
-                    ).fetchone()
-                    row_pro = _is_pro(existing) if existing else False
-                    if row_pro and existing["pro_expires_at"]:
-                        try:
-                            base = datetime.fromisoformat(existing["pro_expires_at"])
-                            if base.tzinfo is None:
-                                base = base.replace(tzinfo=timezone.utc)
-                        except Exception:
-                            base = datetime.now(timezone.utc)
+    # ── КРИТИЧНО: верифицируем платёж напрямую в ЮKassa ─────────
+    # Не доверяем только webhook — подтверждаем через API
+    confirmed = False
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"https://api.yookassa.ru/v3/payments/{pid}",
+                auth=(YOKASSA_SHOP, YOKASSA_SECRET),
+            )
+            if r.status_code == 200:
+                resp_data = r.json()
+                if resp_data.get("status") == "succeeded":
+                    amount_value = resp_data.get("amount", {}).get("value", "")
+                    if amount_value == PRO_PRICE:
+                        confirmed = True
                     else:
-                        base = datetime.now(timezone.utc)
-                    new_exp = (base + timedelta(days=PRO_DAYS)).isoformat()
-                    db.execute(
-                        "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
-                        (new_exp, user_id)
-                    )
-                    log_event(db, "payment", user_id=user_id, pay_id=pid)
-                    db.commit()
-                    log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
-                else:
-                    log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+                        log.warning("pay/webhook: сумма платежа %s не совпадает с ожидаемой %s", amount_value, PRO_PRICE)
+    except Exception:
+        log.exception("pay/webhook: ошибка проверки платежа %s в ЮKassa", pid)
+        confirmed = False  # не выдаём Pro при ошибке проверки
+
+    if not confirmed:
+        log.warning("pay/webhook: платёж %s не подтверждён, Pro не выдан", pid)
+        return {"ok": False, "reason": "payment_not_confirmed"}
+
+    with get_db() as db:
+        # Помечаем обработанным одним UPDATE с условием: параллельный дубль
+        # вебхука получит rowcount=0 и не выдаст Pro второй раз.
+        claimed = db.execute(
+            "UPDATE payments SET status='succeeded' WHERE pay_id=? AND status!='succeeded'",
+            (pid,)
+        ).rowcount
+        if not claimed:
+            log.info("pay/webhook: повторный webhook для обработанного платежа %s", pid)
+            return {"ok": True}
+        existing = db.execute(
+            "SELECT pro_expires_at, is_pro FROM users WHERE id=?", (user_id,)
+        ).fetchone()
+        row_pro = _is_pro(existing) if existing else False
+        if row_pro and existing["pro_expires_at"]:
+            try:
+                base = datetime.fromisoformat(existing["pro_expires_at"])
+                if base.tzinfo is None:
+                    base = base.replace(tzinfo=timezone.utc)
+            except Exception:
+                base = datetime.now(timezone.utc)
+        else:
+            base = datetime.now(timezone.utc)
+        new_exp = (base + timedelta(days=PRO_DAYS)).isoformat()
+        db.execute(
+            "UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?",
+            (new_exp, user_id)
+        )
+        log_event(db, "payment", user_id=user_id, pay_id=pid)
+        db.commit()
+        log.info("pay/webhook: Pro выдан user=%s pay_id=%s до %s", user_id, pid, new_exp)
     return {"ok": True}
 
 # ── Promo codes ────────────────────────────────────────────────────────────
@@ -1435,7 +1753,9 @@ async def admin_create_promo(body: PromoCreateReq, request: Request):
     user = await get_current_user(request)
     _require_admin(user)
 
-    code = "-".join([secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(12)])
+    # join без разделителя: с "-".join дефисы попадали в исходную строку, и
+    # нарезка ниже давала «X-T--C-H--7-F-» — 7 случайных символов вместо 12.
+    code = "".join(secrets.choice("ABCDEFGHJKMNPQRSTUVWXYZ23456789") for _ in range(12))
     code = f"{code[:4]}-{code[4:8]}-{code[8:12]}"
 
     with get_db() as db:
@@ -1643,6 +1963,8 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
             rid = _save_resume(db, user["id"], resume, "matched", "", "", job_text)
         except ValueError as e:
             if "resume_limit" in str(e):
+                _refund(db, user["id"], col)
+                db.commit()
                 raise ValueError("Достигнут лимит хранимых резюме (resume_limit) — "
                                  "удалите старые резюме на сайте или оформите Pro")
             raise
@@ -1664,7 +1986,25 @@ async def create_mcp_token(request: Request):
     log.info("mcp-token: issued for user=%s", user["id"])
     return {"token": token}
 
+class _McpMountOr404:
+    """MCP смонтирован на «/», поэтому ему достаются вообще все URL, которые не
+    разобрал FastAPI, — и на опечатку в адресе пользователь получал голое
+    «Not Found» от чужого ASGI-приложения. Пропускаем внутрь только /mcp,
+    остальное возвращаем приложению как обычную 404 (её отрисует error.html).
+    """
+
+    def __init__(self, mcp_app):
+        self.mcp_app = mcp_app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        is_mcp = path == "/mcp" or path == "/mcp/" or path.startswith("/mcp/")
+        if is_mcp or scope.get("type") not in ("http", "websocket"):
+            return await self.mcp_app(scope, receive, send)
+        raise StarletteHTTPException(status_code=404, detail="Not Found")
+
+
 # Монтируем streamable-http app в КОНЦЕ файла: FastAPI-роуты, объявленные выше,
 # имеют приоритет, а endpoint MCP оказывается ровно на /mcp
 # (streamable_http_path по умолчанию "/mcp" внутри под-приложения).
-app.mount("/", mcp_server.streamable_http_app())
+app.mount("/", _McpMountOr404(mcp_server.streamable_http_app()))

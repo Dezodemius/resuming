@@ -2,20 +2,42 @@
 
 `get_db`/`init_db` читают путь из config.DB_PATH в момент вызова — это позволяет
 тестам подменять каталог БД через monkeypatch(config, "DB_PATH", ...).
+
+`get_db()` — контекстный менеджер: коммитит при успешном выходе, откатывает при
+исключении и **всегда закрывает** соединение. Голый sqlite3.Connection как
+контекстный менеджер соединение не закрывает — при одном процессе и сотнях
+запросов это утечка файловых дескрипторов и WAL-читателей.
 """
 import sqlite3
+from contextlib import contextmanager
+from typing import Iterator
 
 import config
 
 
-def get_db():
+def connect() -> sqlite3.Connection:
+    """Открыть настроенное соединение. Закрывать обязан вызывающий."""
     conn = sqlite3.connect(config.DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")       # параллельные чтения без блокировок
     conn.execute("PRAGMA synchronous=NORMAL")     # баланс скорость/надёжность
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute("PRAGMA cache_size=10000")
+    conn.execute("PRAGMA busy_timeout=30000")     # ждать снятия блокировки, а не падать сразу
     return conn
+
+
+@contextmanager
+def get_db() -> Iterator[sqlite3.Connection]:
+    conn = connect()
+    try:
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -100,6 +122,11 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
             CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
 
+            -- Очистка протухшего идёт по expires_at — без индекса это full scan
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
+
             -- Промокоды для маркетинга и тестирования
             CREATE TABLE IF NOT EXISTS promo_codes (
                 code       TEXT PRIMARY KEY,
@@ -133,4 +160,5 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
             CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
+            CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
         """)

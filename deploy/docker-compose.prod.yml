@@ -1,0 +1,55 @@
+# Прод-конфигурация для app01 (Timeweb) — БЕЗ локальной Ollama.
+#
+# Отличия от корневого docker-compose.yml:
+#   • нет сервиса ollama — AI идёт через внешний OpenAI-совместимый API
+#     (OLLAMA_URL/OLLAMA_MODEL/AI_API_KEY в .env указывают на него, см.
+#     .env.example); на app01 не хватает RAM под локальную модель;
+#   • нет контейнера nginx — на app01 TLS и проксирование делает host-level
+#     nginx (см. skill timeweb-app01), поэтому app и ops-mcp публикуются
+#     на 127.0.0.1 напрямую, портами, которые уже ждёт host-nginx
+#     (/etc/nginx/sites-available/resuming.conf: 127.0.0.1:8001 и :8765).
+#
+# Пути в файле относительны каталога deploy/ (compose берёт рабочим
+# каталогом директорию compose-файла).
+name: resuming
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  app:
+    build:
+      context: ..
+    container_name: resuming-app
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: ../.env
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - app_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  ops-mcp:
+    build:
+      context: ../ops_mcp
+    container_name: resuming-ops-mcp
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: ../.env
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  app_data:

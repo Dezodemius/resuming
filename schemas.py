@@ -82,6 +82,11 @@ class AnonymousPreviewReq(BaseModel):
     hint:        str = ""
 
 
+class TrackReq(BaseModel):
+    """Шаг воронки с лендинга. Имя события сверяется с белым списком в main."""
+    event: str
+
+
 class PromoActivateReq(BaseModel):
     code: str
 

@@ -10,12 +10,25 @@ env/
 data/
 *.db
 *.sqlite
+*.log
 
 # Окружение
 .env
 
+# Стенд: секреты и доступы к VPS (см. deploy/README.md)
+deploy/.env.staging
+deploy/.deploy.env
+deploy/_authconf/
+
 # Ollama модели (кешируются отдельно)
 .ollama/
+
+# Мутационное тестирование: mutmut держит копию проекта и кеш результатов
+mutants/
+.mutmut-cache
+
+# Отчёты тестов (junit-xml из behave и pytest в CI)
+reports/
 
 # OS
 .DS_Store

@@ -1,0 +1,108 @@
+- generic [active] [ref=f7e1]:
+  - banner [ref=f7e2]:
+    - link "Резюмирую — мои резюме" [ref=f7e3] [cursor=pointer]:
+      - /url: /resumes
+      - img [ref=f7e5]
+      - generic [ref=f7e8]: Резюмирую
+    - navigation [ref=f7e9]:
+      - link "Создать" [ref=f7e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=f7e11]
+        - generic [ref=f7e13]: Создать
+    - generic [ref=f7e14]:
+      - button "Сменить тему" [ref=f7e15] [cursor=pointer]: 🌙
+      - button "Войти" [ref=f7e16] [cursor=pointer]
+  - generic [ref=f7e18]:
+    - link "Назад" [ref=f7e19] [cursor=pointer]:
+      - /url: /resumes
+      - img [ref=f7e20]
+      - text: Назад
+    - navigation [ref=f7e23]:
+      - link "Мои резюме" [ref=f7e24] [cursor=pointer]:
+        - /url: /resumes
+      - img [ref=f7e25]
+      - generic [ref=f7e27]: Новое резюме
+  - main [ref=f7e28]:
+    - generic [ref=f7e29]:
+      - button "🎯 Под вакансию" [ref=f7e30] [cursor=pointer]
+      - button "📄 Общее резюме" [ref=f7e31] [cursor=pointer]
+      - button "👤 Мой профиль" [ref=f7e32] [cursor=pointer]
+    - generic [ref=f7e33]:
+      - generic [ref=f7e34]:
+        - generic [ref=f7e35]: ✨
+        - text: AI собирает резюме под конкретную вакансию
+      - heading "Новое резюме под вакансию" [level=1] [ref=f7e36]
+      - paragraph [ref=f7e37]: Дайте вакансию и профиль — AI подчеркнёт нужный опыт, добавит ключевые слова ATS и соберёт резюме под требования работодателя.
+    - generic [ref=f7e39]:
+      - generic [ref=f7e40]:
+        - generic [ref=f7e41]:
+          - generic [ref=f7e42]:
+            - generic [ref=f7e43]: "1"
+            - generic [ref=f7e44]: Вакансия
+          - generic [ref=f7e45]:
+            - textbox "hh.ru/vacancy/… или ссылка на вакансию" [ref=f7e47]:
+              - /placeholder: hh.ru/vacancy/…  или ссылка на вакансию
+            - button "Загрузить" [ref=f7e48] [cursor=pointer]
+          - 'textbox "Или вставьте текст вакансии… Senior Product Manager в Тинькофф Требования: опыт 3+ лет в продукте…" [ref=f7e49]':
+            - /placeholder: "Или вставьте текст вакансии…\n\nSenior Product Manager в Тинькофф\nТребования: опыт 3+ лет в продукте…"
+          - generic [ref=f7e50]:
+            - generic [ref=f7e51]: Компания — для сохранения
+            - textbox "Тинькофф, Яндекс, Авито…" [ref=f7e52]
+        - generic [ref=f7e53]:
+          - generic [ref=f7e54]:
+            - generic [ref=f7e55]: "2"
+            - generic [ref=f7e56]: На основе чего
+          - generic [ref=f7e57]:
+            - generic [ref=f7e58]: 👤
+            - generic [ref=f7e59]:
+              - generic [ref=f7e60]: Базовый профиль
+              - generic [ref=f7e61]: AI возьмёт ваш опыт и навыки из профиля
+            - button "Изменить" [ref=f7e62] [cursor=pointer]
+        - generic [ref=f7e63]:
+          - generic [ref=f7e64]:
+            - generic [ref=f7e65]: "3"
+            - generic [ref=f7e66]: Акценты — необязательно
+          - generic [ref=f7e67]:
+            - button "Подчеркнуть лидерство" [ref=f7e68] [cursor=pointer]
+            - button "Скрыть нерелевантное" [ref=f7e69] [cursor=pointer]
+            - button "Ключевые слова ATS" [ref=f7e70] [cursor=pointer]
+            - button "Добавить метрики" [ref=f7e71] [cursor=pointer]
+            - button "В одну страницу" [ref=f7e72] [cursor=pointer]
+          - 'textbox "Например: упор на управление командой, упомянуть запуск маркетплейса, тон деловой…" [ref=f7e73]'
+      - complementary [ref=f7e74]:
+        - generic [ref=f7e75]:
+          - generic [ref=f7e76]: Что получится
+          - generic [ref=f7e77]:
+            - generic [ref=f7e78]: ✦
+            - generic [ref=f7e79]:
+              - generic [ref=f7e80]: Резюме под вакансию
+              - generic [ref=f7e81]: на основе вашего профиля
+        - generic [ref=f7e82]:
+          - button "Собрать резюме" [ref=f7e83] [cursor=pointer]:
+            - img [ref=f7e84]
+            - text: Собрать резюме
+          - generic [ref=f7e86]:
+            - img [ref=f7e87]
+            - text: Готово примерно за 30 секунд · 1 генерация
+    - generic [ref=f7e92]:
+      - img [ref=f7e93]
+      - paragraph [ref=f7e95]:
+        - text: Заполните вакансию и профиль слева
+        - text: → соберём резюме с нужными ключевыми словами
+  - contentinfo [ref=f7e96]:
+    - generic [ref=f7e97]:
+      - generic [ref=f7e98]:
+        - img [ref=f7e100]
+        - generic [ref=f7e103]:
+          - generic [ref=f7e104]: Резюмирую
+          - generic [ref=f7e105]: AI-резюме под каждую вакансию
+      - navigation [ref=f7e106]:
+        - link "Тарифы" [ref=f7e107] [cursor=pointer]:
+          - /url: /pricing
+        - link "Публичная оферта" [ref=f7e108] [cursor=pointer]:
+          - /url: /offer
+        - link "Политика конфиденциальности" [ref=f7e109] [cursor=pointer]:
+          - /url: /privacy
+        - link "Контакты" [ref=f7e110] [cursor=pointer]:
+          - /url: /contacts
+    - generic [ref=f7e112]: © 2025 Резюмирую.рф
