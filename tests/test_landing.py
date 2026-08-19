@@ -273,3 +273,66 @@ def test_anon_cookie_attributes(monkeypatch):
     r2 = Response()
     main._set_anon_cookie(r2, "anon-1")
     assert "Secure" in r2.headers["set-cookie"]
+
+
+# ── Страницы возврата из Робокассы ──────────────────────────────────────────
+# Success/Fail URL — это возврат браузера покупателя. Метод (GET или POST)
+# задаётся в кабинете Робокассы, и промах в настройке не должен показывать
+# оплатившему 405. Подписку эти страницы не выдают: источник правды — вебхук.
+
+async def test_pay_success_page_opens(client):
+    main.init_db()
+    r = await client.get("/pay/success")
+    assert r.status_code == 200
+    assert "Оплата получена" in r.text
+    assert r.headers["cache-control"] == "no-store"
+
+
+async def test_pay_fail_page_opens(client):
+    main.init_db()
+    r = await client.get("/pay/fail")
+    assert r.status_code == 200
+    assert "не прошёл" in r.text.lower() or "не завершена" in r.text.lower()
+    assert r.headers["cache-control"] == "no-store"
+
+
+async def test_pay_pages_accept_post(client):
+    """Робокасса умеет возвращать покупателя и POST-ом."""
+    main.init_db()
+    for path in ("/pay/success", "/pay/fail"):
+        r = await client.post(path, data={"InvId": "1", "OutSum": main.PRO_PRICE, "SignatureValue": "x"})
+        assert r.status_code == 200, f"{path}: {r.status_code}"
+
+
+async def test_pay_success_does_not_grant_pro(client, monkeypatch):
+    """Ключевое свойство: открыть страницу успеха недостаточно, чтобы получить Pro.
+
+    Иначе подписку раздавал бы любой, кто знает адрес."""
+    uid = await _login(client, "nopro@test.com")
+    r = await client.post("/pay/success", data={
+        "InvId": "999", "OutSum": main.PRO_PRICE, "SignatureValue": "подделка",
+    })
+    assert r.status_code == 200
+    with main.get_db() as db:
+        row = db.execute("SELECT is_pro, pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()
+    assert row["is_pro"] == 0
+    assert row["pro_expires_at"] is None
+    me = (await client.get("/api/me")).json()
+    assert me["is_pro"] is False
+
+
+async def test_pay_pages_do_not_echo_incoming_params(client):
+    """Параметры возврата не попадают в разметку: ими не должно быть можно
+    ни подменить содержимое страницы, ни ввести покупателя в заблуждение."""
+    main.init_db()
+    r = await client.get("/pay/success", params={
+        "InvId": "<script>alert(1)</script>", "OutSum": "999999.00",
+    })
+    assert r.status_code == 200
+    assert "alert(1)" not in r.text
+    assert "999999.00" not in r.text
+
+
+async def test_robots_hides_pay_pages(client):
+    r = await client.get("/robots.txt")
+    assert "Disallow: /pay/" in r.text

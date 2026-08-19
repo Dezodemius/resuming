@@ -661,6 +661,7 @@ async def robots():
         "Disallow: /resumes\n"
         "Disallow: /api/\n"
         "Disallow: /auth/\n"
+        "Disallow: /pay/\n"
         f"Sitemap: {APP_URL}/sitemap.xml\n"
     )
 
@@ -1816,6 +1817,45 @@ async def payment_webhook(request: Request):
         db.commit()
         log.info("pay/webhook: Pro выдан user=%s inv_id=%s до %s", user_id, inv_id, new_exp)
     return PlainTextResponse(f"OK{inv_id}")
+
+# ── Возврат из Робокассы: Success URL / Fail URL ──────────────────────────
+# Это возврат браузера покупателя, а не уведомление о платеже. Подписку по ним
+# НЕ выдаём, даже если параметры выглядят правильно: единственный источник
+# правды — ResultURL-вебхук выше, который сверяет подпись и отдельно
+# подтверждает платёж через OpStateExt. Причины ровно две.
+#   1. Браузер сюда может вообще не вернуться (закрыл вкладку, потерял сеть) —
+#      и подписка всё равно обязана появиться. Значит логика выдачи должна жить
+#      в вебхуке, а дублировать её здесь — заводить второй путь к двойной выдаче.
+#   2. На эту страницу можно просто зайти руками.
+# Поэтому страницы ничего не принимают на веру и показывают то, что видит наша
+# собственная база: фронт опрашивает /api/me и ждёт появления Pro.
+#
+# GET и POST одновременно — метод возврата настраивается в кабинете Робокассы,
+# и промах в этой настройке иначе давал бы покупателю 405 после оплаты.
+@app.api_route("/pay/success", methods=["GET", "HEAD", "POST"], response_class=HTMLResponse)
+async def pay_success(request: Request):
+    user = await get_current_user(request)
+    resp = tpl.TemplateResponse(request, "pay_success.html", {
+        "user": user,
+        "telegram_bot_name": TELEGRAM_BOT_NAME,
+        "pro_days": PRO_DAYS,
+    })
+    # Ответ зависит от состояния сессии и от того, доехал ли вебхук, — не кешируем.
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.api_route("/pay/fail", methods=["GET", "HEAD", "POST"], response_class=HTMLResponse)
+async def pay_fail(request: Request):
+    user = await get_current_user(request)
+    resp = tpl.TemplateResponse(request, "pay_fail.html", {
+        "user": user,
+        "telegram_bot_name": TELEGRAM_BOT_NAME,
+        "pro_price": PRO_PRICE,
+    })
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
 
 # ── Promo codes ────────────────────────────────────────────────────────────
 @app.post("/api/promo/activate")
