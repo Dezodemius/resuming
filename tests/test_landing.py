@@ -107,37 +107,22 @@ async def test_track_binds_event_to_logged_in_user(client):
 
 # ── Оплата: описание платежа должно совпадать с тем, что выдаётся ────────
 async def test_payment_description_matches_granted_service(client, monkeypatch):
-    """В чек ЮKassa уходит то же, что вебхук потом кладёт в аккаунт (Pro),
-    а не «пакет адаптаций» — иначе покупатель платит за одно, получает другое."""
+    """В Description Робокассы уходит то же, что вебхук потом кладёт в аккаунт
+    (Pro), а не «пакет адаптаций» — иначе покупатель платит за одно, получает
+    другое. Робокасса не требует вызова внешнего API для создания платежа —
+    /api/pay сам собирает redirect URL, поэтому парсим его query-параметры."""
+    from urllib.parse import parse_qs, urlparse
+
     await _login(client, "pay-desc@test.com")
-    sent = {}
-
-    class _FakeResp:
-        status_code = 200
-
-        def json(self):
-            return {"id": "pay-1", "confirmation": {"confirmation_url": "https://yookassa/x"}}
-
-    class _FakeClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, url, **kw):
-            sent.update(kw.get("json") or {})
-            return _FakeResp()
-
-    monkeypatch.setattr(main, "YOKASSA_SHOP", "shop")
-    monkeypatch.setattr(main, "YOKASSA_SECRET", "secret")
-    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
 
     r = await client.post("/api/pay", json={})
     assert r.status_code == 200, r.text
-    assert sent["amount"]["value"] == main.PRO_PRICE
-    assert "Pro" in sent["description"]
-    assert str(main.PRO_DAYS) in sent["description"]
-    # После оплаты пользователь возвращается в продукт, а не на лендинг:
-    # иначе редирект залогиненного с «/» съедает ?paid=1 и уведомления нет.
-    assert sent["confirmation"]["return_url"].endswith("/new?paid=1")
+    url = r.json()["url"]
+    assert url.startswith("https://auth.robokassa.ru/Merchant/Index.aspx?")
+    qs = parse_qs(urlparse(url).query)
+    assert qs["OutSum"][0] == main.PRO_PRICE
+    assert "Pro" in qs["Description"][0]
+    assert str(main.PRO_DAYS) in qs["Description"][0]

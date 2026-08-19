@@ -66,7 +66,7 @@ usage() {
   --committed         выкатить HEAD вместо рабочего дерева
   --no-bootstrap      не ставить docker автоматически
   --no-prune          не чистить висячие образы после сборки
-  --allow-live-keys   разрешить .env с боевыми ключами ЮKassa (live_…)
+  --allow-live-keys   разрешить .env с боевыми ключами Робокассы (без ROBOKASSA_TEST_MODE=1)
   --dry-run           показать план и остановиться до изменений на сервере
   -h, --help          эта справка
 EOF
@@ -238,9 +238,14 @@ else
     [ -f "$STAGING_ENV_FILE" ] || die \
         "нет файла $STAGING_ENV_FILE. Скопируй deploy/.env.staging.example и заполни, либо запусти с --skip-env"
 
-    # Стенд с боевыми ключами ЮKassa = реальные списания с карт тестировщиков
-    if [ "$ALLOW_LIVE_KEYS" != "1" ] && grep -qE '^YOKASSA_SECRET_KEY=live_' "$STAGING_ENV_FILE"; then
-        die "в $STAGING_ENV_FILE боевой ключ ЮKassa (live_…). Для стенда возьми тестовый магазин или очисти YOKASSA_*; осознанно — запусти с --allow-live-keys"
+    # Стенд с боевыми ключами Робокассы без тестового режима = реальные
+    # списания с карт тестировщиков. У Робокассы (в отличие от ЮKassa) нет
+    # префикса live_/test_ в самих ключах — тестовый режим включается
+    # отдельным флагом ROBOKASSA_TEST_MODE=1 (IsTest=1 в запросе на оплату).
+    if [ "$ALLOW_LIVE_KEYS" != "1" ] \
+        && grep -qE '^ROBOKASSA_LOGIN=.+' "$STAGING_ENV_FILE" \
+        && ! grep -qE '^ROBOKASSA_TEST_MODE=1' "$STAGING_ENV_FILE"; then
+        die "в $STAGING_ENV_FILE задан ROBOKASSA_LOGIN без ROBOKASSA_TEST_MODE=1 — боевые платежи на стенде. Возьми тестовый магазин и/или поставь ROBOKASSA_TEST_MODE=1; осознанно — запусти с --allow-live-keys"
     fi
     if grep -qE '^APP_URL=https://' "$STAGING_ENV_FILE"; then
         warn "APP_URL в .env стенда указывает на https — у стенда TLS нет, cookie с Secure не долетят"
