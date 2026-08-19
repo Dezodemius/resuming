@@ -661,8 +661,8 @@ async def improve_text(req: ImproveReq, request: Request):
         raise HTTPException(401, "Войдите в аккаунт")
     if not req.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
-    # Ручка не списывает генерации, поэтому длину ограничиваем явно: иначе
-    # одним запросом можно занять слот семафора AI_CONCURRENCY надолго.
+    # Длину ограничиваем и при наличии квоты: одним запросом иначе можно занять
+    # слот семафора AI_CONCURRENCY надолго.
     if len(req.text) > 10_000:
         raise HTTPException(400, "Слишком длинный текст — сократите фрагмент")
 
@@ -679,14 +679,30 @@ async def improve_text(req: ImproveReq, request: Request):
             f"Верни ТОЛЬКО отформатированный список:\n\n{req.text}",
     }
     prompt = prompts.get(req.kind, prompts["summary"])
+
+    # Это такой же вызов модели, как и генерация резюме, и списывается так же.
+    # Раньше ручка не трогала счётчик вообще: пользователь с нулевым балансом
+    # получал безлимитный доступ к модели, а пара таких запросов занимала оба
+    # слота AI_CONCURRENCY и выключала генерацию для всех остальных.
+    with get_db() as db:
+        ok, col, uses_left = _deduct(db, user["id"])
+        if not ok:
+            return JSONResponse(status_code=402, content={"error": "no_uses"})
     try:
         result = await call_ai(prompt)
-        return {"improved": result.strip()}
-    except HTTPException:
-        raise
-    except Exception:
+    except Exception as e:
+        with get_db() as db:
+            _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind="improve")
+            db.commit()
+        if isinstance(e, HTTPException):
+            raise
         log.exception("improve-text: неожиданная ошибка (user=%s)", user["id"])
         raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
+    with get_db() as db:
+        log_event(db, "generate", user_id=user["id"], kind="improve", col=col)
+        db.commit()
+    return {"improved": result.strip(), "uses_left": uses_left}
 
 # ── Page routes ────────────────────────────────────────────────────────────
 @app.get("/resumes", response_class=HTMLResponse)
