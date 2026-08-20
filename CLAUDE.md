@@ -124,6 +124,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `APP_URL` | Публичный URL (влияет на secure-cookie и CORS) |
 | `AI_CONCURRENCY` | Параллельных вызовов Ollama (по умолчанию 2) |
 | `ADMIN_EMAILS` | Email админов (через запятую), им доступен `/admin` |
+| `ADMIN_IPS` | Адреса/CIDR, с которых пускают в `/admin` (пусто = не ограничивать) |
 | `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
 | `CSP_MODE` | `enforce` (по умолчанию) / `report` / `off` — аварийный вентиль для CSP |
 | `RATE_LIMIT_ENABLED` | `0` выключает лимитер (тесты, отладка) |

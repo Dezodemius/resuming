@@ -49,7 +49,7 @@ from config import (  # noqa: E402
     ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
-    ADMIN_EMAILS, METRIKA_ID,
+    ADMIN_EMAILS, ADMIN_IPS, METRIKA_ID,
     CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
     RATE_LIMIT_ENABLED,
 )
@@ -403,8 +403,35 @@ async def _resolve_user(request: Request, body_email: Optional[str] = None) -> O
     """
     return await get_current_user(request)
 
-def _require_admin(user):
-    if not user or (user.get("email") or "").lower() not in ADMIN_EMAILS:
+def _admin_ip_allowed(request: Request) -> bool:
+    """Пускать ли в админку с этого адреса.
+
+    Адрес берём тем же _client_key, что и лимитер, и это даёт сразу два входа.
+    Заголовок X-Real-IP наш nginx ставит сам и затирает клиентский — значит он
+    есть ровно у запросов с публичного сайта, и сверяется настоящий адрес
+    посетителя. Если заголовка нет, запрос пришёл прямо в сокет приложения
+    (порт опубликован на 127.0.0.1, снаружи недостижим) — то есть через
+    SSH-туннель; peer тогда равен адресу docker-шлюза и разрешается записью
+    вида 172.16.0.0/12.
+
+    Пустой ADMIN_IPS = фильтр выключен: иначе стенд и локальная разработка
+    остались бы без админки, а прод — заперт до первой правки .env.
+    """
+    if not ADMIN_IPS:
+        return True
+    try:
+        ip = ipaddress.ip_address(_client_key(request))
+    except ValueError:
+        return False
+    return any(ip in net for net in ADMIN_IPS)
+
+
+def _require_admin(request: Request, user):
+    if not _admin_ip_allowed(request):
+        log.warning("admin: отказ по адресу %s", _client_key(request))
+        raise HTTPException(404)
+    email = user.get("email") if user else None
+    if not email or email.lower() not in ADMIN_EMAILS:
         raise HTTPException(404)
 
 # ── Email magic link ──────────────────────────────────────────────────────
@@ -1888,14 +1915,14 @@ async def promo_activate(body: PromoActivateReq, request: Request):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
     return tpl.TemplateResponse(request, "admin.html", {
     })
 
 @app.post("/api/admin/promo")
 async def admin_create_promo(body: PromoCreateReq, request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     # join без разделителя: с "-".join дефисы попадали в исходную строку, и
     # нарезка ниже давала «X-T--C-H--7-F-» — 7 случайных символов вместо 12.
@@ -1916,7 +1943,7 @@ async def admin_create_promo(body: PromoCreateReq, request: Request):
 @app.get("/api/admin/promo")
 async def admin_list_promo(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     with get_db() as db:
         rows = db.execute(
@@ -1929,7 +1956,7 @@ async def admin_list_promo(request: Request):
 @app.post("/api/admin/promo/deactivate")
 async def admin_deactivate_promo(body: dict, request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     code = body.get("code", "").strip().upper()
     with get_db() as db:
@@ -1942,7 +1969,7 @@ async def admin_deactivate_promo(body: dict, request: Request):
 @app.get("/api/admin/stats")
 async def admin_stats(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     with get_db() as db:
         # За последние 30 дней
