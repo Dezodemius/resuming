@@ -39,6 +39,14 @@ async def test_resumes_redirects_unauthenticated(client):
     assert r.status_code in (302, 303)
 
 
+async def test_resumes_page_contains_create_modal_for_user(client):
+    await _login(client, "library@test.com")
+    r = await client.get("/resumes")
+    assert r.status_code == 200
+    assert 'id="modal-create-resume"' in r.text
+    assert "/api/match/start" in r.text
+
+
 async def test_settings_redirects_unauthenticated(client):
     r = await client.get("/settings", follow_redirects=False)
     assert r.status_code in (302, 303)
@@ -108,6 +116,48 @@ async def test_resume_limit_refunds_generation(client, monkeypatch):
     assert r.json()["error"] == "resume_limit"
     with main.get_db() as db:
         assert db.execute("SELECT paid_left FROM users WHERE id=?", (uid,)).fetchone()["paid_left"] == 3
+
+
+async def test_match_rejects_url_and_text_together(client, monkeypatch):
+    """Источник вакансии должен быть один: либо URL, либо текст."""
+    uid = await _login(client, "xor@test.com")
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO profiles (user_id, data) VALUES (?,?)",
+            (uid, '{"name":"Test","experience":[],"education":[],"skills":"","languages":""}'),
+        )
+        db.commit()
+
+    called = {"n": 0}
+
+    async def never(prompt):                     # pragma: no cover
+        called["n"] += 1
+        return '{"target_role":"Dev"}'
+
+    monkeypatch.setattr(main, "call_ai", never)
+
+    r = await client.post("/api/match", json={
+        "job_text": "Текст вакансии достаточно длинный, чтобы пройти проверку длины.",
+        "job_url": "https://example.com/vacancy/1",
+        "company": "Example",
+    })
+
+    assert r.status_code == 400
+    assert "не оба поля" in r.json()["detail"]
+    assert called["n"] == 0
+
+
+async def test_empty_company_is_not_replaced_with_vacancy_title(client):
+    """Группировка в библиотеке не должна смешивать компанию и название вакансии."""
+    uid = await _login(client, "company-empty@test.com")
+    with main.get_db() as db:
+        main._save_resume(db, uid, {"target_role": "Backend Developer"}, "matched")
+
+    r = await client.get("/api/resumes")
+    assert r.status_code == 200
+    rows = r.json()["resumes"]
+    assert rows[0]["title"] == "Backend Developer"
+    assert rows[0]["company_name"] == "Без компании"
 
 
 # ── /api/improve-text: улучшение текста списывает генерацию ──────────────────

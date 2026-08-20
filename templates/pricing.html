@@ -204,6 +204,11 @@ function track(event) {
 }
 track('pricing_view');
 
+window.addEventListener('pageshow', function () {
+  document.getElementById('loader').classList.remove('on');
+  document.getElementById('btn-buy').disabled = false;
+});
+
 function toast(msg, kind) {
   const t = document.getElementById('toast');
   t.textContent = msg;
