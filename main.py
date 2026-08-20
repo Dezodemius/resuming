@@ -18,7 +18,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, Response
+from fastapi import BackgroundTasks, FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -549,13 +549,10 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     # Пишем подписанный cookie обратно (httpOnly)
     _set_anon_cookie(response, anon_id)
 
-    # Текст вакансии: вручную или по ссылке (до списания лимита)
+    # Текст вакансии: строго вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
     if req.kind == "match":
-        if len(job_text) < 30 and req.job_url.strip():
-            job_text = await _fetch_job_text(req.job_url.strip())
-        if len(job_text) < 30:
-            raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
+        job_text, _ = await _resolve_job_text(req.job_text, req.job_url)
 
     # Считаем по двум ключам сразу. Счёт по cookie — «честный» для обычного
     # посетителя, но он не удерживает ничего: клиенту достаточно не возвращать
@@ -1285,9 +1282,15 @@ def _parse_ai(raw: str) -> dict:
         log.warning("AI returned non-JSON (len=%d): %s", len(raw), raw[:500])
         raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
 
-def _save_resume(db, user_id: int, resume: dict, kind: str,
-                 company: str = "", job_url: str = "", job_snippet: str = "") -> int:
-    """Сохраняет резюме. Для бесплатных пользователей проверяет лимит FREE_RESUMES."""
+def _resume_group_name(company: str, kind: str) -> str:
+    """Название группы в библиотеке. Не подставляет должность вместо компании."""
+    company = (company or "").strip()
+    if company:
+        return company
+    return "Общее резюме" if kind == "general" else "Без компании"
+
+
+def _ensure_resume_capacity(db, user_id: int) -> None:
     user = db.execute(
         "SELECT is_pro, pro_expires_at FROM users WHERE id=?", (user_id,)
     ).fetchone()
@@ -1299,11 +1302,130 @@ def _save_resume(db, user_id: int, resume: dict, kind: str,
         if cnt >= FREE_RESUMES:
             raise ValueError("resume_limit")
 
+
+def _guess_job_title(job_text: str, fallback: str = "Резюме под вакансию") -> str:
+    for line in (job_text or "").splitlines():
+        title = line.strip(" \t-–—")
+        if title:
+            return title[:120]
+    return fallback
+
+
+def _pending_resume_data(job_title: str, company: str) -> dict:
+    title = (job_title or "").strip() or "Резюме под вакансию"
+    return {
+        "name": "",
+        "contact": {},
+        "target_role": title,
+        "summary": "Генерация резюме запущена. Карточка обновится автоматически.",
+        "experience": [],
+        "education": [],
+        "skills": {},
+        "languages": [],
+        "generation_status": "generating",
+        "generation_company": (company or "").strip(),
+    }
+
+
+def _public_generation_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return "Не удалось создать резюме. Попробуйте ещё раз."
+
+
+def _insert_pending_resume(db, user_id: int, req: MatchReq, job_text: str, job_url: str) -> tuple[int, dict]:
+    kind = "matched"
+    company = _resume_group_name(req.company, kind)
+    title = (req.job_title or "").strip() or _guess_job_title(job_text)
+    resume = _pending_resume_data(title, company)
     now = datetime.now().isoformat()
+    cur = db.execute(
+        "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (user_id, company, job_url, job_text[:300], json.dumps(resume, ensure_ascii=False), kind, now),
+    )
+    return cur.lastrowid, resume
+
+
+def _validate_job_source(job_text: str, job_url: str) -> tuple[str, str]:
+    job_text = (job_text or "").strip()
+    job_url = (job_url or "").strip()
+    has_text = bool(job_text)
+    has_url = bool(job_url)
+    if has_text and has_url:
+        raise HTTPException(400, "Укажите ссылку или текст вакансии — не оба поля")
+    if not has_text and not has_url:
+        raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
+    if has_text and len(job_text) < 30:
+        raise HTTPException(400, "Текст вакансии должен быть не короче 30 символов")
+    return job_text, job_url
+
+
+async def _resolve_job_text(job_text: str, job_url: str) -> tuple[str, str]:
+    job_text, job_url = _validate_job_source(job_text, job_url)
+    if job_url:
+        job_text = await _fetch_job_text(job_url)
+    if len(job_text) < 30:
+        raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
+    return job_text, job_url
+
+
+async def _finish_match_generation(
+    user_id: int,
+    resume_id: int,
+    profile: dict,
+    job_text: str,
+    job_url: str,
+    extra_hint: str,
+    col: str,
+) -> None:
+    try:
+        resolved_text, _ = await _resolve_job_text(job_text, job_url)
+        raw = await call_ai(_match_prompt(profile, resolved_text, extra_hint))
+        resume = _parse_ai(raw)
+        resume.pop("generation_status", None)
+        with get_db() as db:
+            db.execute(
+                "UPDATE resumes SET resume_data=?, job_snippet=?, updated=datetime('now')"
+                " WHERE id=? AND user_id=?",
+                (json.dumps(resume, ensure_ascii=False), resolved_text[:300], resume_id, user_id),
+            )
+            log_event(db, "generate", user_id=user_id, kind="match_async", col=col)
+            db.commit()
+        log.info("match/start: generation done user=%s resume=%s", user_id, resume_id)
+    except Exception as exc:
+        log.exception("match/start: generation failed user=%s resume=%s", user_id, resume_id)
+        with get_db() as db:
+            _refund(db, user_id, col)
+            row = db.execute(
+                "SELECT resume_data FROM resumes WHERE id=? AND user_id=?", (resume_id, user_id)
+            ).fetchone()
+            if row:
+                try:
+                    resume = json.loads(row["resume_data"])
+                except Exception:
+                    resume = {}
+                resume["generation_status"] = "failed"
+                resume["generation_error"] = _public_generation_error(exc)
+                db.execute(
+                    "UPDATE resumes SET resume_data=?, updated=datetime('now') WHERE id=? AND user_id=?",
+                    (json.dumps(resume, ensure_ascii=False), resume_id, user_id),
+                )
+            log_event(db, "generate_fail", user_id=user_id, kind="match_async")
+            db.commit()
+
+
+def _save_resume(db, user_id: int, resume: dict, kind: str,
+                 company: str = "", job_url: str = "", job_snippet: str = "") -> int:
+    """Сохраняет резюме. Для бесплатных пользователей проверяет лимит FREE_RESUMES."""
+    _ensure_resume_capacity(db, user_id)
+
+    now = datetime.now().isoformat()
+    company_name = _resume_group_name(company, kind)
     c = db.execute(
         "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
         " VALUES (?,?,?,?,?,?,?)",
-        (user_id, company or resume.get("target_role", "Резюме"), job_url, job_snippet[:300],
+        (user_id, company_name, job_url, job_snippet[:300],
          json.dumps(resume, ensure_ascii=False), kind, now)
     )
     db.commit()
@@ -1349,7 +1471,9 @@ async def list_resumes(request: Request):
             " json_extract(resume_data,'$.target_role') AS title,"
             " json_extract(resume_data,'$.salary')      AS salary,"
             " json_extract(resume_data,'$.location')    AS location,"
-            " json_extract(resume_data,'$.ats_match')   AS match"
+            " json_extract(resume_data,'$.ats_match')   AS match,"
+            " json_extract(resume_data,'$.generation_status') AS generation_status,"
+            " json_extract(resume_data,'$.generation_error')  AS generation_error"
             " FROM resumes WHERE user_id=? ORDER BY updated DESC",
             (user["id"],)
         ).fetchall()
@@ -1442,12 +1566,10 @@ async def match_to_job(req: MatchReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
-    # Текст вакансии: либо вставлен вручную, либо подтягиваем по ссылке
-    job_text = req.job_text.strip()
-    if len(job_text) < 30 and req.job_url.strip():
-        job_text = await _fetch_job_text(req.job_url.strip())
-    if len(job_text) < 30:
-        raise HTTPException(400, "Вставьте текст вакансии или ссылку на неё")
+    # Текст вакансии: либо вставлен вручную, либо подтягиваем по ссылке.
+    # Оба источника одновременно не принимаем, чтобы пользователь явно выбрал,
+    # что уходит в модель.
+    job_text, job_url = await _resolve_job_text(req.job_text, req.job_url)
     with get_db() as db:
         p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
     if not p:
@@ -1467,7 +1589,7 @@ async def match_to_job(req: MatchReq, request: Request):
         raise
     with get_db() as db:
         try:
-            rid = _save_resume(db, user["id"], resume, "matched", req.company, req.job_url, job_text)
+            rid = _save_resume(db, user["id"], resume, "matched", req.company, job_url, job_text)
             log_event(db, "generate", user_id=user["id"], kind="match", col=col)
             db.commit()
         except ValueError as e:
@@ -1479,6 +1601,56 @@ async def match_to_job(req: MatchReq, request: Request):
                 return JSONResponse(status_code=402, content={"error": "resume_limit"})
             raise
     return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+
+
+@app.post("/api/match/start")
+@rate("20/minute")
+async def start_match_to_job(req: MatchReq, request: Request, background_tasks: BackgroundTasks):
+    user = await _resolve_user(request, req.email)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
+    job_text, job_url = _validate_job_source(req.job_text, req.job_url)
+
+    with get_db() as db:
+        p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+        if not p:
+            raise HTTPException(404, "Сначала сохраните профиль")
+        profile = json.loads(p["data"])
+        try:
+            _ensure_resume_capacity(db, user["id"])
+        except ValueError as e:
+            if "resume_limit" in str(e):
+                return JSONResponse(status_code=402, content={"error": "resume_limit"})
+            raise
+
+        ok, col, uses_left = _deduct(db, user["id"])
+        if not ok:
+            return JSONResponse(status_code=402, content={"error": "no_uses"})
+        try:
+            rid, pending_resume = _insert_pending_resume(db, user["id"], req, job_text, job_url)
+            log_event(db, "generate_start", user_id=user["id"], kind="match_async", col=col)
+            db.commit()
+        except Exception:
+            _refund(db, user["id"], col)
+            db.commit()
+            raise
+
+    background_tasks.add_task(
+        _finish_match_generation,
+        user["id"],
+        rid,
+        profile,
+        job_text,
+        job_url,
+        req.extra_hint,
+        col,
+    )
+    return {
+        "resume": pending_resume,
+        "resume_id": rid,
+        "uses_left": uses_left,
+        "generation_status": "generating",
+    }
 
 @app.post("/api/generate-from-profile")
 @rate("20/minute")

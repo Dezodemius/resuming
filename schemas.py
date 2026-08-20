@@ -25,6 +25,7 @@ class MatchReq(BaseModel):
     job_text:    str
     company:     str = ""
     job_url:     str = ""
+    job_title:   str = ""
     extra_hint:  str = ""
 
 
