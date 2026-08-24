@@ -18,6 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/esc.js?v=20260824"></script>
 <style>
 /* ── index-specific bits (caркас и общие компоненты — в /static/app.css) ── */
 .user-chip{display:flex;align-items:center;gap:10px}
@@ -999,7 +1000,7 @@ function collectEdu(){const a=[];for(let i=1;i<=50;i++){if(!document.getElementB
 // ── Helpers ───────────────────────────────────────────────────────
 function v(id){return(document.getElementById(id)?.value||'').trim()}
 function set(id,val){const el=document.getElementById(id);if(el)el.value=val}
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+// esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
 function setText(id,t){const el=document.getElementById(id);if(el)el.textContent=t}
 function show(id){const el=document.getElementById(id);if(el)el.style.display='block'}
 function hide(id){const el=document.getElementById(id);if(el)el.style.display='none'}

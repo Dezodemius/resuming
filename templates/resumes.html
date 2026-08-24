@@ -17,6 +17,7 @@
 <script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/esc.js?v=20260824"></script>
 {% include '_metrika.html' %}
 </head>
 <body>
@@ -385,7 +386,7 @@ function noMatchHtml(){
 function openResume(id){ window.location.href = '/resumes/' + id; }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
 function plural(n, forms){
   const a = Math.abs(n) % 100, b = n % 10;
   if (a > 10 && a < 20) return forms[2];

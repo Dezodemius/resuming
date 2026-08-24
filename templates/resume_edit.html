@@ -301,6 +301,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="/static/app.js"></script>
+<script src="/static/esc.js?v=20260824"></script>
 <script>
 // ── Config ──────────────────────────────────────────────────────────────
 const RESUME_ID = {{ resume_id }};
@@ -908,7 +909,7 @@ function applyAI() {
 // ── Helpers ───────────────────────────────────────────────────────────
 function gv(id)       { return (document.getElementById(id)?.value || '').trim(); }
 function sv(id, val)  { const el = document.getElementById(id); if (el) el.value = val; }
-function esc(s)       { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
 function autoResize(el) { el.style.height='auto'; el.style.height=el.scrollHeight+'px'; }
 
 let _tt;
