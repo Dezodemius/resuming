@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260711">
-<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 {% include '_metrika.html' %}
@@ -868,6 +868,9 @@ async function aiImproveBullets(expIdx) {
 function aiErrorText(res, body) {
   if (res.status === 402 && body && body.error === 'no_uses') {
     return 'Закончились генерации — оформите Pro на странице тарифов';
+  }
+  if (res.status === 402 && body && body.error === 'pro_limit') {
+    return 'Лимит добросовестного использования Pro исчерпан — попробуйте позже';
   }
   return (body && body.detail) || 'Не удалось улучшить текст';
 }
