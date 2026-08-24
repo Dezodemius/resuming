@@ -18,8 +18,12 @@ services:
     mem_limit: 6g
     environment:
       - OLLAMA_KEEP_ALIVE=24h   # держим модель в памяти, а не перегружаем на каждый запрос
-    ports:
-      - "11434:11434"
+    # Порт наружу не публикуем: app ходит к Ollama по внутреннему DNS compose
+    # (OLLAMA_URL=http://ollama:11434). Публикация 11434:11434 пробивала бы
+    # iptables хоста и открывала бы инференс без аутентификации всему интернету
+    # (issue #37) — expose оставляет доступ только внутри сети compose.
+    expose:
+      - "11434"
     volumes:
       - ollama_data:/root/.ollama
     # NVIDIA GPU (если на машине нет GPU — закомментируй блок deploy ниже):
