@@ -45,7 +45,7 @@ from config import (  # noqa: E402
     VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     YANDEX_LOGIN_ENABLED, VK_LOGIN_ENABLED, MAILRU_LOGIN_ENABLED,
-    FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, INV_ID_OFFSET, ANON_LIMIT_CONST,
     ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY,
     SECRET_KEY,
@@ -1717,20 +1717,31 @@ async def create_payment(req: PayReq, request: Request):
         log.warning("pay: Робокасса не настроена (ROBOKASSA_LOGIN/PASSWORD1/PASSWORD2 пусты), user=%s", user["id"])
         raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
 
+    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
+    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
+    # Сумму и товар записываем в саму строку платежа: вебхук сверяет пришедший
+    # OutSum именно с ними, а не с глобальной PRO_PRICE — так смена цены в
+    # конфиге не ломает разбор уже созданных, но ещё не оплаченных счетов.
+    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
+
     # В отличие от ЮKassa, у Робокассы нет отдельного вызова API для создания
     # платежа — просто собираем подписанный redirect URL сами. insert+update
     # в одном db-блоке: при любой ошибке он откатится целиком сам (get_db()),
     # отдельная очистка «висячей» строки не нужна.
+    #
+    # InvId = payments.id + INV_ID_OFFSET, а не голый autoincrement (issue #43):
+    # Робокасса требует уникальности InvId навсегда, а не в пределах текущего
+    # файла БД, и после восстановления базы из бэкапа id стартует заново.
     idem = str(uuid.uuid4())
     with get_db() as db:
-        cur = db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
-        inv_id = cur.lastrowid
+        cur = db.execute(
+            "INSERT INTO payments (user_id, idem_key, amount, product) VALUES (?,?,?,?)",
+            (user["id"], idem, PRO_PRICE, description),
+        )
+        inv_id = cur.lastrowid + INV_ID_OFFSET
         db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (str(inv_id), idem))
         db.commit()
 
-    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
-    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
-    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
     signature = _robokassa_signature(ROBOKASSA_LOGIN, PRO_PRICE, str(inv_id), ROBOKASSA_PASSWORD1)
     params = {
         "MerchantLogin": ROBOKASSA_LOGIN,
@@ -1776,7 +1787,7 @@ async def payment_webhook(request: Request):
     # pay_id ЮKassa, а не по чему-либо присланному в теле запроса.
     with get_db() as db:
         pay_row = db.execute(
-            "SELECT user_id, status FROM payments WHERE pay_id=?", (inv_id,)
+            "SELECT user_id, status, amount FROM payments WHERE pay_id=?", (inv_id,)
         ).fetchone()
     if not pay_row:
         log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", inv_id)
@@ -1786,14 +1797,21 @@ async def payment_webhook(request: Request):
         return PlainTextResponse(f"OK{inv_id}")
     user_id = pay_row["user_id"]
 
-    if out_sum != PRO_PRICE:
-        log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, PRO_PRICE)
+    # Сумму сверяем с той, что записана в САМОЙ строке платежа, а не с
+    # глобальной PRO_PRICE (issue #43): иначе смена цены в конфиге между
+    # созданием счёта и приходом вебхука ломает разбор уже выставленных
+    # счетов, либо, наоборот, подтверждает платёж на сумму, отличную от той,
+    # что показывали покупателю. У платежей, созданных до этой правки, колонка
+    # пуста — для них остаётся прежнее поведение (сверка с PRO_PRICE).
+    expected_amount = pay_row["amount"] or PRO_PRICE
+    if out_sum != expected_amount:
+        log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, expected_amount)
         return PlainTextResponse("amount mismatch", status_code=400)
 
     # ── КРИТИЧНО: подтверждаем платёж напрямую через OpStateExt Робокассы ──
     # Не доверяем только вебхуку, даже с верной подписью — подтверждаем через API.
     try:
-        confirmed = await _robokassa_confirmed(inv_id, PRO_PRICE)
+        confirmed = await _robokassa_confirmed(inv_id, expected_amount)
     except Exception:
         log.exception("pay/webhook: ошибка проверки платежа %s в Робокассе", inv_id)
         confirmed = False  # не выдаём Pro при ошибке проверки

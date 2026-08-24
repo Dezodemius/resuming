@@ -116,6 +116,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `SECRET_KEY` | HMAC-ключ для подписи anon-cookie — **обязателен** в проде |
 | `ROBOKASSA_LOGIN` / `ROBOKASSA_PASSWORD1` / `ROBOKASSA_PASSWORD2` | Робокасса — платежи |
 | `ROBOKASSA_TEST_MODE` | `1` включает тестовый режим Робокассы (`IsTest=1`) |
+| `INV_ID_OFFSET` | Смещение номера счёта (`InvId = payments.id + INV_ID_OFFSET`); по умолчанию 0, поднять вручную выше макс. номера после восстановления БД из бэкапа |
 | `SMTP_*` | Email magic link |
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
 | `VK_CLIENT_ID` | Вход через VK ID (OAuth с PKCE; секрет не нужен) |
