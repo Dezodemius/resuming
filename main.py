@@ -143,9 +143,16 @@ os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── CORS ── разрешаем только собственный домен ───────────────────────────
+# localhost:8000 добавляем в origins только для локальной разработки (APP_URL
+# без https): в проде APP_URL всегда https, и localhost там не нужен. Раньше
+# он был разрешён безусловно вместе с allow_credentials=True — значит любая
+# страница, отданная с localhost:8000 на машине пользователя (чужой
+# dev-сервер, локально запущенная тулза), могла ходить в боевое API с cookie
+# сессии и читать ответы.
+_cors_origins = [APP_URL] + ([] if APP_URL.startswith("https://") else ["http://localhost:8000"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[APP_URL, "http://localhost:8000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
@@ -866,8 +873,24 @@ async def billing_info(request: Request):
 @app.post("/auth/email/request")
 @rate("5/minute")
 async def auth_email_request(req: EmailReq, request: Request):
+    email = _normalize_email(req.email)
     token = str(uuid.uuid4())
     with get_db() as db:
+        # Лимит по IP (@rate выше) не спасает от рассылки на чужой адрес —
+        # значит нужен второй счётчик по адресу-получателю: не больше 3 писем
+        # в час, иначе можно бесконечно слать «Ваша ссылка для входа» на
+        # чужой ящик и посадить репутацию домена-отправителя. Отдельной
+        # таблицы не заводим — magic_tokens уже хранит email и created,
+        # этого достаточно для скользящего окна.
+        sent_count = db.execute(
+            "SELECT COUNT(*) FROM magic_tokens"
+            " WHERE email=? AND created > datetime('now','-1 hour')",
+            (email,)
+        ).fetchone()[0]
+        if sent_count >= 3:
+            # Не уточняем, зарегистрирован ли адрес и что именно превышено —
+            # иначе ручка становится оракулом для перебора чужих email.
+            raise HTTPException(429, "Слишком много запросов. Попробуйте позже.")
         # Срок (15 мин) считаем в SQLite, чтобы формат совпал с datetime('now') при
         # проверке. Раньше хранилась наивная ISO-строка локального времени с 'T':
         # из-за текстового сравнения '...T...' > '... ...' токен фактически жил до
@@ -875,12 +898,15 @@ async def auth_email_request(req: EmailReq, request: Request):
         db.execute(
             "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at)"
             " VALUES (?,?,datetime('now',?))",
-            (token, _normalize_email(req.email), f"+{MAGIC_MINUTES} minutes")
+            (token, email, f"+{MAGIC_MINUTES} minutes")
         )
         db.commit()
-    err = await _send_magic_email(_normalize_email(req.email), token)
+    err = await _send_magic_email(email, token)
     if err:
-        raise HTTPException(500, f"Не удалось отправить письмо. {err}")
+        # Клиенту — обобщённое сообщение: тип ошибки, хост и порт SMTP наружу
+        # не отдаём (ручка анонимная, а при неверном SMTP_PASS в err попадает
+        # ответ сервера с логином). Причина уже залогирована в _send_magic_email.
+        raise HTTPException(500, "Не удалось отправить письмо. Попробуйте позже.")
     return {"ok": True}
 
 @app.get("/auth/email/verify")
