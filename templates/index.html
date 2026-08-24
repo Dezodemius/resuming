@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260711">
-<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
@@ -729,7 +729,11 @@ async function doMatch() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        openPayModal(err); return;
+        // pro_limit — это добросовестный потолок для уже оплаченной подписки,
+        // а не приглашение купить её снова: модалка оплаты тут неуместна.
+        if (err === 'pro_limit') toast('Лимит добросовестного использования Pro исчерпан. Попробуйте позже.', 'err');
+        else openPayModal(err);
+        return;
       }
       d = await res.json();
       if (!res.ok) throw new Error(d.detail);
@@ -781,7 +785,9 @@ async function doGeneralResume() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        openPayModal(err); return;
+        if (err === 'pro_limit') toast('Лимит добросовестного использования Pro исчерпан. Попробуйте позже.', 'err');
+        else openPayModal(err);
+        return;
       }
       d = await res.json();
       if (!res.ok) throw new Error(d.detail);
@@ -950,6 +956,9 @@ async function fetchJob() {
 
 // ── Payment ───────────────────────────────────────────────────────
 function openPayModal(reason) {
+  // pro_limit сюда не попадает — оба вызывающих места ниже перехватывают эту
+  // причину раньше и показывают toast вместо этой модалки (см. doMatch/doGeneralResume):
+  // предложение «оформить Pro» бессмысленно для того, у кого он уже есть.
   const titles = {
     no_uses:      ['Генерации закончились', 'Оформите подписку Pro для продолжения.'],
     resume_limit: ['Лимит резюме исчерпан', `Бесплатный тариф — до 5 резюме. Pro — безлимит.`],
