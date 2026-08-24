@@ -116,6 +116,54 @@ def test_parse_ai_with_whitespace():
     assert _parse_ai('  \n{"role": "Dev"}  \n') == {"role": "Dev"}
 
 
+# ── _parse_ai: восстановление JSON, обёрнутого в текст (fallback) ─────────
+# Модель иногда добавляет пояснение вокруг JSON вместо чистого ответа — это
+# основной сценарий, ради которого существует резервный разбор через find/
+# rfind. Он настоящий (реальные ответы моделей выглядят именно так), поэтому
+# тестируется прямо, а не объявляется эквивалентным.
+
+def test_parse_ai_recovers_json_wrapped_in_explanation():
+    raw = 'Вот твой JSON: {"name": "X"} Надеюсь, помог!'
+    assert _parse_ai(raw) == {"name": "X"}
+
+
+def test_parse_ai_recovers_nested_braces_via_last_closing_brace():
+    """Вложенный объект — есть промежуточная "}", закрывающая внутренний
+    объект раньше настоящего конца. Резервный разбор обязан использовать
+    последнюю "}" (rfind), а не первую попавшуюся."""
+    raw = 'Ответ: {"contact": {"city": "Msk"}} — конец'
+    assert _parse_ai(raw) == {"contact": {"city": "Msk"}}
+
+
+def test_parse_ai_no_braces_at_all_raises():
+    import main
+    with pytest.raises(main.HTTPException) as exc_info:
+        _parse_ai("Извините, не могу помочь с этой просьбой.")
+    assert exc_info.value.status_code == 502
+
+
+def test_parse_ai_content_between_braces_still_invalid_raises():
+    """{ и } нашлись, но между ними не JSON — резервный разбор не должен
+    выдавать мусор вместо честной ошибки формата."""
+    import main
+    with pytest.raises(main.HTTPException) as exc_info:
+        _parse_ai("{ это не джейсон, а просто текст в фигурных скобках }")
+    assert exc_info.value.status_code == 502
+
+
+def test_parse_ai_recovers_when_json_starts_at_index_one():
+    """{ ровно на позиции 1 (после одного постороннего символа) — граница,
+    отличающая find("{") от сравнения с "просто каким-то положительным
+    числом" в вырожденном виде."""
+    assert _parse_ai('x{"a": 1}') == {"a": 1}
+
+
+def test_parse_ai_ignores_trailing_garbage_right_after_closing_brace():
+    """Один лишний непробельный символ сразу после } — резервный разбор
+    обязан вырезать ровно до этой }, а не на символ дальше."""
+    assert _parse_ai('шум {"a": 1}!хвост') == {"a": 1}
+
+
 def test_parse_ai_non_string_content_raises_http_exception_not_attribute_error():
     """call_ai типизирован как -> str, но чужой провайдер может однажды
     вернуть content другой формы (например список content-блоков) — это
@@ -344,6 +392,170 @@ async def test_call_ai_sends_temperature_and_max_tokens_top_level(monkeypatch):
 
     assert result == "ok"
     body = captured["json"]
+    assert body["model"] == main.MODEL
+    assert body["messages"] == [{"role": "user", "content": "тестовый промпт"}]
+    assert body["stream"] is False, "stream=True вернул бы SSE вместо одного JSON-ответа"
     assert body["temperature"] == 0.25
     assert body["max_tokens"] == main.AI_MAX_TOKENS
     assert "options" not in body, "options — диалект, который /v1/chat/completions игнорирует"
+
+
+async def test_call_ai_configures_bounded_timeout(monkeypatch):
+    """Без потолка зависший Ollama держал бы слот AI_CONCURRENCY бесконечно —
+    это конфигурация, которую код действительно запрашивает у httpx, а не
+    гарантия его внутренней реализации (ту тестировать бессмысленно)."""
+    import main
+    captured = {}
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            kwargs["transport"] = httpx.MockTransport(
+                lambda r: httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+            )
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", MockAsyncClient)
+    await main.call_ai("промпт")
+
+    timeout = captured["timeout"]
+    assert timeout is not None, "без таймаута зависший Ollama держит слот AI_CONCURRENCY бесконечно"
+    assert timeout.read == 120.0
+    assert timeout.connect == 5.0
+
+
+def _mock_call_ai_transport(monkeypatch, handler):
+    """Подменяет транспорт httpx.AsyncClient внутри call_ai — вызывается
+    реальный код call_ai (не заглушка), но без сетевого похода."""
+    import main
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", MockAsyncClient)
+
+
+# call_ai сопоставляет разные сбои с разными HTTP-кодами клиенту — это
+# наблюдаемое поведение (а не текст лога), поэтому в отличие от голых чисел
+# таймаута (см. tools/mutation_ignore.txt) эти ветки стоит тестировать
+# напрямую, а не объявлять эквивалентными.
+
+async def test_call_ai_sends_auth_header_when_api_key_set(monkeypatch):
+    import main
+    monkeypatch.setattr(main, "AI_API_KEY", "secret-token")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    await main.call_ai("промпт")
+    assert captured["auth"] == "Bearer secret-token"
+
+
+async def test_call_ai_omits_auth_header_when_no_api_key(monkeypatch):
+    import main
+    monkeypatch.setattr(main, "AI_API_KEY", "")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    await main.call_ai("промпт")
+    assert captured["auth"] is None
+
+
+async def test_call_ai_connect_error_maps_to_503(monkeypatch):
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route", request=request)
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 503
+
+
+async def test_call_ai_timeout_maps_to_504(monkeypatch):
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("too slow", request=request)
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 504
+
+
+async def test_call_ai_oom_signature_killed_maps_to_503(monkeypatch):
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="llama-server killed by OOM")
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 503
+    assert "памяти" in exc_info.value.detail
+
+
+async def test_call_ai_oom_signature_terminated_maps_to_503(monkeypatch):
+    """Вторая половина "or" в проверке признака OOM — оба варианта реальны."""
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="process terminated unexpectedly")
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 503
+
+
+async def test_call_ai_500_without_oom_signature_maps_to_502(monkeypatch):
+    """500 без признаков OOM в теле — обычная ошибка модели, не тот же путь."""
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="internal server error")
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 502
+    assert "500" in exc_info.value.detail
+
+
+async def test_call_ai_non_500_http_error_maps_to_502_with_code(monkeypatch):
+    """Проверка признака OOM завязана именно на 500 — другой код не должен
+    в неё попадать, даже если тело случайно содержит "killed"."""
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text="killed by validation")
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 502
+    assert "400" in exc_info.value.detail
+
+
+async def test_call_ai_unexpected_error_maps_to_500(monkeypatch):
+    import main
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise RuntimeError("что-то совсем не то")
+
+    _mock_call_ai_transport(monkeypatch, handler)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await main.call_ai("промпт")
+    assert exc_info.value.status_code == 500
