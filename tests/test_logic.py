@@ -277,6 +277,11 @@ def test_honest_json_attempt_requires_at_least_two_schema_keys():
     assert not _looks_like_honest_json_attempt('{"name":"Ivan","joke1":"a","joke2":"b"}')
 
 
+def test_honest_json_attempt_true_at_exactly_two_schema_keys():
+    """Граница снизу: ровно 2 (не 3) совпавших ключа схемы — уже достаточно."""
+    assert _looks_like_honest_json_attempt('{"name":"Ivan","summary":"текст без третьего ключа"}')
+
+
 # ── Anti-abuse: реакция на детект (_flag_abuse) ────────────────────────────
 
 def test_flag_abuse_zeroes_free_left_only(db):
