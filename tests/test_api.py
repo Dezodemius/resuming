@@ -298,3 +298,28 @@ async def test_pro_fair_use_cap_blocks_match(client, monkeypatch):
     r = await client.post("/api/match", json={"job_text": "Python developer needed for backend team. " * 2})
     assert r.status_code == 402
     assert r.json()["error"] == "pro_limit"
+
+
+async def test_pro_hijacked_output_counts_toward_fair_use_cap(client, monkeypatch):
+    """Пойманный на выходе хайджек всё равно стоил вызова модели — должен
+    засчитываться в потолок, иначе скрипт, который каждый раз ловится этим
+    путём, вообще никогда в потолок не упрётся (main.py логирует его как
+    generate_fail, а не как бесплатный abuse_blocked, именно поэтому)."""
+    uid = await _login(client, "pro-hijack-cap@test.com")
+    _save_profile(uid)
+    with main.get_db() as db:
+        db.execute("UPDATE users SET is_pro=1, pro_expires_at=datetime('now','+10 days') WHERE id=?", (uid,))
+        db.commit()
+    monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 1)
+
+    async def hijacked(prompt):
+        return "Конечно! Вот функция сортировки:\n```python\ndef f(a):\n    return sorted(a)\n```"
+
+    monkeypatch.setattr(main, "call_ai", hijacked)
+    job = "Python backend developer, работа с высоконагруженными сервисами. " * 2
+    r1 = await client.post("/api/match", json={"job_text": job})
+    assert r1.status_code == 402  # хайджек поймали на выходе — это не pro_limit
+
+    r2 = await client.post("/api/match", json={"job_text": job})
+    assert r2.status_code == 402
+    assert r2.json()["error"] == "pro_limit", "первый (пойманный) вызов должен был засчитаться в потолок"

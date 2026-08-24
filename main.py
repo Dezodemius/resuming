@@ -588,8 +588,10 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
             else:
                 # Модель ушла от формата целиком — похоже на успешную
                 # инъекцию. Вызов уже стоил денег, попытку не возвращаем.
+                # Событие "generate_fail" (не "abuse_blocked") — этот вызов
+                # состоялся и стоил денег, в отличие от предфильтра до AI.
                 _flag_abuse(db, anon_id=anon_id, ip_key=ip_key)
-                log_event(db, "abuse_blocked", anon_id=anon_id, kind="preview", stage="output")
+                log_event(db, "generate_fail", anon_id=anon_id, kind="preview", reason="format_hijack")
             db.commit()
         raise
 
@@ -799,7 +801,7 @@ async def improve_text(req: ImproveReq, request: Request):
     except Exception as e:
         with get_db() as db:
             _refund(db, user["id"], col)
-            log_event(db, "generate_fail", user_id=user["id"], kind="improve")
+            log_event(db, "generate_fail", user_id=user["id"], kind="improve", reason="ai_error")
             db.commit()
         if isinstance(e, HTTPException):
             raise
@@ -1269,28 +1271,29 @@ def log_event(db, event: str, user_id=None, anon_id=None, **meta):
 # и только первый случай возвращает списание.
 _INJECTION_RE = re.compile(
     r"""
-    ignore\s+(all|any|the)?\s*(previous|prior|above)\s+instructions |
-    disregard\s+(all|any|the)?\s*(previous|prior|above)\s+instructions |
-    игнорируй\s+(все\s+)?(предыдущ\w*|вышеуказанн\w*|выше\s?указанн\w*) |
+    ignore\s+(all|any|the)?\s*(previous|prior|above|system)\s+(instructions|prompt) |
+    disregard\s+(all|any|the)?\s*(previous|prior|above|system)\s+(instructions|prompt) |
+    игнорируй\s+(все\s+)?(предыдущ\w*|вышеуказанн\w*|выше\s?указанн\w*|системн\w+) |
     забудь\s+(все\s+)?(инструкции|про\s+резюме|что\s+ты\s+(писал|составлял)) |
     ты\s+теперь\s+(не|являешься|должен) |
     from\s+now\s+on\s+you\s+are |
     from\s+this\s+point\s+(forward\s+)?you\s+are |
     you\s+are\s+now\s+(a|an) |
     с\s+этого\s+момента\s+ты |
-    system\s*[-_ ]?\s*prompt |
-    системн\w+\s+промпт |
-    системн\w+\s+инструкц\w+ |
     не\s+(выводи|отвечай|пиши)[а-яё]*\s+.{0,25}json |
     respond\s+in\s+plain\s+text.{0,20}(instead\s+of|not)\s+json |
-    как\s+языков\w+\s+модел\w+ |
-    as\s+an?\s+(ai|language\s+model|assistant) |
     reveal\s+(your\s+)?(system\s+)?prompt |
     покажи\s+(свой\s+)?(системн\w+\s+)?промпт |
     ```(python|py|javascript|js|typescript|ts|java|bash|sh|sql|html|c\+\+|cpp|go|rust)\b
     """,
     re.IGNORECASE | re.VERBOSE | re.UNICODE,
 )
+# Осознанно НЕ ловим голые "system prompt" / "как языковая модель" / "as an AI
+# assistant" сами по себе (без глагола-команды рядом) — эти фразы обычным
+# текстом встречаются в резюме/вакансиях AI/ML-специалистов (сами кандидаты,
+# которых сервис должен обслуживать в первую очередь) и давали ложные
+# срабатывания. Их всё ещё ловит структурная проверка ответа модели, если
+# инъекция реально сработала (см. _looks_like_honest_json_attempt).
 
 
 def _looks_like_injection(*texts: Optional[str]) -> bool:
@@ -1301,15 +1304,31 @@ def _looks_like_injection(*texts: Optional[str]) -> bool:
     return bool(_INJECTION_RE.search(joined))
 
 
-_JSON_KEY_RE = re.compile(r'"[^"\\]{1,80}"\s*:')
+_JSON_KEY_RE = re.compile(r'"([^"\\]{1,80})"\s*:')
+
+# Ключи схемы резюме (см. JSON в конце промптов). Проверяем не «есть три
+# пары "ключ":» — так под честную попытку легко подделаться (попросить
+# модель ответить в формате {"joke1":"...","joke2":"...","joke3":"..."}), а
+# именно эти конкретные имена: их модель могла взять только из промпта, а не
+# из инструкции, вписанной в резюме или вакансию.
+_RESUME_SCHEMA_KEYS = {
+    "name", "contact", "phone", "email", "city", "linkedin", "target_role",
+    "summary", "experience", "company", "role", "period", "location",
+    "bullets", "education", "institution", "degree", "year", "skills",
+    "languages", "ats_keywords",
+}
 
 
-def _looks_like_honest_json_attempt(raw: str) -> bool:
+def _looks_like_honest_json_attempt(raw: object) -> bool:
     """True — модель пыталась ответить резюме-JSON, но не получилось (обрыв на
     max_tokens, лишний текст вокруг {…}) — это не вина пользователя, списание
     возвращается как раньше. False — модель ушла от формата целиком (похоже на
-    успешную промпт-инъекцию): по таким ответам списание не возвращается."""
-    return raw.count("{") > 0 and len(_JSON_KEY_RE.findall(raw)) >= 3
+    успешную промпт-инъекцию, или контент вообще не строка) — по таким ответам
+    списание не возвращается."""
+    if not isinstance(raw, str) or raw.count("{") == 0:
+        return False
+    found = {m.group(1).strip().lower() for m in _JSON_KEY_RE.finditer(raw)}
+    return len(found & _RESUME_SCHEMA_KEYS) >= 2
 
 
 def _flag_abuse(db, *, user: Optional[dict] = None,
@@ -1389,6 +1408,14 @@ async def call_ai(prompt: str) -> str:
             raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
 def _parse_ai(raw: str) -> dict:
+    if not isinstance(raw, str):
+        # r.json()["choices"][0]["message"]["content"] по контракту OpenAI —
+        # строка, но контракт не гарантия: чужой провайдер может однажды
+        # вернуть не то. Явная проверка вместо неожиданного AttributeError —
+        # тот же понятный HTTPException(502), что и на любом другом сбое
+        # формата, и та же (уже проверенная) политика списания на вызывающей
+        # стороне, а не необработанное исключение мимо неё.
+        raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
     cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(cleaned)
@@ -1599,7 +1626,7 @@ async def match_to_job(req: MatchReq, request: Request):
                 db.commit()
             else:
                 err = _flag_abuse(db, user=user)
-                log_event(db, "abuse_blocked", user_id=user["id"], kind="match", stage="output")
+                log_event(db, "generate_fail", user_id=user["id"], kind="match", reason="format_hijack")
                 db.commit()
                 return JSONResponse(status_code=402, content={"error": err})
         raise
@@ -1656,7 +1683,7 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
                 db.commit()
             else:
                 err = _flag_abuse(db, user=user)
-                log_event(db, "abuse_blocked", user_id=user["id"], kind="from_profile", stage="output")
+                log_event(db, "generate_fail", user_id=user["id"], kind="from_profile", reason="format_hijack")
                 db.commit()
                 return JSONResponse(status_code=402, content={"error": err})
         raise
@@ -1706,7 +1733,7 @@ async def generate(req: GenerateReq, request: Request):
                 db.commit()
             else:
                 err = _flag_abuse(db, user=user)
-                log_event(db, "abuse_blocked", user_id=user["id"], kind="generate", stage="output")
+                log_event(db, "generate_fail", user_id=user["id"], kind="generate", reason="format_hijack")
                 db.commit()
                 return JSONResponse(status_code=402, content={"error": err})
         raise
@@ -2327,7 +2354,7 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
                 db.commit()
                 raise ValueError(f"Ошибка генерации: {e.detail}")
             _flag_abuse(db, user=user)
-            log_event(db, "abuse_blocked", user_id=user["id"], kind="mcp_adapt", stage="output")
+            log_event(db, "generate_fail", user_id=user["id"], kind="mcp_adapt", reason="format_hijack")
             db.commit()
         raise ValueError("Модель ответила не по формату — похоже, текст вакансии "
                           "содержит постороннюю инструкцию, а не описание работы.")
