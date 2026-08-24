@@ -45,12 +45,12 @@ from config import (  # noqa: E402
     VK_CLIENT_ID,
     MAILRU_CLIENT_ID, MAILRU_CLIENT_SECRET,
     YANDEX_LOGIN_ENABLED, VK_LOGIN_ENABLED, MAILRU_LOGIN_ENABLED,
-    FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, ANON_LIMIT_CONST,
+    FREE_USES, FREE_RESUMES, PRO_PRICE, PRO_DAYS, INV_ID_OFFSET, ANON_LIMIT_CONST,
     ANON_IP_LIMIT_CONST, ANON_IP_WINDOW_HOURS, ANON_COOKIE_WINDOW_HOURS,
     SESSION_DAYS, MAGIC_MINUTES, AI_CONCURRENCY, AI_MAX_TOKENS,
     PRO_FAIR_USE_LIMIT, PRO_FAIR_USE_DAYS,
     SECRET_KEY,
-    ADMIN_EMAILS, METRIKA_ID,
+    ADMIN_EMAILS, ADMIN_IPS, METRIKA_ID,
     CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
     RATE_LIMIT_ENABLED,
 )
@@ -144,9 +144,16 @@ os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── CORS ── разрешаем только собственный домен ───────────────────────────
+# localhost:8000 добавляем в origins только для локальной разработки (APP_URL
+# без https): в проде APP_URL всегда https, и localhost там не нужен. Раньше
+# он был разрешён безусловно вместе с allow_credentials=True — значит любая
+# страница, отданная с localhost:8000 на машине пользователя (чужой
+# dev-сервер, локально запущенная тулза), могла ходить в боевое API с cookie
+# сессии и читать ответы.
+_cors_origins = [APP_URL] + ([] if APP_URL.startswith("https://") else ["http://localhost:8000"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[APP_URL, "http://localhost:8000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type"],
@@ -404,8 +411,35 @@ async def _resolve_user(request: Request, body_email: Optional[str] = None) -> O
     """
     return await get_current_user(request)
 
-def _require_admin(user):
-    if not user or (user.get("email") or "").lower() not in ADMIN_EMAILS:
+def _admin_ip_allowed(request: Request) -> bool:
+    """Пускать ли в админку с этого адреса.
+
+    Адрес берём тем же _client_key, что и лимитер, и это даёт сразу два входа.
+    Заголовок X-Real-IP наш nginx ставит сам и затирает клиентский — значит он
+    есть ровно у запросов с публичного сайта, и сверяется настоящий адрес
+    посетителя. Если заголовка нет, запрос пришёл прямо в сокет приложения
+    (порт опубликован на 127.0.0.1, снаружи недостижим) — то есть через
+    SSH-туннель; peer тогда равен адресу docker-шлюза и разрешается записью
+    вида 172.16.0.0/12.
+
+    Пустой ADMIN_IPS = фильтр выключен: иначе стенд и локальная разработка
+    остались бы без админки, а прод — заперт до первой правки .env.
+    """
+    if not ADMIN_IPS:
+        return True
+    try:
+        ip = ipaddress.ip_address(_client_key(request))
+    except ValueError:
+        return False
+    return any(ip in net for net in ADMIN_IPS)
+
+
+def _require_admin(request: Request, user):
+    if not _admin_ip_allowed(request):
+        log.warning("admin: отказ по адресу %s", _client_key(request))
+        raise HTTPException(404)
+    email = user.get("email") if user else None
+    if not email or email.lower() not in ADMIN_EMAILS:
         raise HTTPException(404)
 
 # ── Email magic link ──────────────────────────────────────────────────────
@@ -886,8 +920,24 @@ async def billing_info(request: Request):
 @app.post("/auth/email/request")
 @rate("5/minute")
 async def auth_email_request(req: EmailReq, request: Request):
+    email = _normalize_email(req.email)
     token = str(uuid.uuid4())
     with get_db() as db:
+        # Лимит по IP (@rate выше) не спасает от рассылки на чужой адрес —
+        # значит нужен второй счётчик по адресу-получателю: не больше 3 писем
+        # в час, иначе можно бесконечно слать «Ваша ссылка для входа» на
+        # чужой ящик и посадить репутацию домена-отправителя. Отдельной
+        # таблицы не заводим — magic_tokens уже хранит email и created,
+        # этого достаточно для скользящего окна.
+        sent_count = db.execute(
+            "SELECT COUNT(*) FROM magic_tokens"
+            " WHERE email=? AND created > datetime('now','-1 hour')",
+            (email,)
+        ).fetchone()[0]
+        if sent_count >= 3:
+            # Не уточняем, зарегистрирован ли адрес и что именно превышено —
+            # иначе ручка становится оракулом для перебора чужих email.
+            raise HTTPException(429, "Слишком много запросов. Попробуйте позже.")
         # Срок (15 мин) считаем в SQLite, чтобы формат совпал с datetime('now') при
         # проверке. Раньше хранилась наивная ISO-строка локального времени с 'T':
         # из-за текстового сравнения '...T...' > '... ...' токен фактически жил до
@@ -895,12 +945,15 @@ async def auth_email_request(req: EmailReq, request: Request):
         db.execute(
             "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at)"
             " VALUES (?,?,datetime('now',?))",
-            (token, _normalize_email(req.email), f"+{MAGIC_MINUTES} minutes")
+            (token, email, f"+{MAGIC_MINUTES} minutes")
         )
         db.commit()
-    err = await _send_magic_email(_normalize_email(req.email), token)
+    err = await _send_magic_email(email, token)
     if err:
-        raise HTTPException(500, f"Не удалось отправить письмо. {err}")
+        # Клиенту — обобщённое сообщение: тип ошибки, хост и порт SMTP наружу
+        # не отдаём (ручка анонимная, а при неверном SMTP_PASS в err попадает
+        # ответ сервера с логином). Причина уже залогирована в _send_magic_email.
+        raise HTTPException(500, "Не удалось отправить письмо. Попробуйте позже.")
     return {"ok": True}
 
 @app.get("/auth/email/verify")
@@ -1894,20 +1947,31 @@ async def create_payment(req: PayReq, request: Request):
         log.warning("pay: Робокасса не настроена (ROBOKASSA_LOGIN/PASSWORD1/PASSWORD2 пусты), user=%s", user["id"])
         raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
 
+    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
+    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
+    # Сумму и товар записываем в саму строку платежа: вебхук сверяет пришедший
+    # OutSum именно с ними, а не с глобальной PRO_PRICE — так смена цены в
+    # конфиге не ломает разбор уже созданных, но ещё не оплаченных счетов.
+    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
+
     # В отличие от ЮKassa, у Робокассы нет отдельного вызова API для создания
     # платежа — просто собираем подписанный redirect URL сами. insert+update
     # в одном db-блоке: при любой ошибке он откатится целиком сам (get_db()),
     # отдельная очистка «висячей» строки не нужна.
+    #
+    # InvId = payments.id + INV_ID_OFFSET, а не голый autoincrement (issue #43):
+    # Робокасса требует уникальности InvId навсегда, а не в пределах текущего
+    # файла БД, и после восстановления базы из бэкапа id стартует заново.
     idem = str(uuid.uuid4())
     with get_db() as db:
-        cur = db.execute("INSERT INTO payments (user_id, idem_key) VALUES (?,?)", (user["id"], idem))
-        inv_id = cur.lastrowid
+        cur = db.execute(
+            "INSERT INTO payments (user_id, idem_key, amount, product) VALUES (?,?,?,?)",
+            (user["id"], idem, PRO_PRICE, description),
+        )
+        inv_id = cur.lastrowid + INV_ID_OFFSET
         db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (str(inv_id), idem))
         db.commit()
 
-    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
-    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
-    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
     signature = _robokassa_signature(ROBOKASSA_LOGIN, PRO_PRICE, str(inv_id), ROBOKASSA_PASSWORD1)
     params = {
         "MerchantLogin": ROBOKASSA_LOGIN,
@@ -1953,7 +2017,7 @@ async def payment_webhook(request: Request):
     # pay_id ЮKassa, а не по чему-либо присланному в теле запроса.
     with get_db() as db:
         pay_row = db.execute(
-            "SELECT user_id, status FROM payments WHERE pay_id=?", (inv_id,)
+            "SELECT user_id, status, amount FROM payments WHERE pay_id=?", (inv_id,)
         ).fetchone()
     if not pay_row:
         log.warning("pay/webhook: платёж %s не найден в базе, Pro не выдан", inv_id)
@@ -1963,14 +2027,21 @@ async def payment_webhook(request: Request):
         return PlainTextResponse(f"OK{inv_id}")
     user_id = pay_row["user_id"]
 
-    if out_sum != PRO_PRICE:
-        log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, PRO_PRICE)
+    # Сумму сверяем с той, что записана в САМОЙ строке платежа, а не с
+    # глобальной PRO_PRICE (issue #43): иначе смена цены в конфиге между
+    # созданием счёта и приходом вебхука ломает разбор уже выставленных
+    # счетов, либо, наоборот, подтверждает платёж на сумму, отличную от той,
+    # что показывали покупателю. У платежей, созданных до этой правки, колонка
+    # пуста — для них остаётся прежнее поведение (сверка с PRO_PRICE).
+    expected_amount = pay_row["amount"] or PRO_PRICE
+    if out_sum != expected_amount:
+        log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, expected_amount)
         return PlainTextResponse("amount mismatch", status_code=400)
 
     # ── КРИТИЧНО: подтверждаем платёж напрямую через OpStateExt Робокассы ──
     # Не доверяем только вебхуку, даже с верной подписью — подтверждаем через API.
     try:
-        confirmed = await _robokassa_confirmed(inv_id, PRO_PRICE)
+        confirmed = await _robokassa_confirmed(inv_id, expected_amount)
     except Exception:
         log.exception("pay/webhook: ошибка проверки платежа %s в Робокассе", inv_id)
         confirmed = False  # не выдаём Pro при ошибке проверки
@@ -2118,14 +2189,14 @@ async def promo_activate(body: PromoActivateReq, request: Request):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
     return tpl.TemplateResponse(request, "admin.html", {
     })
 
 @app.post("/api/admin/promo")
 async def admin_create_promo(body: PromoCreateReq, request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     # join без разделителя: с "-".join дефисы попадали в исходную строку, и
     # нарезка ниже давала «X-T--C-H--7-F-» — 7 случайных символов вместо 12.
@@ -2146,7 +2217,7 @@ async def admin_create_promo(body: PromoCreateReq, request: Request):
 @app.get("/api/admin/promo")
 async def admin_list_promo(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     with get_db() as db:
         rows = db.execute(
@@ -2159,7 +2230,7 @@ async def admin_list_promo(request: Request):
 @app.post("/api/admin/promo/deactivate")
 async def admin_deactivate_promo(body: dict, request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     code = body.get("code", "").strip().upper()
     with get_db() as db:
@@ -2172,7 +2243,7 @@ async def admin_deactivate_promo(body: dict, request: Request):
 @app.get("/api/admin/stats")
 async def admin_stats(request: Request):
     user = await get_current_user(request)
-    _require_admin(user)
+    _require_admin(request, user)
 
     with get_db() as db:
         # За последние 30 дней

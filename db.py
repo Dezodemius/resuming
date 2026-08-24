@@ -101,6 +101,8 @@ def init_db():
                 user_id  INTEGER NOT NULL,
                 pay_id   TEXT,
                 idem_key TEXT UNIQUE,
+                amount   TEXT,
+                product  TEXT,
                 status   TEXT DEFAULT 'pending',
                 created  TEXT DEFAULT (datetime('now'))
             );
@@ -189,7 +191,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -203,6 +205,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 2:
         _migration_2_drop_telegram_columns(db)
         db.execute("PRAGMA user_version = 2")
+        applied += 1
+    if version < 3:
+        _migration_3_payment_amount_product(db)
+        db.execute("PRAGMA user_version = 3")
         applied += 1
     if applied:
         db.commit()
@@ -365,3 +371,24 @@ def _migration_2_drop_telegram_columns(db: sqlite3.Connection) -> None:
         DROP TABLE users;
         ALTER TABLE users_migrated RENAME TO users;
     """)
+
+
+def _migration_3_payment_amount_product(db: sqlite3.Connection) -> None:
+    """`payments` начинает хранить сумму и товар конкретного счёта (issue #43).
+
+    Раньше строка платежа несла только номер и статус — ни сумму, ни то, за
+    что платили: разобрать спорную операцию задним числом было нечем, а сверка
+    вебхука шла с глобальной PRO_PRICE, так что смена цены в конфиге ломала
+    разбор уже выставленных, но ещё не оплаченных счетов.
+
+    Обе колонки — просто ALTER TABLE ADD COLUMN: `payments` не участвует в
+    FOREIGN KEY и UNIQUE-пересборках соседних таблиц, пересоздавать её целиком
+    незачем. У старых строк `amount`/`product` останутся NULL — main.py
+    подставляет вместо NULL прежнюю константу PRO_PRICE, так что уже
+    выставленные и ещё не оплаченные счета продолжают подтверждаться.
+    """
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(payments)").fetchall()}
+    if "amount" not in columns:
+        db.execute("ALTER TABLE payments ADD COLUMN amount TEXT")
+    if "product" not in columns:
+        db.execute("ALTER TABLE payments ADD COLUMN product TEXT")

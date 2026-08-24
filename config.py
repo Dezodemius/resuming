@@ -4,6 +4,7 @@
 а не дублировали чтение os.getenv. Импортируется первым — выполняет load_dotenv,
 создаёт каталог данных и настраивает логирование.
 """
+import ipaddress
 import logging
 import os
 from urllib.parse import urlsplit, urlunsplit
@@ -152,6 +153,31 @@ for _note in _login_notes:
     log.warning("Вход: %s", _note)
 
 ADMIN_EMAILS         = [e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()]
+
+
+def _parse_admin_ips(raw: str) -> list:
+    """Разбирает ADMIN_IPS в список сетей. Мусор пропускаем с предупреждением.
+
+    Падать на старте из-за опечатки в одном адресе нельзя: приложение обслуживает
+    не только админку. Но и молча превращать «1.2.3.4;5.6.7.8» в пустой список
+    (то есть в выключенный фильтр) тоже нельзя — отсюда warning на каждую
+    непрочитанную запись.
+    """
+    nets = []
+    for item in (part.strip() for part in raw.split(",")):
+        if not item:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            log.warning("ADMIN_IPS: «%s» — не адрес и не сеть, запись пропущена", item)
+    return nets
+
+
+# Откуда пускают в /admin. Пусто = фильтр выключен (локальная разработка, стенд).
+ADMIN_IPS            = _parse_admin_ips(os.getenv("ADMIN_IPS", ""))
+if ADMIN_IPS:
+    log.info("Админка ограничена по адресам: %s", ", ".join(str(n) for n in ADMIN_IPS))
 # Номер счётчика Метрики — только цифры: значение подставляется в JS и HTML
 # всех страниц, так что произвольная строка (например, случайно вписанный
 # секрет) и ломает скрипт, и утекает наружу.
@@ -177,6 +203,17 @@ ANON_IP_WINDOW_HOURS = 24
 ANON_COOKIE_WINDOW_HOURS = 7 * 24
 PAID_PACK        = 20
 PACK_PRICE       = PRO_PRICE
+# Смещение номера счёта Робокассы: InvId = payments.id + INV_ID_OFFSET, а не
+# голый autoincrement (issue #43). Робокасса требует уникальности InvId в
+# пределах магазина НАВСЕГДА, а не в пределах текущего файла БД: после
+# восстановления из бэкапа (или пересоздания volume) payments.id стартует
+# заново и совпадёт с уже оплаченными номерами — OpStateExt по такому InvId
+# вернёт State/Code=100 от старого счёта, и новый неоплаченный платёж будет
+# подтверждён, Pro выдадут бесплатно. По умолчанию 0 — поведение существующих
+# установок не меняется молча. После восстановления базы владелец обязан
+# вручную поднять оффсет выше максимального номера, реально использованного
+# в кабинете Робокассы (сам факт восстановления оффсет не поднимает).
+INV_ID_OFFSET    = int(os.getenv("INV_ID_OFFSET", "0"))
 SESSION_DAYS     = 30
 MAGIC_MINUTES    = 15
 AI_CONCURRENCY   = 2   # max одновременных вызовов Ollama

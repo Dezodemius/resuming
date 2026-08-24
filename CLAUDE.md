@@ -116,6 +116,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `SECRET_KEY` | HMAC-ключ для подписи anon-cookie — **обязателен** в проде |
 | `ROBOKASSA_LOGIN` / `ROBOKASSA_PASSWORD1` / `ROBOKASSA_PASSWORD2` | Робокасса — платежи |
 | `ROBOKASSA_TEST_MODE` | `1` включает тестовый режим Робокассы (`IsTest=1`) |
+| `INV_ID_OFFSET` | Смещение номера счёта (`InvId = payments.id + INV_ID_OFFSET`); по умолчанию 0, поднять вручную выше макс. номера после восстановления БД из бэкапа |
 | `SMTP_*` | Email magic link |
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Вход через Яндекс ID (OAuth) |
 | `VK_CLIENT_ID` | Вход через VK ID (OAuth с PKCE; секрет не нужен) |
@@ -126,6 +127,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `AI_MAX_TOKENS` | Потолок токенов ответа модели (по умолчанию 4096) |
 | `PRO_FAIR_USE_LIMIT` / `PRO_FAIR_USE_DAYS` | Потолок добросовестного использования Pro — генераций за N дней (по умолчанию 300/30); защита от злоупотребления, не реальный лимит для человека |
 | `ADMIN_EMAILS` | Email админов (через запятую), им доступен `/admin` |
+| `ADMIN_IPS` | Адреса/CIDR, с которых пускают в `/admin` (пусто = не ограничивать) |
 | `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
 | `CSP_MODE` | `enforce` (по умолчанию) / `report` / `off` — аварийный вентиль для CSP |
 | `RATE_LIMIT_ENABLED` | `0` выключает лимитер (тесты, отладка) |

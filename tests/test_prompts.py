@@ -9,7 +9,15 @@ prompts.py и tools/mutation_ignore.txt про config._login_methods_report:
 опыт кандидата. Эти тесты проверяют именно это: каждое поле профиля
 действительно доходит до текста промпта.
 """
-from prompts import _match_prompt, _general_prompt, _generate_prompt
+from prompts import (
+    _FIELD_MAX,
+    _HINT_MAX,
+    _ITEM_MAX,
+    _TEXT_MAX,
+    _general_prompt,
+    _generate_prompt,
+    _match_prompt,
+)
 from schemas import GenerateReq
 
 
@@ -109,6 +117,9 @@ def test_match_prompt_marks_missing_experience_and_education():
     prompt = _match_prompt(profile, "Текст вакансии на 30+ символов для теста", "")
     assert "не указан" in prompt
     assert "не указано" in prompt
+    # "не указан" — подстрока и внутри "XX  не указанXX": одного вхождения
+    # текста мало, формулировка обязана быть дословной, без обёртки.
+    assert "XX" not in prompt
 
 
 def test_general_prompt_marks_missing_experience_and_education():
@@ -118,6 +129,18 @@ def test_general_prompt_marks_missing_experience_and_education():
     prompt = _general_prompt(profile, "", "")
     assert "не указан" in prompt
     assert "не указано" in prompt
+    assert "XX" not in prompt
+
+
+def test_generate_prompt_marks_missing_experience_and_education():
+    req = GenerateReq(
+        name="Иван", phone="1", city="Уфа", target="Dev", hint="",
+        experience=[], education=[], skills="Python", languages="RU",
+    )
+    prompt = _generate_prompt(req)
+    assert "не указан" in prompt
+    assert "не указано" in prompt
+    assert "XX" not in prompt
 
 
 # ── Частично заполненные записи: default у .get(), а не сам ключ ───────────
@@ -239,3 +262,116 @@ def test_general_prompt_signature_defaults_to_empty_target_role_and_hint():
 def test_match_prompt_signature_defaults_extra_to_empty():
     prompt = _match_prompt(_profile(), "Текст вакансии на 30+ символов для теста")
     assert "Пожелания: >>>" in prompt
+
+
+# ── Обрезка длины полей (_clip) ──────────────────────────────────────────────
+# Вторая линия защиты после лимитов schemas.py (см. докстринг _clip в
+# prompts.py): profile может прийти как свободный dict из анонимной ручки или
+# из БД, сохранённый до появления лимитов, — schemas.py его не ограничивает.
+# Каждое поле профиля пропускается через _clip(value, LIMIT); мутация
+# LIMIT -> None превращает срез в str(value)[:None], то есть в отсутствие
+# обрезки вовсе. Ловим это подстановкой заведомо длинной строки из одного
+# символа на каждое поле и проверкой точной длины среза в готовом промпте.
+
+def _assert_clipped(prompt: str, char: str, limit: int) -> None:
+    assert char * limit in prompt, f"поле {char!r} должно попасть в промпт хотя бы усечённым до {limit}"
+    assert char * (limit + 1) not in prompt, f"поле {char!r} обрезано неверно — длиннее {limit}"
+
+
+def test_match_prompt_clips_every_field_to_its_limit():
+    profile = {
+        "name": "N" * (_FIELD_MAX + 50),
+        "city": "T" * (_FIELD_MAX + 50),
+        "phone": "H" * (_FIELD_MAX + 50),
+        "experience": [{
+            "role": "R" * (_FIELD_MAX + 50),
+            "company": "C" * (_FIELD_MAX + 50),
+            "period": "P" * (_FIELD_MAX + 50),
+            "desc": "D" * (_ITEM_MAX + 50),
+        }],
+        "education": [{
+            "degree": "G" * (_FIELD_MAX + 50),
+            "institution": "I" * (_FIELD_MAX + 50),
+            "year": "Y" * (_FIELD_MAX + 50),
+        }],
+        "skills": "S" * (_TEXT_MAX + 50),
+        "languages": "L" * (_TEXT_MAX + 50),
+    }
+    prompt = _match_prompt(profile, "Текст вакансии", "E" * (_HINT_MAX + 50))
+    for char, limit in [
+        ("N", _FIELD_MAX), ("T", _FIELD_MAX), ("H", _FIELD_MAX),
+        ("R", _FIELD_MAX), ("C", _FIELD_MAX), ("P", _FIELD_MAX), ("D", _ITEM_MAX),
+        ("G", _FIELD_MAX), ("I", _FIELD_MAX), ("Y", _FIELD_MAX),
+        ("S", _TEXT_MAX), ("L", _TEXT_MAX), ("E", _HINT_MAX),
+    ]:
+        _assert_clipped(prompt, char, limit)
+
+
+def test_general_prompt_clips_every_field_to_its_limit():
+    profile = {
+        "name": "N" * (_FIELD_MAX + 50),
+        "city": "T" * (_FIELD_MAX + 50),
+        "experience": [{
+            "role": "R" * (_FIELD_MAX + 50),
+            "company": "C" * (_FIELD_MAX + 50),
+            "period": "P" * (_FIELD_MAX + 50),
+            "desc": "D" * (_ITEM_MAX + 50),
+        }],
+        "education": [{
+            "degree": "G" * (_FIELD_MAX + 50),
+            "institution": "I" * (_FIELD_MAX + 50),
+            "year": "Y" * (_FIELD_MAX + 50),
+        }],
+        "skills": "S" * (_TEXT_MAX + 50),
+        "languages": "L" * (_TEXT_MAX + 50),
+    }
+    prompt = _general_prompt(
+        profile,
+        target_role="M" * (_FIELD_MAX + 50),
+        hint="E" * (_HINT_MAX + 50),
+    )
+    for char, limit in [
+        ("N", _FIELD_MAX), ("T", _FIELD_MAX),
+        ("R", _FIELD_MAX), ("C", _FIELD_MAX), ("P", _FIELD_MAX), ("D", _ITEM_MAX),
+        ("G", _FIELD_MAX), ("I", _FIELD_MAX), ("Y", _FIELD_MAX),
+        ("S", _TEXT_MAX), ("L", _TEXT_MAX), ("E", _HINT_MAX), ("M", _FIELD_MAX),
+    ]:
+        _assert_clipped(prompt, char, limit)
+
+
+def test_generate_prompt_clips_every_field_to_its_limit():
+    # У GenerateReq верхнеуровневые поля (name/target/hint/skills/languages)
+    # ограничены схемой короче, чем _FIELD_MAX/_TEXT_MAX/_HINT_MAX в
+    # prompts.py (schemas._NAME_MAX=200 < prompts._FIELD_MAX=300) — легитимно
+    # созданный запрос лимит _clip физически не достанет. Присваиваем поля
+    # напрямую после создания (validate_assignment у модели не включён) —
+    # так же, как в проде до появления лимитов мог быть сохранён профиль.
+    req = GenerateReq(
+        name="x", phone="1", city="y", target="t", hint="h",
+        experience=[{
+            "role": "R" * (_FIELD_MAX + 50),
+            "company": "C" * (_FIELD_MAX + 50),
+            "period": "P" * (_FIELD_MAX + 50),
+            "desc": "D" * (_ITEM_MAX + 50),
+        }],
+        education=[{
+            "degree": "G" * (_FIELD_MAX + 50),
+            "institution": "I" * (_FIELD_MAX + 50),
+            "year": "Y" * (_FIELD_MAX + 50),
+        }],
+        skills="s", languages="l",
+    )
+    req.name = "N" * (_FIELD_MAX + 50)
+    req.target = "M" * (_FIELD_MAX + 50)
+    req.hint = "E" * (_HINT_MAX + 50)
+    req.skills = "S" * (_TEXT_MAX + 50)
+    req.languages = "L" * (_TEXT_MAX + 50)
+
+    prompt = _generate_prompt(req)
+    for char, limit in [
+        ("R", _FIELD_MAX), ("C", _FIELD_MAX), ("P", _FIELD_MAX), ("D", _ITEM_MAX),
+        ("G", _FIELD_MAX), ("I", _FIELD_MAX), ("Y", _FIELD_MAX),
+        ("N", _FIELD_MAX), ("M", _FIELD_MAX), ("E", _HINT_MAX),
+        ("S", _TEXT_MAX), ("L", _TEXT_MAX),
+    ]:
+        _assert_clipped(prompt, char, limit)
