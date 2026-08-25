@@ -126,16 +126,6 @@
     </span>
     <span class="brand">Резюмирую</span>
   </a>
-  <nav class="nav">
-    <a class="nav__btn" id="nav-resumes" href="/resumes" style="display:none">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>
-      <span data-navlabel>Мои резюме</span>
-    </a>
-    <span class="nav__cta nav__cta--active" style="cursor:default">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
-      <span data-navlabel>Создать</span>
-    </span>
-  </nav>
   <div class="appbar__right">
     <button id="theme-btn" class="theme-btn" type="button" aria-label="Сменить тему">🌙</button>
     <span id="uses-chip" class="uses-chip" style="display:none"></span>
@@ -186,10 +176,10 @@
             <div class="gen-field" style="flex:1"><input id="job-url" class="gen-input" placeholder="hh.ru/vacancy/…  или ссылка на вакансию"></div>
             <button class="btn-fetch" type="button" onclick="fetchJob()">Загрузить</button>
           </div>
-          <textarea id="job-text" class="gen-textarea" placeholder="Или вставьте текст вакансии…&#10;&#10;Senior Product Manager в Тинькофф&#10;Требования: опыт 3+ лет в продукте…"></textarea>
+          <textarea id="job-text" class="gen-textarea" placeholder="Или вставьте текст вакансии…&#10;&#10;Backend-разработчик&#10;Требования: опыт 3+ лет, REST API, SQL…"></textarea>
           <div class="field" style="margin:12px 0 0">
             <label>Компания — для сохранения</label>
-            <input id="job-company" placeholder="Тинькофф, Яндекс, Авито…">
+            <input id="job-company" placeholder="Название компании">
           </div>
         </section>
 
@@ -412,7 +402,7 @@
       <li>✓ Безлимитные сохранённые резюме</li>
       <li>✓ PDF всегда бесплатно</li>
     </ul>
-    <button class="btn-build" onclick="doPay()" type="button">Оплатить через Робокассу</button>
+    <button class="btn-build" id="btn-pay-modal" onclick="doPay()" type="button">Оплатить через Робокассу</button>
     <button class="btn-soft" onclick="closePayModal()" type="button" style="width:100%;justify-content:center;height:42px;margin-top:8px">Отмена</button>
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);line-height:1.7;text-align:left">
       <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 дней</div>
@@ -480,6 +470,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     openAuthModal();
   }
   appLog('boot', 'готово', {авторизован: !!currentUser, профиль: hasProfile});
+});
+
+window.addEventListener('pageshow', () => {
+  setLoader(false);
+  const payBtn = document.getElementById('btn-pay-modal');
+  if (payBtn) payBtn.disabled = false;
 });
 
 // ── Session / user ────────────────────────────────────────────────
@@ -708,7 +704,11 @@ async function doMatch() {
   if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
   const job    = v('job-text');
   const jobUrl = v('job-url');
-  // Достаточно либо текста вакансии, либо ссылки — сервер сам скачает текст по ссылке
+  // Достаточно либо текста вакансии, либо ссылки. Оба источника одновременно
+  // не отправляем, чтобы пользователь явно контролировал вход для модели.
+  if (job && jobUrl) {
+    toast('Укажите ссылку или текст вакансии — не оба поля', 'err'); return;
+  }
   if (job.length < 30 && !jobUrl) {
     toast('Вставьте текст вакансии (минимум 30 символов) или ссылку на неё', 'err'); return;
   }
@@ -870,7 +870,10 @@ function downloadPDFDirect() {
     image:{type:'jpeg',quality:.98},
     html2canvas:{scale:2,useCORS:true,logging:false},
     jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(el).save().then(()=>{appLog('pdf','готово');setLoader(false)});
+  }).from(el).save()
+    .then(()=>{appLog('pdf','готово')})
+    .catch(e=>{appError('pdf', e.message);toast('Не удалось создать PDF: '+e.message,'err')})
+    .finally(()=>setLoader(false));
 }
 
 // ── Save to dashboard ─────────────────────────────────────────────
@@ -948,6 +951,7 @@ async function fetchJob() {
     if (!res.ok) throw new Error('Не удалось загрузить');
     const d = await res.json();
     document.getElementById('job-text').value = d.text;
+    document.getElementById('job-url').value = '';
     appLog('fetch-job', 'готово', {символов: d.text.length});
     toast('Вакансия загружена!', 'ok');
   } catch(e) { appError('fetch-job', e.message); toast('Ошибка. Вставьте текст вручную.', 'err'); }
@@ -971,13 +975,15 @@ function openPayModal(reason) {
 function closePayModal(){document.getElementById('modal-pay').classList.remove('on')}
 async function doPay(){
   appLog('pay', 'создание платежа');
+  const btn = document.getElementById('btn-pay-modal');
+  if (btn) btn.disabled = true;
   closePayModal(); setLoader(true,'Создаём платёж...');
   try {
     const res = await fetch('/api/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     const d = await res.json();
     if(d.url){appLog('pay','переход на Робокассу');window.location.href=d.url;}
     else throw new Error('Ошибка');
-  } catch(e){appError('pay', e.message);toast('Ошибка: '+e.message,'err');setLoader(false)}
+  } catch(e){appError('pay', e.message);toast('Ошибка: '+e.message,'err');setLoader(false);if(btn)btn.disabled=false}
 }
 
 // ── Dynamic entries ───────────────────────────────────────────────

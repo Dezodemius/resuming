@@ -74,6 +74,7 @@ class MatchReq(BaseModel):
     job_text:    str = Field(..., max_length=_JOB_TEXT_MAX)
     company:     str = Field("", max_length=_COMPANY_MAX)
     job_url:     str = Field("", max_length=_URL_MAX)
+    job_title:   str = Field("", max_length=_TARGET_MAX)
     extra_hint:  str = Field("", max_length=_HINT_MAX)
 
 
