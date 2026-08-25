@@ -452,7 +452,13 @@ async def test_match_start_hijacked_output_not_refunded(client, monkeypatch):
         resume = json.loads(db.execute(
             "SELECT resume_data FROM resumes WHERE id=?", (rid,)
         ).fetchone()["resume_data"])
+        event = db.execute(
+            "SELECT event, meta FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)
+        ).fetchone()
     assert resume["generation_status"] == "failed"
+    assert resume["generation_error"] == "Модель вернула некорректный ответ. Попробуйте ещё раз."
+    assert event["event"] == "generate_fail"
+    assert json.loads(event["meta"]) == {"kind": "match_async", "reason": "format_hijack"}
 
 
 async def test_match_start_honest_parse_failure_still_refunds(client, monkeypatch):
@@ -470,3 +476,134 @@ async def test_match_start_honest_parse_failure_still_refunds(client, monkeypatc
     r = await client.post("/api/match/start", json={"job_text": job})
     assert r.status_code == 200
     assert _left(uid) == 3
+
+    rid = r.json()["resume_id"]
+    with main.get_db() as db:
+        resume = json.loads(db.execute(
+            "SELECT resume_data FROM resumes WHERE id=?", (rid,)
+        ).fetchone()["resume_data"])
+        event = db.execute(
+            "SELECT event, meta FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)
+        ).fetchone()
+    assert resume["generation_status"] == "failed"
+    assert resume["generation_error"] == "Модель вернула некорректный ответ. Попробуйте ещё раз."
+    assert event["event"] == "generate_fail"
+    assert json.loads(event["meta"]) == {"kind": "match_async", "reason": "parse_error"}
+
+
+async def test_match_start_ai_infra_error_refunds_and_marks_failed(client, monkeypatch):
+    """Сбой самого вызова ИИ (сеть/таймаут/5xx Ollama) — это не действие
+    пользователя: списание должно вернуться, а карточка — получить понятную
+    причину отказа вместо вечного статуса «генерируется»."""
+    uid = await _login(client, "ai-error-match-start@test.com")
+    _save_profile(uid)
+    _set_balance(uid, 3, 0)
+
+    async def failing_call_ai(prompt):
+        raise main.HTTPException(503, "Сервис генерации недоступен. Проверьте Ollama.")
+
+    monkeypatch.setattr(main, "call_ai", failing_call_ai)
+    job = "Python backend developer, работа с высоконагруженными сервисами. " * 2
+    r = await client.post("/api/match/start", json={"job_text": job})
+    assert r.status_code == 200
+    assert _left(uid) == 3, "инфраструктурный сбой должен вернуть списание"
+
+    rid = r.json()["resume_id"]
+    with main.get_db() as db:
+        resume = json.loads(db.execute(
+            "SELECT resume_data FROM resumes WHERE id=?", (rid,)
+        ).fetchone()["resume_data"])
+        event = db.execute(
+            "SELECT event, meta FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)
+        ).fetchone()
+    assert resume["generation_status"] == "failed"
+    assert resume["generation_error"] == "Сервис генерации недоступен. Проверьте Ollama."
+    assert event["event"] == "generate_fail"
+    assert json.loads(event["meta"]) == {"kind": "match_async", "reason": "ai_error"}
+
+
+async def test_match_start_success_writes_resume_and_forwards_prompt_args(client, monkeypatch):
+    """Успешная фоновая генерация: заглушка полностью замещается результатом
+    ИИ, промпт собран из профиля/вакансии/пожелания (получаемой по ссылке —
+    а не из огрызков, оставшихся после перестановки аргументов), а списание
+    не возвращается."""
+    uid = await _login(client, "success-match-start@test.com")
+    _save_profile(uid, name="Уникальное Имя Профиля")
+    _set_balance(uid, 3, 0)
+
+    # Явно длиннее 300 символов — иначе [:300] и [:301] обрезают текст
+    # одинаково (короче предела) и не отличают мутацию границы.
+    fetched_job_text = "Python Backend Developer вакансия JOBTEXTMARKER999. " + "z" * 300
+    assert len(fetched_job_text) > 300
+    captured = {}
+
+    async def fake_fetch(url):
+        captured["fetched_url"] = url
+        return fetched_job_text
+
+    async def fake_call_ai(prompt):
+        captured["prompt"] = prompt
+        return json.dumps({
+            "name": "Иван Петров", "target_role": "Backend Developer",
+            "summary": "Опытный разработчик", "contact": {},
+            "experience": [], "education": [], "skills": {}, "languages": [],
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(main, "_fetch_job_text", fake_fetch)
+    monkeypatch.setattr(main, "call_ai", fake_call_ai)
+
+    r = await client.post("/api/match/start", json={
+        "job_text": "",
+        "job_url": "https://example.com/vacancy/999",
+        "extra_hint": "HINTMARKER777",
+    })
+    assert r.status_code == 200
+    assert captured["fetched_url"] == "https://example.com/vacancy/999"
+    assert "JOBTEXTMARKER999" in captured["prompt"], "текст вакансии, полученный по ссылке, должен уйти в промпт"
+    assert "HINTMARKER777" in captured["prompt"], "пожелание пользователя должно уйти в промпт"
+    assert "Уникальное Имя Профиля" in captured["prompt"], "профиль должен уйти в промпт"
+    assert _left(uid) == 2, "успешная генерация не возвращает списание"
+
+    rid = r.json()["resume_id"]
+    with main.get_db() as db:
+        row = db.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
+        event = db.execute(
+            "SELECT event, meta FROM usage_events WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)
+        ).fetchone()
+    assert "Иван Петров" in row["resume_data"], "не-ASCII не должен уходить \\u-escape'ами"
+    resume = json.loads(row["resume_data"])
+    assert resume["target_role"] == "Backend Developer"
+    assert resume["name"] == "Иван Петров"
+    assert "generation_status" not in resume, "заглушка должна быть полностью замещена результатом"
+    assert row["job_snippet"] == fetched_job_text[:300]
+    assert len(row["job_snippet"]) == 300
+    assert event["event"] == "generate"
+    assert json.loads(event["meta"]) == {"kind": "match_async", "col": "free_left"}
+
+
+async def test_match_start_success_strips_stray_generation_status_from_ai_response(client, monkeypatch):
+    """Если ответ модели зачем-то содержит ключ generation_status, он не
+    должен просочиться в сохранённые данные — иначе готовая карточка навсегда
+    показывала бы «генерируется» поверх настоящего результата."""
+    uid = await _login(client, "stray-key-match-start@test.com")
+    _save_profile(uid)
+    _set_balance(uid, 3, 0)
+
+    async def fake_call_ai(prompt):
+        return json.dumps({
+            "name": "x", "target_role": "Dev", "summary": "s", "contact": {},
+            "experience": [], "education": [], "skills": {}, "languages": [],
+            "generation_status": "generating",
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(main, "call_ai", fake_call_ai)
+    job = "Python backend developer, работа с высоконагруженными сервисами. " * 2
+    r = await client.post("/api/match/start", json={"job_text": job})
+    assert r.status_code == 200
+
+    rid = r.json()["resume_id"]
+    with main.get_db() as db:
+        resume = json.loads(db.execute(
+            "SELECT resume_data FROM resumes WHERE id=?", (rid,)
+        ).fetchone()["resume_data"])
+    assert "generation_status" not in resume

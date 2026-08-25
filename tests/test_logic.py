@@ -8,6 +8,9 @@ import pytest
 from main import (
     _deduct, _refund, _parse_ai,
     _looks_like_injection, _looks_like_honest_json_attempt, _flag_abuse,
+    _resume_group_name, _guess_job_title, _pending_resume_data,
+    _public_generation_error, _validate_job_source, _resolve_job_text,
+    _mark_generation_failed, _save_resume, _insert_pending_resume, MatchReq,
 )
 
 
@@ -559,3 +562,255 @@ async def test_call_ai_unexpected_error_maps_to_500(monkeypatch):
     with pytest.raises(main.HTTPException) as exc_info:
         await main.call_ai("промпт")
     assert exc_info.value.status_code == 500
+
+
+# ── _resume_group_name ──────────────────────────────────────────────────────
+
+def test_resume_group_name_uses_company_when_given():
+    assert _resume_group_name("ACME Corp", "matched") == "ACME Corp"
+
+
+def test_resume_group_name_falls_back_by_kind_when_company_empty():
+    """Компания пуста — группа зависит от kind, а не от должности (см. тест
+    test_empty_company_is_not_replaced_with_vacancy_title в test_api.py)."""
+    assert _resume_group_name("", "general") == "Общее резюме"
+    assert _resume_group_name("   ", "matched") == "Без компании"
+
+
+# ── _guess_job_title ────────────────────────────────────────────────────────
+
+def test_guess_job_title_uses_default_fallback_when_text_empty():
+    assert _guess_job_title("") == "Резюме под вакансию"
+
+
+def test_guess_job_title_picks_first_non_empty_line():
+    text = "Python Backend Developer\nОбязанности: писать код"
+    assert _guess_job_title(text) == "Python Backend Developer"
+
+
+def test_guess_job_title_strips_surrounding_dashes_and_whitespace():
+    text = "  - Python Backend Developer -  \nОстальной текст вакансии"
+    assert _guess_job_title(text) == "Python Backend Developer"
+
+
+def test_guess_job_title_does_not_strip_leading_x_as_a_dash():
+    """Регрессия набора символов обрезки: буква X — не тире и не пробел, не
+    должна пропадать из угаданного заголовка."""
+    text = "X-Ray Technician\nОстальной текст вакансии"
+    assert _guess_job_title(text) == "X-Ray Technician"
+
+
+def test_guess_job_title_truncates_to_120_chars():
+    text = "A" * 150
+    result = _guess_job_title(text)
+    assert len(result) == 120
+    assert result == "A" * 120
+
+
+# ── _pending_resume_data ────────────────────────────────────────────────────
+
+def test_pending_resume_data_exact_shape_with_title_and_company():
+    result = _pending_resume_data("Python Backend Developer", "ACME Corp")
+    assert result == {
+        "name": "",
+        "contact": {},
+        "target_role": "Python Backend Developer",
+        "summary": "Генерация резюме запущена. Карточка обновится автоматически.",
+        "experience": [],
+        "education": [],
+        "skills": {},
+        "languages": [],
+        "generation_status": "generating",
+        "generation_company": "ACME Corp",
+    }
+
+
+def test_pending_resume_data_falls_back_to_default_title_when_blank():
+    """job_title обязан быть именно falsy (не просто пробелами) — иначе
+    короткое замыкание `job_title or "..."` даже не доходит до сравнения
+    с дефолтом, и часть веток остаётся непроверенной."""
+    result = _pending_resume_data("", "")
+    assert result["target_role"] == "Резюме под вакансию"
+    assert result["generation_company"] == ""
+
+
+# ── _public_generation_error ────────────────────────────────────────────────
+
+def test_public_generation_error_returns_http_exception_detail():
+    import main
+    exc = main.HTTPException(400, "Текст вакансии слишком короткий")
+    assert _public_generation_error(exc) == "Текст вакансии слишком короткий"
+
+
+def test_public_generation_error_returns_generic_fallback_for_other_exceptions():
+    assert (_public_generation_error(RuntimeError("boom"))
+            == "Не удалось создать резюме. Попробуйте ещё раз.")
+
+
+# ── _validate_job_source ────────────────────────────────────────────────────
+
+def test_validate_job_source_raises_when_neither_text_nor_url_given():
+    import main
+    with pytest.raises(main.HTTPException) as exc_info:
+        _validate_job_source("", "")
+    assert exc_info.value.status_code == 400
+    assert "Вставьте текст" in exc_info.value.detail
+
+
+def test_validate_job_source_accepts_url_only_with_blank_text():
+    """Регрессия: пустой job_text при отправке по ссылке не должен подменяться
+    фиктивным непустым значением — иначе URL-заявка ошибочно требовала бы то
+    «не оба поля сразу», то 30 символов текста, которого нет."""
+    job_text, job_url = _validate_job_source("", "https://example.com/vacancy")
+    assert job_text == ""
+    assert job_url == "https://example.com/vacancy"
+
+
+def test_validate_job_source_accepts_text_at_exact_30_char_boundary():
+    text = "x" * 30
+    job_text, _ = _validate_job_source(text, "")
+    assert job_text == text
+
+
+def test_validate_job_source_rejects_text_shorter_than_30_chars():
+    import main
+    with pytest.raises(main.HTTPException) as exc_info:
+        _validate_job_source("x" * 29, "")
+    assert exc_info.value.status_code == 400
+    assert "не короче 30" in exc_info.value.detail
+
+
+# ── _resolve_job_text ───────────────────────────────────────────────────────
+
+async def test_resolve_job_text_fetches_exact_url_and_accepts_30_char_result(monkeypatch):
+    import main
+    captured = {}
+    fetched = "y" * 30
+
+    async def fake_fetch(url):
+        captured["url"] = url
+        return fetched
+
+    monkeypatch.setattr(main, "_fetch_job_text", fake_fetch)
+    job_text, job_url = await _resolve_job_text("", "https://example.com/vacancy/42")
+    assert captured["url"] == "https://example.com/vacancy/42"
+    assert job_text == fetched
+    assert job_url == "https://example.com/vacancy/42"
+
+
+async def test_resolve_job_text_raises_when_fetched_text_too_short(monkeypatch):
+    import main
+
+    async def fake_fetch(url):
+        return "x" * 29
+
+    monkeypatch.setattr(main, "_fetch_job_text", fake_fetch)
+    with pytest.raises(main.HTTPException) as exc_info:
+        await _resolve_job_text("", "https://example.com/vacancy/42")
+    assert exc_info.value.status_code == 400
+
+
+# ── _mark_generation_failed ─────────────────────────────────────────────────
+
+def test_mark_generation_failed_preserves_other_fields_and_sets_status(db):
+    uid = _add_user(db)
+    cur = db.execute(
+        "INSERT INTO resumes (user_id, resume_data) VALUES (?,?)",
+        (uid, json.dumps({"target_role": "Existing Title", "keep": "me"}, ensure_ascii=False)),
+    )
+    db.commit()
+    rid = cur.lastrowid
+
+    _mark_generation_failed(db, uid, rid, "Ошибка генерации: превышен лимит")
+    db.commit()
+
+    row = db.execute("SELECT resume_data FROM resumes WHERE id=?", (rid,)).fetchone()
+    raw = row["resume_data"]
+    assert "Ошибка" in raw, "не-ASCII текст ошибки не должен уходить \\u-escape'ами"
+    resume = json.loads(raw)
+    assert resume["target_role"] == "Existing Title", "старые поля резюме не должны стираться"
+    assert resume["keep"] == "me"
+    assert resume["generation_status"] == "failed"
+    assert resume["generation_error"] == "Ошибка генерации: превышен лимит"
+
+
+def test_mark_generation_failed_recovers_from_corrupted_existing_json(db):
+    """Если в resume_data лежит не-JSON (гонка/повреждение), функция не должна
+    падать — восстанавливаемся с пустого резюме, но статус и текст ошибки
+    всё равно должны записаться."""
+    uid = _add_user(db)
+    cur = db.execute(
+        "INSERT INTO resumes (user_id, resume_data) VALUES (?,?)",
+        (uid, "не валидный json{{{"),
+    )
+    db.commit()
+    rid = cur.lastrowid
+
+    _mark_generation_failed(db, uid, rid, "err")
+    db.commit()
+
+    resume = json.loads(db.execute(
+        "SELECT resume_data FROM resumes WHERE id=?", (rid,)
+    ).fetchone()["resume_data"])
+    assert resume["generation_status"] == "failed"
+    assert resume["generation_error"] == "err"
+
+
+# ── _save_resume: аргументы по умолчанию и сериализация ────────────────────
+
+def test_save_resume_matched_kind_uses_given_company_and_truncates_snippet(db):
+    uid = _add_user(db)
+    long_snippet = "y" * 400
+    resume = {"name": "Иван Иванов", "summary": "Резюме на русском"}
+    rid = _save_resume(db, uid, resume, "matched",
+                        company="ACME Corp", job_url="https://x", job_snippet=long_snippet)
+    row = db.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
+    assert row["company_name"] == "ACME Corp"
+    assert row["job_snippet"] == long_snippet[:300]
+    assert len(row["job_snippet"]) == 300
+    assert row["updated"] is not None
+    assert "Иван Иванов" in row["resume_data"], "не-ASCII не должен уходить \\u-escape'ами"
+
+
+def test_save_resume_general_kind_defaults_empty_url_and_snippet(db):
+    """generate_from_profile зовёт _save_resume без job_url/job_snippet —
+    значения по умолчанию должны остаться пустой строкой, а не «залипнуть» на
+    чём-то другом."""
+    uid = _add_user(db)
+    rid = _save_resume(db, uid, {"name": "x"}, "general")
+    row = db.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
+    assert row["company_name"] == "Общее резюме"
+    assert row["job_url"] == ""
+    assert row["job_snippet"] == ""
+
+
+# ── _insert_pending_resume ──────────────────────────────────────────────────
+
+def test_insert_pending_resume_uses_explicit_job_title_over_guess(db):
+    uid = _add_user(db)
+    long_text = "Какой-то текст вакансии, отличный от заголовка. " + "z" * 300
+    req = MatchReq(job_text=long_text, company="ACME Corp", job_title="Senior Backend Engineer")
+
+    rid, resume = _insert_pending_resume(db, uid, req, long_text, "")
+
+    assert resume["target_role"] == "Senior Backend Engineer", "явный job_title важнее угадывания"
+    assert resume["generation_company"] == "ACME Corp"
+    row = db.execute("SELECT * FROM resumes WHERE id=?", (rid,)).fetchone()
+    assert row["kind"] == "matched"
+    assert row["company_name"] == "ACME Corp"
+    assert row["job_snippet"] == long_text[:300]
+    assert len(row["job_snippet"]) == 300
+    assert row["updated"] is not None
+    assert "Генерация" in row["resume_data"], "не-ASCII не должен уходить \\u-escape'ами"
+
+
+def test_insert_pending_resume_guesses_title_from_text_when_not_given(db):
+    uid = _add_user(db)
+    job_text = "Python Backend Developer\nОписание вакансии длиной от тридцати символов."
+    req = MatchReq(job_text=job_text, company="", job_title="")
+
+    rid, resume = _insert_pending_resume(db, uid, req, job_text, "")
+
+    assert resume["target_role"] == "Python Backend Developer"
+    row = db.execute("SELECT company_name FROM resumes WHERE id=?", (rid,)).fetchone()
+    assert row["company_name"] == "Без компании"

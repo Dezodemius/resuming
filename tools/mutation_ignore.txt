@@ -190,3 +190,50 @@ c4257913  # формулировка fallback "не указано" (образ�
 7da093e2  # формулировка fallback "определи сам по опыту"
 0304a1a7  # формулировка fallback "не указан" (опыт; r.experience — generate_prompt)
 1eef9c0a  # формулировка fallback "не указано" (образование; r.education — generate_prompt)
+
+# ── main._ensure_resume_capacity ────────────────────────────────────────────
+
+# raise ValueError("resume_limit")  ->  raise ValueError("XXresume_limitXX")
+# Все вызывающие (match_to_job, start_match_to_job, generate, generate_from_profile
+# и mcp_adapt_resume) разбирают причину подстрокой — `if "resume_limit" in
+# str(e):` — а не точным совпадением. "XXresume_limitXX" содержит
+# "resume_limit" как подстроку, поэтому проверка проходит так же и
+# наблюдаемый ответ (402, {"error": "resume_limit"}) не меняется. Соседний
+# мутант этой же строки (замена текста на None) остаётся под гейтом и ловится
+# тестом — str(None) уже не содержит "resume_limit", там подстрока рвётся.
+ae37e370  # XX-обёртка сообщения: "resume_limit" остаётся подстрокой, проверку `in` не отличить
+
+# ── main._insert_pending_resume ─────────────────────────────────────────────
+
+# company = _resume_group_name(req.company, kind)  ->  ...(req.company, None)
+# kind в этом вызове всегда литерал "matched" (присваивается строкой выше).
+# Внутри _resume_group_name kind участвует только в сравнении == "general" —
+# а "matched" им не является точно так же, как и None. Ветка не меняется ни
+# при каком company.
+8daac57a  # kind — литерал "matched" в этом вызове; сравнение с "general" даёт тот же исход, что и None
+
+# json.dumps(resume, ensure_ascii=False)  ->  ensure_ascii=None
+# Тот же случай, что и config._parse_admin_ips/strict=None выше: json.dumps
+# проверяет ensure_ascii на истинность, а не на конкретное значение — False и
+# None одинаково ложны, результат для любого содержимого совпадает побайтово
+# (проверено: не-ASCII текст не экранируется в обоих случаях).
+5dfe8d03  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
+
+# ── main._mark_generation_failed ────────────────────────────────────────────
+
+# (json.dumps(resume, ensure_ascii=False), resume_id, user_id)  ->  ensure_ascii=None
+# Тот же случай ensure_ascii=None/False, что и выше.
+d1176395  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
+
+# ── main._save_resume ───────────────────────────────────────────────────────
+
+# json.dumps(resume, ensure_ascii=False), kind, now)  ->  ensure_ascii=None
+# Тот же случай ensure_ascii=None/False, что и выше.
+97bccde8  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
+
+# ── main._finish_match_generation ───────────────────────────────────────────
+
+# (json.dumps(resume, ensure_ascii=False), resolved_text[:300], resume_id, user_id)  ->  ensure_ascii=None
+# Тот же случай ensure_ascii=None/False, что и выше — успешная запись готового
+# резюме в фоновой генерации.
+4d4069bf  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
