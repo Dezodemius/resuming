@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260808">
+<link rel="stylesheet" href="/static/app.css?v=20260825">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <style>
 /* ── Page ── */
@@ -107,6 +107,21 @@
 .spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(255,255,255,.2);border-top-color:var(--accent);animation:rsmspin .75s linear infinite}
 .toast{position:fixed;bottom:1.5rem;right:1.5rem;z-index:400;background:var(--surface-3);color:var(--text);border:1px solid var(--border-2);padding:11px 16px;border-radius:11px;font-size:12.5px;opacity:0;transition:opacity .25s;max-width:280px;pointer-events:none;box-shadow:var(--shadow-lg)}
 .toast.on{opacity:1}.toast.ok{border-color:var(--accent-line);color:var(--accent)}.toast.err{border-color:rgba(239,68,68,.5);color:#f87171}
+@media(max-width:620px){
+  .page{padding:22px 16px 84px}
+  .user-card{align-items:flex-start;flex-wrap:wrap;padding:18px}
+  .user-card .btn-soft{margin-left:68px}
+  .promo-row{flex-direction:column}
+  .promo-row .btn-soft{width:100%;justify-content:center;height:42px}
+  .pay-row{align-items:flex-start;gap:10px}
+  .modal{padding:24px 20px}
+  .toast{left:16px;right:16px;bottom:16px;max-width:none}
+}
+@media(max-width:420px){
+  .user-card .btn-soft{margin-left:0;width:100%;justify-content:center}
+  .usage-row{align-items:flex-start;gap:10px}
+  .plan-card{padding:18px}
+}
 </style>
 <script src="/static/logger.js"></script>
 {% include '_metrika.html' %}

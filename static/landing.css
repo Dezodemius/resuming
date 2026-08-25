@@ -29,6 +29,20 @@
 .lp-head__login:hover{border-color:var(--border-2);background:var(--surface-3)}
 .lp-head__cta{height:40px;padding:0 16px;border-radius:11px;font-size:13.5px}
 @media(min-width:900px){.lp-head__nav{display:flex}}
+@media(max-width:560px){
+  .lp-wrap{padding:0 16px}
+  .lp-head{padding:0 12px}
+  .lp-head__in{gap:10px}
+  .lp-head__right{gap:8px}
+  .lp-head__login{display:none}
+  .lp-head__cta{height:38px;padding:0 12px;font-size:13px}
+  .lp-sec{padding:58px 0}
+  .lp-hero{padding:44px 0 18px}
+  .lp-cta-row>*{width:100%;justify-content:center}
+  .lp-badge-float{position:static;margin-top:12px;justify-content:center}
+  .lp-plan{padding:24px 20px}
+  .lp-final{padding:40px 20px;border-radius:20px}
+}
 
 /* ── Общие заголовки секций ──────────────────────────────────────────────── */
 .lp-sec{padding:76px 0}
