@@ -9,7 +9,8 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260711">
-<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script src="/static/esc.js?v=20260824"></script>
 <style>
 .admin-container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .section { margin-bottom: 32px; }
@@ -134,14 +135,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// Значения из БД (email и имена — пользовательский ввод) попадают в innerHTML,
-// поэтому любую подстановку экранируем: иначе достаточно завести аккаунт
-// с разметкой в имени, чтобы выполнить скрипт в сессии админа.
-function esc(v) {
-  return String(v ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[ch]);
-}
+// esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
 
 async function loadPromos() {
   try {

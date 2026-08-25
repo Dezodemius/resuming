@@ -14,9 +14,10 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260711">
-<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/esc.js?v=20260824"></script>
 {% include '_metrika.html' %}
 </head>
 <body>
@@ -556,7 +557,7 @@ function syncGenerationPoll() {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
 function jsArg(s){ return JSON.stringify(String(s == null ? '' : s)); }
 function val(id){ return (document.getElementById(id)?.value || '').trim(); }
 function setVal(id, value){ const el = document.getElementById(id); if (el) el.value = value || ''; }

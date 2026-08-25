@@ -16,7 +16,7 @@
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260808">
 <link rel="stylesheet" href="/static/landing.css?v=20260808">
-<script>(function(){try{if(localStorage.getItem('theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <style>
 .pay-info{
   max-width:840px;margin:44px auto 0;padding:26px 28px;border-radius:20px;
@@ -100,6 +100,7 @@
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
         </ul>
         <button class="btn-primary lp-plan__btn" id="btn-buy" type="button" onclick="buyPro()">Оформить Pro — {{ pro_price|int }} ₽</button>
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center">Безлимит в рамках добросовестного использования — до {{ pro_fair_use_limit }} генераций за {{ pro_fair_use_days }} дней, для живого поиска работы недостижимо</div>
       </div>
     </div>
 

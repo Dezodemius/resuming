@@ -302,7 +302,7 @@ def test_pick_survivor_ignores_account_without_expiry_date():
 
 
 def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
-    """База, уже прошедшая шаг 1, должна получить ровно один недостающий шаг.
+    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2 и 3).
 
     Если условие версии съедет и шаг 1 выполнится повторно, он пересоберёт
     users по своему списку колонок и вернёт колонки Telegram обратно.
@@ -315,11 +315,91 @@ def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
     conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
-    assert db_module.migrate(conn) == 1, "должен примениться только шаг 2"
+    assert db_module.migrate(conn) == 2, "должны примениться только шаги 2 и 3, не шаг 1 повторно"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
     assert db_module.migrate(conn) == 0, "повторный прогон ничего не делает"
     conn.close()
+
+
+# ── Миграция 3: payments получает amount/product (issue #43) ───────────────
+# `payments` не участвует ни в UNIQUE-пересборках, ни в FOREIGN KEY соседних
+# таблиц, поэтому шаг — просто ALTER TABLE ADD COLUMN, без пересоздания
+# таблицы. Проверяем отдельно от users-миграций: там `_legacy_db()` уже создаёт
+# payments по актуальной (пост-правочной) схеме через init_db(), так что ветку
+# ALTER TABLE она не задевает.
+_OLD_PAYMENTS = """
+    CREATE TABLE payments (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id  INTEGER NOT NULL,
+        pay_id   TEXT,
+        idem_key TEXT UNIQUE,
+        status   TEXT DEFAULT 'pending',
+        created  TEXT DEFAULT (datetime('now'))
+    );
+"""
+
+
+def _pre_migration_3_db(tmp_path, monkeypatch):
+    """База на SCHEMA_VERSION=2: payments ещё без amount/product."""
+    import config
+
+    path = str(tmp_path / "pre-migration-3.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    main.init_db()
+    conn = db_module.connect()
+    conn.executescript("DROP TABLE payments;" + _OLD_PAYMENTS + "PRAGMA user_version = 2;")
+    conn.commit()
+    return conn
+
+
+def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
+    conn = _pre_migration_3_db(tmp_path, monkeypatch)
+    conn.execute(
+        "INSERT INTO payments (user_id, pay_id, idem_key, status) VALUES (1, '5', 'idem-5', 'pending')"
+    )
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1, "должен примениться только шаг 3"
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
+    assert {"amount", "product"} <= columns
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+
+    # Старая строка не потеряна, новые колонки у неё пустые (main.py при чтении
+    # подставляет вместо NULL прежнюю PRO_PRICE).
+    row = conn.execute("SELECT pay_id, amount, product FROM payments WHERE id=1").fetchone()
+    assert row["pay_id"] == "5"
+    assert row["amount"] is None
+    assert row["product"] is None
+    conn.close()
+
+
+def test_migration_3_is_idempotent(tmp_path, monkeypatch):
+    conn = _pre_migration_3_db(tmp_path, monkeypatch)
+    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
+    conn.close()
+
+
+def test_migration_3_guard_short_circuits_on_new_schema(tmp_path, monkeypatch):
+    """Прямой вызов шага на уже мигрированной базе не должен падать
+    (columns already present) — как и остальные шаги, он идемпотентен сам
+    по себе, не только через migrate()."""
+    conn = _pre_migration_3_db(tmp_path, monkeypatch)
+    db_module.migrate(conn)
+    before = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
+
+    db_module._migration_3_payment_amount_product(conn)
+
+    after = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
+    assert before == after
+    conn.close()
+
+
+def test_fresh_db_payments_has_amount_and_product_columns(db):
+    """Новая база создаётся сразу с итоговой схемой — колонки есть без миграции."""
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(payments)").fetchall()}
+    assert {"amount", "product"} <= columns
 
 
 def test_migration_2_guard_short_circuits(tmp_path, monkeypatch):

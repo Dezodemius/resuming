@@ -101,11 +101,16 @@ def _add_user(email):
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 
-def _add_payment(user_id, pay_id):
-    """Строка платежа, какую создаёт /api/pay до редиректа в Робокассу (InvId=pay_id)."""
+def _add_payment(user_id, pay_id, amount=None):
+    """Строка платежа, какую создаёт /api/pay до редиректа в Робокассу (InvId=pay_id).
+
+    amount=None воспроизводит платежи, созданные до issue #43 — колонка ещё
+    пуста, и вебхук должен сверять такую строку со старой глобальной PRO_PRICE
+    (main.payment_webhook: `pay_row["amount"] or PRO_PRICE`).
+    """
     with main.get_db() as db:
-        db.execute("INSERT INTO payments (user_id, pay_id, idem_key) VALUES (?,?,?)",
-                   (user_id, pay_id, f"idem-{pay_id}"))
+        db.execute("INSERT INTO payments (user_id, pay_id, idem_key, amount) VALUES (?,?,?,?)",
+                   (user_id, pay_id, f"idem-{pay_id}", amount))
         db.commit()
 
 
@@ -339,6 +344,124 @@ async def test_webhook_replay_does_not_extend_pro(client, monkeypatch):
     with main.get_db() as db:
         second_exp = db.execute("SELECT pro_expires_at FROM users WHERE id=?", (uid,)).fetchone()["pro_expires_at"]
     assert first_exp == second_exp
+
+
+# ── Платёж: сумма сверяется со строкой конкретного платежа (issue #43) ───────
+# Раньше вебхук и OpStateExt сверяли OutSum с глобальной константой PRO_PRICE.
+# Смена цены в конфиге между выставлением счёта и приходом вебхука либо ломала
+# разбор уже выставленных счетов, либо позволяла закрыть платёж на другую
+# сумму — теперь источник истины для конкретного счёта — его собственная
+# строка в payments.
+async def test_webhook_confirms_using_amount_stored_in_payment_row(client, monkeypatch):
+    """Сумма сверяется со значением, записанным в payments.amount при создании
+    счёта, а не с текущей глобальной PRO_PRICE."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", _TEST_PASSWORD2)
+    uid = _add_user("pay-custom-amount@test.com")
+    # Сумма в строке платежа отличается от текущей PRO_PRICE — как если бы счёт
+    # выставили до последующей смены цены в конфиге.
+    custom_amount = "199.00"
+    assert custom_amount != main.PRO_PRICE
+    _add_payment(uid, "200", amount=custom_amount)
+    monkeypatch.setattr(main.httpx, "AsyncClient",
+                         lambda *a, **k: _FakeClient(_opstate_xml("100", out_sum=custom_amount)))
+    r = await client.post("/api/pay/webhook", data=_webhook_form("200", out_sum=custom_amount))
+    assert r.text == "OK200"
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 1
+
+
+async def test_webhook_rejects_amount_not_matching_payment_row(client, monkeypatch):
+    """OutSum, совпадающий с текущей глобальной PRO_PRICE, но НЕ с суммой,
+    записанной в строке ЭТОГО платежа, не должен подтверждать оплату — иначе
+    платёж можно было бы закрыть на сумму, отличную от показанной покупателю."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", _TEST_PASSWORD2)
+    uid = _add_user("pay-mismatched-amount@test.com")
+    _add_payment(uid, "201", amount="199.00")
+    # out_sum по умолчанию в _webhook_form — main.PRO_PRICE, что не равно "199.00"
+    r = await client.post("/api/pay/webhook", data=_webhook_form("201"))
+    assert not r.text.startswith("OK")
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
+
+
+async def test_webhook_falls_back_to_pro_price_for_legacy_payment_without_amount(client, monkeypatch):
+    """Платежи, созданные до этой правки, хранят amount=NULL — вебхук обязан
+    по-прежнему сверять их со старой константой PRO_PRICE, иначе уже
+    выставленные и ещё не оплаченные счета перестанут подтверждаться сразу
+    после деплоя."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", _TEST_PASSWORD2)
+    uid = _add_user("pay-legacy@test.com")
+    _add_payment(uid, "202")  # amount не передан → NULL, как до миграции
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda *a, **k: _FakeClient(_opstate_xml("100")))
+    r = await client.post("/api/pay/webhook", data=_webhook_form("202"))
+    assert r.text == "OK202"
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 1
+
+
+# ── Оплата: InvId учитывает несбрасываемый оффсет (issue #43) ────────────────
+async def test_payment_invid_includes_offset(client, monkeypatch):
+    """InvId = payments.id + INV_ID_OFFSET, а не голый autoincrement.
+
+    После восстановления БД из бэкапа (или пересоздания volume) payments.id
+    стартует заново и без оффсета совпал бы с уже оплаченным старым номером —
+    OpStateExt подтвердил бы новый счёт данными чужого, давно закрытого.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main, "INV_ID_OFFSET", 100000)
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO magic_tokens (token, email, expires_at, used)"
+            " VALUES (?,?,datetime('now','+10 minutes'),0)",
+            ("tok-offset", "offset@test.com"),
+        )
+        db.commit()
+    await client.get("/auth/email/verify?token=tok-offset", follow_redirects=False)
+
+    r = await client.post("/api/pay", json={})
+    assert r.status_code == 200, r.text
+    qs = parse_qs(urlparse(r.json()["url"]).query)
+    inv_id = int(qs["InvId"][0])
+    assert inv_id >= 100000, "InvId обязан включать оффсет, а не быть голым payments.id"
+    with main.get_db() as db:
+        row = db.execute("SELECT id FROM payments WHERE pay_id=?", (str(inv_id),)).fetchone()
+    assert row is not None, "InvId в redirect-URL должен находиться в payments по pay_id"
+    assert inv_id == row["id"] + 100000
+
+
+async def test_payment_invid_matches_default_offset_zero(client, monkeypatch):
+    """Без настройки INV_ID_OFFSET (по умолчанию 0) поведение не меняется —
+    существующие установки не должны молча получить сдвинутые номера счетов."""
+    from urllib.parse import parse_qs, urlparse
+
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    assert main.INV_ID_OFFSET == 0
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO magic_tokens (token, email, expires_at, used)"
+            " VALUES (?,?,datetime('now','+10 minutes'),0)",
+            ("tok-offset-zero", "offset-zero@test.com"),
+        )
+        db.commit()
+    await client.get("/auth/email/verify?token=tok-offset-zero", follow_redirects=False)
+
+    r = await client.post("/api/pay", json={})
+    qs = parse_qs(urlparse(r.json()["url"]).query)
+    inv_id = int(qs["InvId"][0])
+    with main.get_db() as db:
+        row = db.execute("SELECT id FROM payments WHERE pay_id=?", (str(inv_id),)).fetchone()
+    assert inv_id == row["id"]
 
 
 # ── Платёж: понятная ошибка при невыключенной/ненастроенной Робокассе ────────
