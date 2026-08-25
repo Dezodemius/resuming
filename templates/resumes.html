@@ -43,10 +43,10 @@
       <h1 class="greet__h1" id="greet-h1">С возвращением 👋</h1>
       <p class="greet__sub" id="greet-sub"></p>
     </div>
-    <a class="btn-primary" href="/new">
+    <button class="btn-primary" type="button" onclick="openCreateModal()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
       Создать резюме
-    </a>
+    </button>
   </div>
 
   <!-- Stat cards -->
@@ -77,6 +77,44 @@
 
 {% include '_app_footer.html' %}
 
+<div class="modal-wrap" id="modal-create-resume">
+  <div class="modal-backdrop" onclick="closeCreateModal()"></div>
+  <div class="modal modal--create">
+    <button class="modal__close" onclick="closeCreateModal()" type="button">×</button>
+    <h2>Новое резюме</h2>
+    <p class="modal__sub">Укажите вакансию. Можно дать ссылку или вставить текст — только один источник.</p>
+    <div class="field">
+      <label>Название вакансии</label>
+      <input id="cr-title" placeholder="Например: Backend-разработчик">
+    </div>
+    <div class="field">
+      <label>Компания</label>
+      <input id="cr-company" placeholder="Название компании">
+    </div>
+    <div class="source-tabs" role="tablist" aria-label="Источник вакансии">
+      <button class="source-tab source-tab--active" id="cr-tab-url" type="button" onclick="setCreateSource('url')">Ссылка</button>
+      <button class="source-tab" id="cr-tab-text" type="button" onclick="setCreateSource('text')">Текст вакансии</button>
+    </div>
+    <div id="cr-source-url" class="source-panel">
+      <div class="field">
+        <label>Ссылка на вакансию</label>
+        <input id="cr-url" placeholder="https://example.com/vacancy/123">
+      </div>
+    </div>
+    <div id="cr-source-text" class="source-panel" style="display:none">
+      <div class="field">
+        <label>Текст вакансии</label>
+        <textarea id="cr-text" rows="7" placeholder="Вставьте описание вакансии из файла, письма или чата"></textarea>
+      </div>
+    </div>
+    <div class="field">
+      <label>Акценты <span>необязательно</span></label>
+      <textarea id="cr-hint" rows="3" placeholder="Например: сделать упор на backend, API и высокую нагрузку"></textarea>
+    </div>
+    <button class="btn-build" id="cr-submit" type="button" onclick="submitCreateResume()">Создать резюме</button>
+  </div>
+</div>
+
 <div class="loader" id="loader"><div class="spinner"></div><div class="loader-text" id="loader-text">Загружаем…</div></div>
 <div class="toast" id="toast"></div>
 
@@ -89,20 +127,22 @@ const STATUS = {
   accepted: { label:'Приглашение', c:'#a855f7', bg:'rgba(168,85,247,0.15)' },
   rejected: { label:'Отказ',       c:'#ef4444', bg:'rgba(239,68,68,0.15)' },
 };
+const GENERATION_STATUS = {
+  generating: { label:'Генерация', c:'#0ea5e9', bg:'rgba(14,165,233,0.15)' },
+  failed:     { label:'Ошибка',    c:'#ef4444', bg:'rgba(239,68,68,0.15)' },
+};
 const STATUS_ORDER = ['draft','sent','waiting','accepted','rejected'];
 const FILTERS = [
   ['all','Все'], ['draft','Черновики'], ['sent','Отправлено'],
   ['waiting','Ждём'], ['accepted','Приглашения'], ['rejected','Отказы'],
 ];
-const CO_COLORS = {
-  'яндекс':'#ef4444','авито':'#7c3aed','т-банк':'#f4c20d','тинькофф':'#f4c20d','тбанк':'#f4c20d',
-  'озон':'#2563eb','ozon':'#2563eb','vk':'#0ea5e9','вконтакте':'#0ea5e9',
-  'сбер':'#21a038','сбербанк':'#21a038','wildberries':'#cb11ab','wb':'#cb11ab',
-};
+const CO_COLORS = {};
 const PALETTE = ['#ef4444','#7c3aed','#2563eb','#0ea5e9','#f4c20d','#0ea372','#f97316','#ec4899'];
 
 // ── State ────────────────────────────────────────────────────────────────
 let resumes = [];
+let generationPoll = null;
+let createSource = 'url';
 let state = {
   view:   (localStorage.getItem('lib_view') || 'feed'),
   filter: 'all',
@@ -128,19 +168,29 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.view-btn').forEach(b => {
     b.addEventListener('click', () => setView(b.dataset.view));
   });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeCreateModal();
+  });
 
   await loadResumes();
 });
 
-async function loadResumes() {
-  setLoader(true, 'Загружаем резюме…');
+async function loadResumes(opts = {}) {
+  if (!opts.silent) setLoader(true, 'Загружаем резюме…');
+  const hadGenerating = new Set(resumes.filter(r => r.generation_status === 'generating').map(r => r.id));
   try {
     const res = await fetch('/api/resumes');
     if (!res.ok) throw new Error('Ошибка загрузки');
     resumes = (await res.json()).resumes || [];
     renderStats(); renderChips(); syncViewButtons(); renderContent();
+    for (const r of resumes) {
+      if (hadGenerating.has(r.id) && r.generation_status === 'failed') {
+        toast(r.generation_error || 'Генерация не удалась', 'err');
+      }
+    }
+    syncGenerationPoll();
   } catch (e) { toast('Ошибка: ' + e.message, 'err'); }
-  finally { setLoader(false); }
+  finally { if (!opts.silent) setLoader(false); }
 }
 
 // ── Derived data ─────────────────────────────────────────────────────────
@@ -244,11 +294,11 @@ function renderContent(){
 function emptyHtml(){
   return `<div class="lib-empty">
     <h2>Резюме пока нет</h2>
-    <p>Создайте первое резюме в генераторе — оно появится здесь после сохранения.</p>
-    <a class="btn-primary" href="/new">
+    <p>Создайте первое резюме — карточка сразу появится на доске.</p>
+    <button class="btn-primary" type="button" onclick="openCreateModal()">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
       Создать резюме
-    </a>
+    </button>
   </div>`;
 }
 
@@ -267,15 +317,16 @@ function companySection(co){
         <div class="company__meta">${co.vacancies.length} ${plural(co.vacancies.length, ['вакансия','вакансии','вакансий'])}${co.avgMatch != null ? ' · средний ATS ' + co.avgMatch + '%' : ''}</div>
       </div>
       ${co.avgMatch != null ? `<span class="ats-pill">ATS ${co.avgMatch}%</span>` : ''}
-      <a class="btn-soft" href="/new"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме</a>
+      <button class="btn-soft" type="button" onclick="openCreateModal(${jsArg(co.name)})"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме</button>
     </div>
     <div class="vac-grid">${co.vacancies.map(vacCard).join('')}</div>
   </section>`;
 }
 function vacCard(v){
-  const st = STATUS[v.status] || STATUS.draft;
+  const st = displayStatus(v);
   const meta = metaLine(v);
-  return `<button class="vac" onclick="openResume(${v.id})">
+  const pending = generationClass(v, 'vac');
+  return `<button class="vac${pending}" onclick="openResume(${v.id})">
     <div class="vac__top">
       <span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>
       ${ringHtml(v.match)}
@@ -302,19 +353,22 @@ function boardView(){
         <span class="col__count">${col.length}</span>
       </div>
       ${col.map(bcard).join('')}
-      <a class="col__add" href="/new"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Добавить</a>
+      <button class="col__add" type="button" onclick="openCreateModal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Добавить</button>
     </div>`;
   }).join('')}</div>`;
 }
 function bcard(v){
+  const st = displayStatus(v);
   const foot = (v.salary || v.location)
     ? `<div class="bcard__foot"><span class="bcard__salary">${esc(v.salary || '')}</span><span class="bcard__loc">${esc(v.location || '')}</span></div>` : '';
-  return `<button class="bcard" onclick="openResume(${v.id})">
+  const pending = generationClass(v, 'bcard');
+  return `<button class="bcard${pending}" onclick="openResume(${v.id})">
     <div class="bcard__top">
       <div class="avatar-co" style="--co:${coColor(v.company_name)}">${esc(coInitial(v.company_name))}</div>
       <span class="bcard__co">${esc(v.company_name || 'Без компании')}</span>
       ${ringHtml(v.match)}
     </div>
+    ${v.generation_status ? `<span class="status bcard__status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>` : ''}
     <div class="bcard__title">${esc(vacTitle(v))}</div>
     ${foot}
   </button>`;
@@ -339,7 +393,7 @@ function explorerView(){
     </button>`).join('');
 
   const rows = active.vacancies.map(v => {
-    const st = STATUS[v.status] || STATUS.draft;
+    const st = displayStatus(v);
     const meta = [v.salary, v.location, relTime(v.updated || v.created)].filter(Boolean)
                  .map(esc).join('<span class="dot">·</span>');
     return `<button class="vrow" onclick="openResume(${v.id})">
@@ -362,9 +416,9 @@ function explorerView(){
           <div class="explorer__coname">${esc(active.name)}</div>
           <div class="explorer__cometa">${active.vacancies.length} ${plural(active.vacancies.length, ['вакансия','вакансии','вакансий'])}${active.avgMatch != null ? ' · средний ATS ' + active.avgMatch + '%' : ''}</div>
         </div>
-        <a class="btn-primary" href="/new" style="height:40px;font-size:13.5px">
+        <button class="btn-primary" type="button" onclick="openCreateModal(${jsArg(active.name)})" style="height:40px;font-size:13.5px">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Резюме
-        </a>
+        </button>
       </div>
       <div class="explorer__list">${rows}</div>
     </div>
@@ -377,16 +431,136 @@ function ringHtml(match){
   if (match == null) return '';
   return `<div class="ring" style="--deg:${match * 3.6}deg"><div class="ring__hole"></div><span class="ring__num">${match}</span></div>`;
 }
+function displayStatus(v){
+  return GENERATION_STATUS[v.generation_status] || STATUS[v.status] || STATUS.draft;
+}
+function generationClass(v, block){
+  return GENERATION_STATUS[v.generation_status] ? ` ${block}--${v.generation_status}` : '';
+}
 function metaLine(v){
   return [v.salary, v.location].filter(Boolean).map(esc).join('<span class="dot">·</span>');
 }
 function noMatchHtml(){
   return `<div class="lib-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить поиск или фильтр.</p></div>`;
 }
-function openResume(id){ window.location.href = '/resumes/' + id; }
+function openResume(id){
+  const r = resumes.find(x => x.id === id);
+  if (r?.generation_status === 'generating') {
+    toast('Резюме ещё генерируется. Можно продолжать работать с доской.', '');
+    return;
+  }
+  if (r?.generation_status === 'failed') {
+    toast(r.generation_error || 'Генерация не удалась', 'err');
+    return;
+  }
+  window.location.href = '/resumes/' + id;
+}
+
+// ── Create modal / async generation ─────────────────────────────────────
+function openCreateModal(company = '') {
+  setCreateSource('url');
+  setVal('cr-title', '');
+  setVal('cr-company', company && company !== 'Без компании' ? company : '');
+  setVal('cr-url', '');
+  setVal('cr-text', '');
+  setVal('cr-hint', '');
+  document.getElementById('modal-create-resume').classList.add('on');
+  setTimeout(() => document.getElementById(company ? 'cr-title' : 'cr-company')?.focus(), 0);
+}
+
+function closeCreateModal() {
+  document.getElementById('modal-create-resume').classList.remove('on');
+}
+
+function setCreateSource(source) {
+  createSource = source;
+  document.getElementById('cr-tab-url').classList.toggle('source-tab--active', source === 'url');
+  document.getElementById('cr-tab-text').classList.toggle('source-tab--active', source === 'text');
+  document.getElementById('cr-source-url').style.display = source === 'url' ? '' : 'none';
+  document.getElementById('cr-source-text').style.display = source === 'text' ? '' : 'none';
+  if (source === 'url') setVal('cr-text', '');
+  else setVal('cr-url', '');
+}
+
+async function submitCreateResume() {
+  const btn = document.getElementById('cr-submit');
+  const jobUrl = createSource === 'url' ? val('cr-url') : '';
+  const jobText = createSource === 'text' ? val('cr-text') : '';
+  if (jobUrl && jobText) { toast('Укажите ссылку или текст вакансии — не оба поля', 'err'); return; }
+  if (!jobUrl && !jobText) { toast('Добавьте ссылку или текст вакансии', 'err'); return; }
+  if (jobText && jobText.length < 30) { toast('Текст вакансии должен быть не короче 30 символов', 'err'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Создаю карточку...';
+  try {
+    const res = await fetch('/api/match/start', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        job_title:  val('cr-title'),
+        company:    val('cr-company'),
+        job_url:    jobUrl,
+        job_text:   jobText,
+        extra_hint: val('cr-hint'),
+      }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.status === 402) {
+      const msg = d.error === 'resume_limit'
+        ? 'Лимит сохранённых резюме исчерпан. Освободите место или оформите Pro.'
+        : 'Генерации закончились. Оформите Pro, чтобы продолжить.';
+      toast(msg, 'err');
+      return;
+    }
+    if (!res.ok) throw new Error(d.detail || 'Не удалось запустить генерацию');
+    closeCreateModal();
+    upsertPendingResume(d);
+    toast('Карточка добавлена. Генерация идёт в фоне.', 'ok');
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Создать резюме';
+  }
+}
+
+function upsertPendingResume(d) {
+  const resume = d.resume || {};
+  const now = new Date().toISOString();
+  const row = {
+    id: d.resume_id,
+    company_name: resume.generation_company || val('cr-company') || 'Без компании',
+    kind: 'matched',
+    status: 'draft',
+    created: now,
+    updated: now,
+    title: resume.target_role || val('cr-title') || 'Резюме под вакансию',
+    salary: null,
+    location: null,
+    match: null,
+    generation_status: d.generation_status || resume.generation_status || 'generating',
+    generation_error: null,
+  };
+  resumes = [row, ...resumes.filter(r => r.id !== row.id)];
+  renderStats(); renderChips(); syncViewButtons(); renderContent();
+  syncGenerationPoll();
+}
+
+function syncGenerationPoll() {
+  const hasGenerating = resumes.some(r => r.generation_status === 'generating');
+  if (hasGenerating && !generationPoll) {
+    generationPoll = setInterval(() => loadResumes({silent:true}), 3500);
+  } else if (!hasGenerating && generationPoll) {
+    clearInterval(generationPoll);
+    generationPoll = null;
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 // esc() — общая реализация в /static/esc.js (issue #47: версии в шаблонах разошлись).
+function jsArg(s){ return JSON.stringify(String(s == null ? '' : s)); }
+function val(id){ return (document.getElementById(id)?.value || '').trim(); }
+function setVal(id, value){ const el = document.getElementById(id); if (el) el.value = value || ''; }
 function plural(n, forms){
   const a = Math.abs(n) % 100, b = n % 10;
   if (a > 10 && a < 20) return forms[2];

@@ -290,7 +290,7 @@
 </div>
 
 <!-- Hidden PDF render area -->
-<div id="pdf-src" style="position:fixed;left:-9999px;top:0;width:760px;padding:50px 58px;background:#fff;font-family:'Manrope',sans-serif"></div>
+<div id="pdf-src" style="display:none;position:fixed;left:-9999px;top:0;width:760px;padding:50px 58px;background:#fff;color:#111;font-family:'Manrope',sans-serif;z-index:1"></div>
 
 <!-- Loader -->
 <div class="loader" id="loader">
@@ -316,11 +316,7 @@ const STATUS_COLORS = {
   accepted:{c:'#a855f7', bg:'rgba(168,85,247,0.15)'},
   rejected:{c:'#ef4444', bg:'rgba(239,68,68,0.15)'},
 };
-const CO_COLORS = {
-  'яндекс':'#ef4444','авито':'#7c3aed','т-банк':'#f4c20d','тинькофф':'#f4c20d','тбанк':'#f4c20d',
-  'озон':'#2563eb','ozon':'#2563eb','vk':'#0ea5e9','вконтакте':'#0ea5e9',
-  'сбер':'#21a038','сбербанк':'#21a038','wildberries':'#cb11ab','wb':'#cb11ab',
-};
+const CO_COLORS = {};
 const PALETTE=['#ef4444','#7c3aed','#2563eb','#0ea5e9','#f4c20d','#0ea372','#f97316','#ec4899'];
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -330,6 +326,7 @@ let isDirty = false;
 let aiTarget = null;    // { kind, expIdx }
 let _currentStatus = 'draft';
 let _matchScore = null;
+let _companyName = '';
 
 // ── Boot ───────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -362,6 +359,7 @@ function fillForm(d) {
 
   // Header / breadcrumbs
   const company = d.company_name || '';
+  _companyName = company;
   const role    = r.target_role  || '';
   syncHeaderCompany(company, c.city || '');
   syncHeaderRole(role);
@@ -683,7 +681,6 @@ async function saveResume() {
   if (!isDirty) return;
   setSaveState('saving');
   const resume_data  = collectResume();
-  const company_name = gv('h-company') || resume_data.target_role;
   const status       = _currentStatus;
   // keep hidden select in sync
   document.getElementById('status-sel').value = status;
@@ -691,7 +688,7 @@ async function saveResume() {
     const res = await fetch(`/api/resumes/${RESUME_ID}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ resume_data, company_name, status })
+      body: JSON.stringify({ resume_data, company_name: _companyName, status })
     });
     if (!res.ok) throw new Error('Ошибка сервера');
     isDirty = false;
@@ -794,16 +791,24 @@ async function downloadPDF() {
   const resume = collectResume();
   const el     = document.getElementById('pdf-src');
   el.innerHTML = buildResumeHtml(resume);
+  el.style.display = 'block';
   const name   = (resume.name || 'resume').replace(/\s+/g, '_');
   setLoader(true, 'Создание PDF…');
-  await html2pdf().set({
-    margin:[10,10,10,10], filename:`${name}.pdf`,
-    image:{type:'jpeg',quality:.98},
-    html2canvas:{scale:2,useCORS:true,logging:false},
-    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(el).save();
-  el.innerHTML = '';
-  setLoader(false);
+  try {
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    await html2pdf().set({
+      margin:[10,10,10,10], filename:`${name}.pdf`,
+      image:{type:'jpeg',quality:.98},
+      html2canvas:{scale:2,useCORS:true,logging:false,backgroundColor:'#ffffff'},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
+    }).from(el).save();
+  } catch(e) {
+    toast('Не удалось создать PDF: ' + e.message, 'err');
+  } finally {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    setLoader(false);
+  }
 }
 
 // ── Share ─────────────────────────────────────────────────────────────
