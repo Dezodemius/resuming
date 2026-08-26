@@ -173,7 +173,7 @@ def is_mutated_source(path: str, sources: list[str]) -> bool:
 
 
 def module_name(path: str) -> str:
-    """main.py → main, ops_mcp/server.py → ops_mcp.server (как в mutmut)."""
+    """main.py → main, tools/mutation_diff.py → tools.mutation_diff (как в mutmut)."""
     return PurePosixPath(path).with_suffix("").as_posix().replace("/", ".").removeprefix("src.")
 
 

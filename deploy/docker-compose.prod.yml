@@ -5,9 +5,9 @@
 #     (OLLAMA_URL/OLLAMA_MODEL/AI_API_KEY в .env указывают на него, см.
 #     .env.example); на app01 не хватает RAM под локальную модель;
 #   • нет контейнера nginx — на app01 TLS и проксирование делает host-level
-#     nginx (см. skill timeweb-app01), поэтому app и ops-mcp публикуются
-#     на 127.0.0.1 напрямую, портами, которые уже ждёт host-nginx
-#     (/etc/nginx/sites-available/resuming.conf: 127.0.0.1:8001 и :8765).
+#     nginx (см. skill timeweb-app01), поэтому app публикуется на 127.0.0.1
+#     напрямую, портом, который уже ждёт host-nginx
+#     (/etc/nginx/sites-available/resuming.conf: 127.0.0.1:8001).
 #
 # Пути в файле относительны каталога deploy/ (compose берёт рабочим
 # каталогом директорию compose-файла).
@@ -42,19 +42,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  # ВНИМАНИЕ: монтирует docker.sock — это эквивалент root на хосте.
-  ops-mcp:
-    build:
-      context: ../ops_mcp
-    container_name: resuming-ops-mcp
-    restart: unless-stopped
-    logging: *default-logging
-    env_file: ../.env
-    ports:
-      - "127.0.0.1:8765:8765"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   app_data:

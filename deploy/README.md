@@ -8,7 +8,7 @@
 | Где | app-01 (Timeweb), `/srv/apps/resuming` | отдельный VPS, `/opt/resuming` |
 | Чем | `ci_cd.yml` → SSH → `deploy/deploy-prod.sh` | `deploy/deploy.sh` с ноутбука |
 | Compose | `deploy/docker-compose.prod.yml` | `deploy/docker-compose.staging.yml` |
-| Что поднимается | `app` + `ops-mcp`, оба на `127.0.0.1` | `app` + `nginx` |
+| Что поднимается | `app`, на `127.0.0.1` | `app` + `nginx` |
 | Кто держит домен | **хостовой** nginx машины, общий с двумя другими проектами | свой nginx в compose |
 
 Корневой `docker-compose.yml` — третий, самодостаточный вариант (с локальной
@@ -189,8 +189,7 @@ docker-шлюза — поэтому в `ADMIN_IPS` нужна запись `172
 и TLS.
 
 Что поднимается на стенде: `app` (FastAPI) + `nginx`. **Ollama на стенде нет** —
-приложение ходит на внешний `OLLAMA_URL` из `.env` стенда. `ops-mcp` тоже не
-поднимается: он монтирует `docker.sock`, а это root на хосте.
+приложение ходит на внешний `OLLAMA_URL` из `.env` стенда.
 
 ## Первый запуск
 
