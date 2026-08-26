@@ -289,8 +289,11 @@
   </div>
 </div>
 
-<!-- Hidden PDF render area -->
-<div id="pdf-src" style="display:none;position:fixed;left:-9999px;top:0;width:760px;padding:50px 58px;background:#fff;color:#111;font-family:'Manrope',sans-serif;z-index:1"></div>
+<!-- Hidden PDF render area. html2canvas measures 0 height for out-of-flow
+     (fixed/absolute) elements, so this stays in normal flow and is moved to
+     the end of body during capture — safely offscreen below the fold and
+     covered by the loader overlay for the moment it's visible. -->
+<div id="pdf-src" style="display:none;width:760px;padding:50px 58px;background:#fff;color:#111;font-family:'Manrope',sans-serif"></div>
 
 <!-- Loader -->
 <div class="loader" id="loader">
@@ -791,6 +794,7 @@ async function downloadPDF() {
   const resume = collectResume();
   const el     = document.getElementById('pdf-src');
   el.innerHTML = buildResumeHtml(resume);
+  document.body.appendChild(el); // normal flow, below the fold — see comment on #pdf-src
   el.style.display = 'block';
   const name   = (resume.name || 'resume').replace(/\s+/g, '_');
   setLoader(true, 'Создание PDF…');

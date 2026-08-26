@@ -28,7 +28,11 @@ fi
 git rev-parse HEAD > /root/resuming-deployed-commit.txt 2>/dev/null || true
 
 # ── Сборка и запуск ─────────────────────────────────────────────────────────
-docker compose -f "$COMPOSE" up --build -d
+# --remove-orphans: без него контейнер сервиса, убранного из COMPOSE (как
+# ops-mcp — issue #45), compose не трогает, а только предупреждает — сервис
+# остаётся работать вместе с примонтированным docker.sock. Убрать его из
+# репозитория оказывается недостаточно, если не убрать и с прода.
+docker compose -f "$COMPOSE" up --build -d --remove-orphans
 
 # ── Ждём, пока приложение станет healthy ────────────────────────────────────
 echo "=== Ожидание healthcheck"
