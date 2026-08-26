@@ -38,7 +38,7 @@ python tools/mutation_diff.py --base origin/main   # мутанты по git-д�
 **Два контура деплоя** (подробно — `deploy/README.md`). Прод (`резюмирую.рф`)
 живёт на **app-01** (Timeweb, `/srv/apps/resuming`): пуш в `main` →
 `.github/workflows/ci_cd.yml` → SSH → `deploy/deploy-prod.sh` с
-`deploy/docker-compose.prod.yml` (только `app` + `ops-mcp`, оба на `127.0.0.1`,
+`deploy/docker-compose.prod.yml` (только `app`, на `127.0.0.1`,
 Ollama внешняя). Домен и TLS держит **хостовой** nginx этой машины, общий ещё с
 двумя проектами. Стенд — `deploy/deploy.sh`: архив рабочего дерева по SSH,
 `docker-compose.staging.yml` с app + nginx.

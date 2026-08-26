@@ -1,74 +1,84 @@
 ---
 name: logs
-description: Снять логи и статус контейнеров с прод-сервера через GitHub Actions воркфлоу logs.yml и поставить диагноз («сайт лежит», ошибка 522, не генерятся резюме). Use when the user asks about production errors, logs, why the site is down, 522 from Cloudflare, OOM, containers crashing, or resume generation failing in prod.
+description: Снять логи и статус прод-сервера по SSH (ssh app01) и поставить диагноз — «сайт лежит», 522 от Cloudflare, не генерятся резюме, не приходят письма. Use when the user asks about production errors, logs, why the site is down, 522, OOM, containers crashing, or resume generation failing in prod.
 ---
 
-# Logs — диагностика прода через self-hosted раннер
+# Logs — диагностика прода по SSH
 
-> **Контекст:** весь сбор и анализ логов выполняй в отдельном субагенте
-> (Explore или general-purpose) — сырой вывод `gh run view --log` объёмный и в
-> основной диалог не нужен. Наружу верни только краткий диагноз.
+> **Контекст:** сбор и анализ логов выполняй в отдельном субагенте (Explore или
+> general-purpose) — сырой вывод объёмный и в основной диалог не нужен. Наружу
+> верни только краткий диагноз.
 
-SSH-доступа к прод-серверу с дев-машины НЕТ. Единственный канал — self-hosted GitHub-раннер на самом сервере. Логи снимаются запуском workflow `logs.yml` (workflow_dispatch) и чтением вывода джоба через `gh`. Все команды ниже — PowerShell-совместимые (никаких `&&`).
+Канал один: `ssh app01` (алиас в `~/.ssh/config`, пользователь root, ключ
+`~/.ssh/timeweb_app01`). По этому же SSH ходит деплой из `ci_cd.yml`.
 
-## Шаг 0. Предварительные проверки
+Раньше единственным каналом был self-hosted GitHub-раннер и воркфлоу `logs.yml` —
+он ходил на машину, которой больше нет. Воркфлоу удалён, ops-mcp тоже: он делался
+ровно потому, что SSH не было, а держал `docker.sock` наружу под поддоменом.
 
-```powershell
-gh auth status
+## Что на проде есть на самом деле
+
+Не додумывай состав по корневому `docker-compose.yml` — он про локальный контур.
+Прод описан в `deploy/docker-compose.prod.yml`, рабочий каталог `/srv/apps/resuming`.
+
+- **Один контейнер проекта** — `resuming-app` (сервис `app`).
+- **Модель внешняя**: приложение ходит на OpenAI-совместимый API (`OLLAMA_URL` +
+  `AI_API_KEY` в `.env`). Контейнера `ollama` на проде нет, и OOM при загрузке
+  модели — не здешний сценарий, что бы ни говорили старые заметки.
+- **nginx хостовой**, не в compose, и **общий с двумя чужими проектами**
+  (dndshing.ru, sgorelo.ru). Его конфиг не трогать — см. скилл `timeweb-app01`.
+
+## Шаг 1. Статус контейнера
+
+```bash
+ssh app01 'cd /srv/apps/resuming && docker compose -f deploy/docker-compose.prod.yml ps'
 ```
 
-Если не залогинен — `gh auth login`, дальше без авторизации ничего не сработает.
+`Up`/`running` — живой. `Restarting`, `Exited`, малый uptime при давно работающем
+сервере — признак падений.
 
-**Важно:** `workflow_dispatch` работает только после того, как `logs.yml` попал в default branch (`main`). Если воркфлоу ещё не смержен туда, `gh workflow run` выдаст ошибку вида «could not find any workflows named logs.yml» / «workflow not found». В этом случае сообщи пользователю, что нужен мерж `develop` → `main`, и остановись.
+## Шаг 2. Логи приложения
 
-## Шаг 1. Запуск воркфлоу
+Подбери окно под жалобу: «только что упало» → `30m`; «не работает пару часов» →
+`2h`–`4h`; «со вчера» → `24h`.
 
-Подбери `since` под жалобу пользователя: «только что упало» → `30m`; «не работает пару часов» → `2h`–`4h`; «со вчера» → `24h`. `service` — пусто (все сервисы) либо один из: `ollama`, `app`, `nginx`. При 522 и подозрении на OOM начинай со всех сервисов.
-
-```powershell
-gh workflow run logs.yml --repo Dezodemius/resuming -f since=2h -f service=
+```bash
+ssh app01 'cd /srv/apps/resuming && docker compose -f deploy/docker-compose.prod.yml logs --since 2h --timestamps app'
 ```
 
-## Шаг 2. Дождаться завершения
+При большом окне вывод стоит сохранить в файл и разбирать Grep-ом, а не читать
+целиком в контекст.
 
-```powershell
-gh run list --repo Dezodemius/resuming --workflow=logs.yml --limit 1
+## Шаг 3. Ресурсы хоста
+
+```bash
+ssh app01 'docker stats --no-stream; free -m; df -h /'
 ```
 
-Возьми ID последнего запуска (run может появиться с задержкой в несколько секунд — если списка нет, повтори). Затем:
+Машина общая на три проекта — упереться в память или диск можно из-за соседа.
 
-```powershell
-gh run watch <id> --repo Dezodemius/resuming
+## Шаг 4. Хостовой nginx — если контейнер жив, а снаружи 502/522
+
+```bash
+ssh app01 'systemctl is-active nginx; tail -n 100 /var/log/nginx/error.log'
 ```
 
-## Шаг 3. Скачать вывод
+## Шаг 5. Диагноз
 
-```powershell
-gh run view <id> --repo Dezodemius/resuming --log
-```
+Известные режимы отказа:
 
-Вывод может быть большим (особенно при `since=24h`) — при необходимости сохрани во временный файл и анализируй через Grep:
+- **522 от Cloudflare** — либо контейнер не отвечает, либо лежит хостовой nginx.
+  Проверять оба: 522 сам по себе не говорит, что виноват именно этот проект.
+- **Внешний AI-провайдер** — таймауты, 401 (протух ключ), 429 (лимит). Искать в
+  логах app: `AI call`, `AI HTTP`, `AI timeout`, `Сервис генерации недоступен`.
+- **Вебхук Робокассы** — искать `webhook`, `robokassa`, `pay`.
+- **SMTP при отправке magic link** — пользователи «не получают письмо для входа»;
+  искать `magic-email`, `smtp`.
 
-```powershell
-gh run view <id> --repo Dezodemius/resuming --log | Out-File -Encoding utf8 $env:TEMP\prod-logs.txt
-```
-
-## Шаг 4. Анализ
-
-Смотреть в выводе три блока: `Container status` (docker compose ps), `Collect logs`, `Memory and CPU stats` (docker stats).
-
-1. **Статус контейнеров** — все три (`resuming-ollama`, `resuming-app`, `resuming-nginx`) должны быть `Up`/`running`. `Restarting`, `Exited`, малый uptime при давно работающем сервере — признак падений/рестартов.
-2. **Фильтр ошибок в логах** — искать `ERROR`, `Traceback`, `CRITICAL`, статусы `500`/`502`/`504` в логах nginx/app, `exception`.
-3. **Признаки OOM у ollama** — `llama-server died`, `out of memory`, `OOM`, `killed`, обрывы загрузки модели, повторяющиеся строки старта модели (контейнер перезапускался). Сверить с `docker stats`: модель `qwen2.5:14b` требует ~10+ ГБ — если у ollama память упирается в лимит, это оно.
-4. **Свести краткий диагноз** пользователю: что упало, когда (по таймстампам), вероятная причина, что делать.
-
-## Известные режимы отказа проекта
-
-- **(а) Ollama OOM при загрузке модели** → контейнер ollama умирает/рестартится → app не получает ответ → Cloudflare отдаёт 522. Самый частый сценарий «сайт лежит».
-- **(б) Вебхук Робокассы** (`/api/pay/webhook`) — ошибки проверки подписи или `OpStateExt`; искать в логах app по `webhook`, `robokassa`, `pay`.
-- **(в) SMTP при отправке magic link** — таймауты/ошибки aiosmtplib; пользователи «не получают письмо для входа»; искать по `smtp`, `magic`, `mail`.
+Наружу — что упало, когда (по таймстампам), вероятная причина, что делать.
 
 ## Когда НЕ использовать
 
 - Проблема воспроизводится локально — отлаживай локально, не дёргай прод.
-- Нужно что-то **поменять** на сервере — это деплой через `ci_cd.yml` (push в `main`), а не этот скилл.
+- Нужно что-то **поменять** на сервере — это деплой (push в `main`), а не этот скилл.
+- Задача про хостовой nginx, соседние проекты или сам сервер — скилл `timeweb-app01`.

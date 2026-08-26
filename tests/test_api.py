@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import main
 
 
@@ -27,6 +29,46 @@ async def test_contacts_page(client):
 async def test_offer_page(client):
     r = await client.get("/offer")
     assert r.status_code == 200
+
+
+async def test_offer_page_shows_tariff_numbers(client):
+    """Цифры тарифа в оферте берутся из конфига, а не зашиты в шаблон."""
+    import config
+
+    r = await client.get("/offer")
+    assert f"{int(float(config.PRO_PRICE))} рублей" in r.text
+    assert f"{config.PRO_DAYS} календарных дней" in r.text
+    assert f"до {config.PRO_FAIR_USE_LIMIT} AI-генераций" in r.text
+
+
+@pytest.mark.parametrize("n,expected", [
+    (0, "дней"),
+    (1, "день"),
+    (2, "дня"),
+    (3, "дня"),
+    (4, "дня"),
+    (5, "дней"),
+    (9, "дней"),
+    (10, "дней"),
+    (11, "дней"),
+    (12, "дней"),
+    (14, "дней"),
+    (15, "дней"),
+    (19, "дней"),
+    (20, "дней"),
+    (21, "день"),
+    (22, "дня"),
+    (25, "дней"),
+    (30, "дней"),
+    (100, "дней"),
+    (101, "день"),
+    (111, "дней"),
+    (114, "дней"),
+    (121, "день"),
+    (399, "дней"),
+])
+def test_plural_filter(n, expected):
+    assert main._plural(n, "день", "дня", "дней") == expected
 
 
 async def test_me_anonymous(client):

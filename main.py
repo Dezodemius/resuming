@@ -69,6 +69,19 @@ tpl = Jinja2Templates(directory="templates")
 tpl.env.globals["metrika_id"] = METRIKA_ID
 tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Русская форма слова при числительном: 1 день, 2 дня, 5 дней."""
+    if n // 10 % 10 == 1:          # 11–19 в любой сотне — всегда «много»
+        return many
+    last = n % 10
+    if last == 1:
+        return one
+    if last in (2, 3, 4):
+        return few
+    return many
+
+tpl.env.filters["plural"] = _plural
+
 # ── Database ── слой БД вынесен в db.py (get_db/init_db).
 from db import get_db, init_db  # noqa: E402
 
@@ -877,7 +890,12 @@ async def pricing_page(request: Request):
 
 @app.get("/offer", response_class=HTMLResponse)
 async def offer_page(request: Request):
-    return tpl.TemplateResponse(request, "offer.html")
+    return tpl.TemplateResponse(request, "offer.html", {
+        "pro_price": PRO_PRICE,
+        "pro_days": PRO_DAYS,
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
+    })
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page(request: Request):

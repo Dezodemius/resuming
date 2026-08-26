@@ -72,20 +72,6 @@ services:
     depends_on:
       - app
 
-  # ── Ops MCP-сервер (диагностика прода для Claude Code) ───────────────
-  # Порты наружу НЕ публикуются: доступ только из сети compose —
-  # nginx проксирует ops.резюмирую.рф → ops-mcp:8765.
-  # ВНИМАНИЕ: docker.sock внутри контейнера = root на хосте (см. ops_mcp/README.md).
-  ops-mcp:
-    build: ./ops_mcp
-    container_name: resuming-ops-mcp
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      - OPS_MCP_TOKEN=${OPS_MCP_TOKEN}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-
 volumes:
   ollama_data:   # модели хранятся между перезапусками
   app_data:      # база данных

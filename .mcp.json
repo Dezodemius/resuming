@@ -7,13 +7,6 @@
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"]
-    },
-    "prod-ops": {
-      "type": "http",
-      "url": "https://ops.xn--e1aedprev8fe.xn--p1ai/mcp",
-      "headers": {
-        "Authorization": "Bearer ${OPS_MCP_TOKEN}"
-      }
     }
   }
 }
