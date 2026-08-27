@@ -121,12 +121,25 @@ def init_db():
                 created_at TEXT DEFAULT (datetime('now'))
             );
 
+            -- Привязка OAuth-аккаунта (Яндекс/VK/Mail.ru) к пользователю по
+            -- стабильному id провайдера, а не по email — провайдер может
+            -- отдавать не тот адрес, который человек считает основным.
+            CREATE TABLE IF NOT EXISTS oauth_identities (
+                provider      TEXT    NOT NULL,
+                provider_uid  TEXT    NOT NULL,
+                user_id       INTEGER NOT NULL,
+                email_at_link TEXT,
+                created       TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (provider, provider_uid)
+            );
+
             -- Индексы под частые выборки по владельцу (иначе full scan при росте)
             CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
             CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
             CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
             CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
 
             -- Очистка протухшего идёт по expires_at — без индекса это full scan
             CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
@@ -191,7 +204,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -209,6 +222,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 3:
         _migration_3_payment_amount_product(db)
         db.execute("PRAGMA user_version = 3")
+        applied += 1
+    if version < 4:
+        _migration_4_oauth_identities(db)
+        db.execute("PRAGMA user_version = 4")
         applied += 1
     if applied:
         db.commit()
@@ -392,3 +409,27 @@ def _migration_3_payment_amount_product(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE payments ADD COLUMN amount TEXT")
     if "product" not in columns:
         db.execute("ALTER TABLE payments ADD COLUMN product TEXT")
+
+
+def _migration_4_oauth_identities(db: sqlite3.Connection) -> None:
+    """Привязка OAuth-аккаунта к пользователю по id провайдера, а не по email.
+
+    До этого шага Яндекс/VK/Mail.ru находили пользователя единственным
+    способом — по email, который вернул провайдер на этом конкретном входе.
+    Если провайдер в другой раз отдаёт другой адрес (VK ID, например, может
+    вернуть email самого VK-аккаунта, а не тот, что человек считает основным),
+    получались два разных пользователя вместо одного. Отдельная таблица
+    запоминает провайдера один раз и дальше не зависит от того, какой email
+    он вернёт.
+    """
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS oauth_identities (
+            provider      TEXT    NOT NULL,
+            provider_uid  TEXT    NOT NULL,
+            user_id       INTEGER NOT NULL,
+            email_at_link TEXT,
+            created       TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (provider, provider_uid)
+        );
+        CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+    """)

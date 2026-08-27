@@ -15,6 +15,7 @@
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260825">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};</script>
 <style>
 /* ── Page ── */
 .page{max-width:680px;margin:0 auto;padding:32px 22px 90px;display:flex;flex-direction:column;gap:16px}
@@ -67,6 +68,14 @@
 .usage-bar-fill.full{background:#ef4444}
 .usage-bar-fill.pro{background:var(--accent)}
 .usage-unlimited{font-size:12px;color:var(--accent);font-weight:600}
+
+/* ── Способы входа ── */
+.oauth-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)}
+.oauth-row:last-child{border-bottom:none}
+.oauth-row-label{font-size:13px;color:var(--text);flex-shrink:0}
+.oauth-row-right{display:flex;align-items:center;gap:10px;min-width:0}
+.oauth-row-val{font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.oauth-row .btn-soft{height:30px;padding:0 11px;font-size:12px;flex-shrink:0}
 
 /* ── Payment history ── */
 .history-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}
@@ -165,6 +174,54 @@
 
   </div>
 
+  <!-- Login methods -->
+  <div class="usage-card">
+    <div class="usage-title">Способы входа</div>
+    <div class="oauth-row">
+      <span class="oauth-row-label">Почта</span>
+      <span class="oauth-row-right"><span class="oauth-row-val">{{ user.email }}</span></span>
+    </div>
+    {% if yandex_enabled %}
+    <div class="oauth-row">
+      <span class="oauth-row-label">Яндекс ID</span>
+      <span class="oauth-row-right">
+        {% if 'yandex' in linked_providers %}
+        <span class="oauth-row-val">{{ linked_providers['yandex'] }}</span>
+        <button class="btn-soft" onclick="unlinkOauth('yandex')" type="button">Отключить</button>
+        {% else %}
+        <a class="btn-soft" href="/auth/yandex">Подключить</a>
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+    {% if vk_enabled %}
+    <div class="oauth-row">
+      <span class="oauth-row-label">VK ID</span>
+      <span class="oauth-row-right">
+        {% if 'vk' in linked_providers %}
+        <span class="oauth-row-val">{{ linked_providers['vk'] }}</span>
+        <button class="btn-soft" onclick="unlinkOauth('vk')" type="button">Отключить</button>
+        {% else %}
+        <a class="btn-soft" href="/auth/vk">Подключить</a>
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+    {% if mailru_enabled %}
+    <div class="oauth-row">
+      <span class="oauth-row-label">Mail.ru</span>
+      <span class="oauth-row-right">
+        {% if 'mailru' in linked_providers %}
+        <span class="oauth-row-val">{{ linked_providers['mailru'] }}</span>
+        <button class="btn-soft" onclick="unlinkOauth('mailru')" type="button">Отключить</button>
+        {% else %}
+        <a class="btn-soft" href="/auth/mailru">Подключить</a>
+        {% endif %}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+
   <!-- Promo code -->
   <div class="usage-card">
     <div class="usage-title">Промокод</div>
@@ -192,7 +249,7 @@
     <div class="modal-price">399 ₽</div>
     <div class="modal-period">в месяц · отмена в любой момент</div>
     <ul class="modal-features">
-      <li><span class="feat-ok">✓</span> Безлимитные AI-генерации</li>
+      <li><span class="feat-ok">✓</span> {{ pro_fair_use_limit }} AI-генераций в месяц</li>
       <li><span class="feat-ok">✓</span> Безлимитные сохранённые резюме</li>
       <li><span class="feat-ok">✓</span> Редактор и версии</li>
       <li><span class="feat-ok">✓</span> PDF всегда бесплатно</li>
@@ -232,7 +289,28 @@ window.addEventListener('DOMContentLoaded', async () => {
     history.replaceState({}, '', '/settings');
     toast('Подписка Pro активирована! 🎉', 'ok');
   }
+  const linked = p.get('linked');
+  if (linked) {
+    history.replaceState({}, '', '/settings');
+    const names = {yandex: 'Яндекс ID', vk: 'VK ID', mailru: 'Mail.ru'};
+    toast((names[linked] || linked) + ' подключён', 'ok');
+  }
 });
+
+async function unlinkOauth(provider) {
+  try {
+    const res = await fetch(`/api/settings/oauth/${provider}/unlink`, {method: 'POST'});
+    if (res.ok) {
+      toast('Способ входа отключён', 'ok');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      const d = await res.json().catch(() => ({}));
+      toast(d.detail || 'Ошибка', 'err');
+    }
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'err');
+  }
+}
 
 function renderPlanRow(b) {
   const isPro = b.is_pro;
@@ -250,7 +328,7 @@ function renderPlanRow(b) {
       <div class="plan-price">Pro</div>
       <div class="plan-period">Действует до ${expiresStr || '—'}</div>
       <ul class="plan-features">
-        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные генерации</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Редактор резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF без ограничений</span></li>
@@ -275,7 +353,7 @@ function renderPlanRow(b) {
         <li><span class="feat-ok">✓</span><span class="feat-text">3 AI-генерации</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">До 5 резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
-        <li><span class="feat-no">✗</span><span class="feat-text muted">Безлимитные генерации</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text muted">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
         <li><span class="feat-no">✗</span><span class="feat-text muted">Безлимитные резюме</span></li>
       </ul>
       <button class="btn-upgrade btn-upgrade-current" disabled>Текущий план</button>
@@ -287,7 +365,7 @@ function renderPlanRow(b) {
       <div class="plan-price">399 ₽ <span>/ мес</span></div>
       <div class="plan-period">30 дней, отмена в любой момент</div>
       <ul class="plan-features">
-        <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные генерации</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Редактор и версии</span></li>
@@ -304,7 +382,7 @@ function renderUsage(b) {
 
   // Generations
   if (isPro) {
-    document.getElementById('u-gen').innerHTML = '<span class="usage-unlimited">∞ безлимит</span>';
+    document.getElementById('u-gen').innerHTML = `<span class="usage-unlimited">${PRO_FAIR_USE_LIMIT}/мес</span>`;
     document.getElementById('u-gen-bar').style.width = '100%';
     document.getElementById('u-gen-bar').className = 'usage-bar-fill pro';
   } else {

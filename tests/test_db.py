@@ -302,7 +302,7 @@ def test_pick_survivor_ignores_account_without_expiry_date():
 
 
 def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
-    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2 и 3).
+    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2, 3, 4).
 
     Если условие версии съедет и шаг 1 выполнится повторно, он пересоберёт
     users по своему списку колонок и вернёт колонки Telegram обратно.
@@ -315,7 +315,7 @@ def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
     conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
-    assert db_module.migrate(conn) == 2, "должны примениться только шаги 2 и 3, не шаг 1 повторно"
+    assert db_module.migrate(conn) == 3, "должны примениться только шаги 2, 3 и 4, не шаг 1 повторно"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
     assert db_module.migrate(conn) == 0, "повторный прогон ничего не делает"
@@ -360,7 +360,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
     )
     conn.commit()
 
-    assert db_module.migrate(conn) == 1, "должен примениться только шаг 3"
+    assert db_module.migrate(conn) == 2, "должны примениться шаги 3 и 4"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
     assert {"amount", "product"} <= columns
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
@@ -376,7 +376,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
 
 def test_migration_3_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_3_db(tmp_path, monkeypatch)
-    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == 2
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
 
@@ -419,4 +419,66 @@ def test_migration_2_guard_short_circuits(tmp_path, monkeypatch):
 
     ids = [r["id"] for r in conn.execute("SELECT id FROM users ORDER BY id")]
     assert ids == [1, 2], "шаг должен был выйти сразу, ничего не трогая"
+    conn.close()
+
+
+# ── Миграция 4: oauth_identities ─────────────────────────────────────────────
+
+def _pre_migration_4_db(tmp_path, monkeypatch):
+    """База на SCHEMA_VERSION=3: oauth_identities ещё не существует."""
+    import config
+
+    path = str(tmp_path / "pre-migration-4.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    main.init_db()
+    conn = db_module.connect()
+    conn.executescript("DROP TABLE oauth_identities; PRAGMA user_version = 3;")
+    conn.commit()
+    return conn
+
+
+def test_fresh_db_has_oauth_identities_table(db):
+    """Новая база создаётся сразу с итоговой схемой — таблица есть без миграции."""
+    tables = {row["name"] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    assert "oauth_identities" in tables
+
+
+def test_migration_4_creates_oauth_identities_table(tmp_path, monkeypatch):
+    conn = _pre_migration_4_db(tmp_path, monkeypatch)
+
+    assert db_module.migrate(conn) == 1, "должен примениться только шаг 4"
+    tables = {row["name"] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    assert "oauth_identities" in tables
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+    conn.close()
+
+
+def test_migration_4_table_enforces_one_user_per_provider_identity(tmp_path, monkeypatch):
+    """PRIMARY KEY (provider, provider_uid) — тот же provider_uid дважды не заводит вторую строку."""
+    conn = _pre_migration_4_db(tmp_path, monkeypatch)
+    db_module.migrate(conn)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
+    conn.execute(
+        "INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES ('vk', '42', 1)"
+    )
+    conn.commit()
+    try:
+        conn.execute(
+            "INSERT INTO oauth_identities (provider, provider_uid, user_id) VALUES ('vk', '42', 1)"
+        )
+        conn.commit()
+        assert False, "повторная привязка того же provider_uid должна упасть на PRIMARY KEY"
+    except sqlite3.IntegrityError:
+        pass
+    conn.close()
+
+
+def test_migration_4_is_idempotent(tmp_path, monkeypatch):
+    conn = _pre_migration_4_db(tmp_path, monkeypatch)
+    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
