@@ -15,6 +15,7 @@
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260825">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<script>const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
@@ -218,7 +219,7 @@
           </div>
         </div>
         <div class="summary__bot">
-          <div id="status-bar" class="summary__uses" style="display:none"><span>Генераций осталось</span><b id="status-n">3</b></div>
+          <div id="status-bar" class="summary__uses" style="display:none"><span id="status-label">Генераций осталось</span><b id="status-n">3</b></div>
           <button class="btn-build" id="btn-match" type="button" onclick="doMatch()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3l1.9 5.8H20l-5 3.6 1.9 5.8L12 14.6 7.1 18.2 9 12.4 4 8.8h6.1z"></path></svg>
             Собрать резюме
@@ -394,11 +395,11 @@
     <button class="modal__close" onclick="closePayModal()" type="button">×</button>
     <div style="font-size:34px;margin-bottom:8px">✨</div>
     <h2 id="paywall-title">Перейдите на Pro</h2>
-    <p class="modal__sub" id="paywall-msg" style="text-align:center">Безлимитные генерации и сохранение любого количества резюме.</p>
+    <p class="modal__sub" id="paywall-msg" style="text-align:center">{{ pro_fair_use_limit }} генераций в месяц и сохранение любого количества резюме.</p>
     <div class="pay-price">399 ₽</div>
     <div class="pay-pack">Pro-подписка на 30 дней</div>
     <ul class="pay-feats">
-      <li>✓ Безлимитные AI-генерации</li>
+      <li>✓ {{ pro_fair_use_limit }} AI-генераций в месяц</li>
       <li>✓ Безлимитные сохранённые резюме</li>
       <li>✓ PDF всегда бесплатно</li>
     </ul>
@@ -544,7 +545,8 @@ function updateStatusBar(t, pro) {
   if (!bar) return;
   bar.style.display = currentUser ? 'flex' : 'none';
   bar.classList.toggle('warn', !pro && t <= 1);
-  document.getElementById('status-n').textContent = pro ? '∞' : t;
+  document.getElementById('status-label').textContent = pro ? 'Квота Pro' : 'Генераций осталось';
+  document.getElementById('status-n').textContent = pro ? (PRO_FAIR_USE_LIMIT + '/мес') : t;
 }
 
 // ── Auth modal ────────────────────────────────────────────────────
@@ -729,9 +731,9 @@ async function doMatch() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        // pro_limit — это добросовестный потолок для уже оплаченной подписки,
-        // а не приглашение купить её снова: модалка оплаты тут неуместна.
-        if (err === 'pro_limit') toast('Лимит добросовестного использования Pro исчерпан. Попробуйте позже.', 'err');
+        // pro_limit — это исчерпанная квота уже оплаченной подписки, а не
+        // приглашение купить её снова: модалка оплаты тут неуместна.
+        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций в месяц — исчерпан. Попробуйте позже.`, 'err');
         else openPayModal(err);
         return;
       }
@@ -785,7 +787,7 @@ async function doGeneralResume() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        if (err === 'pro_limit') toast('Лимит добросовестного использования Pro исчерпан. Попробуйте позже.', 'err');
+        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций в месяц — исчерпан. Попробуйте позже.`, 'err');
         else openPayModal(err);
         return;
       }
@@ -967,7 +969,7 @@ function openPayModal(reason) {
     no_uses:      ['Генерации закончились', 'Оформите подписку Pro для продолжения.'],
     resume_limit: ['Лимит резюме исчерпан', `Бесплатный тариф — до 5 резюме. Pro — безлимит.`],
   };
-  const [title, msg] = titles[reason] || ['Перейдите на Pro', 'Безлимитные генерации и сохранение резюме.'];
+  const [title, msg] = titles[reason] || ['Перейдите на Pro', `${PRO_FAIR_USE_LIMIT} генераций в месяц и сохранение резюме.`];
   document.getElementById('paywall-title').textContent = title;
   document.getElementById('paywall-msg').textContent   = msg;
   document.getElementById('modal-pay').classList.add('on');

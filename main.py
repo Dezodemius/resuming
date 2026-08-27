@@ -261,7 +261,9 @@ _CSP = "; ".join([
     # Аватарки приходят с доменов VK/Яндекса/Mail.ru — перечислять
     # все хрупко, а картинка не исполняется: разрешаем любой https.
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com",
+    # wss://mc.yandex.* — Вебвизор Метрики держит WebSocket (mc.yandex.ru/solid.ws);
+    # схема https в connect-src его не покрывает, нужен отдельный wss-источник
+    "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com",
     # blob:/'self' — html2pdf клонирует страницу в служебный iframe
     "frame-src 'self' blob: data: https://mc.yandex.ru",
     "worker-src 'self' blob:",
@@ -412,6 +414,47 @@ def _upsert_user_by_email(db, email: str) -> dict:
     )
     db.commit()
     return dict(db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone())
+
+
+def _resolve_oauth_user(db, request: Request, provider: str, provider_uid: str, email: str) -> tuple[dict, bool]:
+    """Находит или заводит пользователя для входа через OAuth-провайдера.
+
+    Провайдер может в разные разы отдавать разный email (VK ID, например, —
+    адрес самого VK-аккаунта, а не тот, что человек считает основным), поэтому
+    сперва ищем по уже сохранённой привязке `oauth_identities` и лишь для
+    новой привязки решаем, к кому её приложить.
+
+    Если привязки ещё нет, но в запросе есть действующая сессия — это не
+    обычный вход, а осознанное подключение способа входа к текущему аккаунту
+    (человек уже залогинен и всё равно нажал «Войти с …»): новая привязка
+    уходит на пользователя сессии, а не на того, что нашёлся или завёлся бы
+    по email. Без сессии — обычный вход/регистрация по email, как раньше.
+
+    Возвращает (user, linked): linked=True — это была привязка к сессии, а
+    не вход, дальше решает редирект (в /settings, а не в /new).
+    """
+    provider_uid = str(provider_uid)
+    row = db.execute(
+        "SELECT user_id FROM oauth_identities WHERE provider=? AND provider_uid=?",
+        (provider, provider_uid)
+    ).fetchone()
+    if row:
+        return dict(db.execute("SELECT * FROM users WHERE id=?", (row["user_id"],)).fetchone()), False
+
+    sid = request.cookies.get("session_id")
+    session_row = db.execute(
+        "SELECT u.* FROM sessions s JOIN users u ON s.user_id = u.id "
+        "WHERE s.id = ? AND s.expires_at > datetime('now')",
+        (sid,)
+    ).fetchone() if sid else None
+
+    linked = session_row is not None
+    user = dict(session_row) if session_row else _upsert_user_by_email(db, email)
+    db.execute(
+        "INSERT INTO oauth_identities (provider, provider_uid, user_id, email_at_link) VALUES (?,?,?,?)",
+        (provider, provider_uid, user["id"], _normalize_email(email))
+    )
+    return user, linked
 
 async def _resolve_user(request: Request, body_email: Optional[str] = None) -> Optional[dict]:
     """Возвращает пользователя ТОЛЬКО из cookie-сессии.
@@ -719,7 +762,10 @@ async def root(request: Request):
 async def generator_page(request: Request):
     """Генератор резюме. Доступен и анонимам — это шаг воронки «попробовать»."""
     user = await get_current_user(request)
-    return tpl.TemplateResponse(request, "index.html", _auth_ctx(user))
+    return tpl.TemplateResponse(request, "index.html", {
+        **_auth_ctx(user),
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+    })
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -789,6 +835,7 @@ async def resume_edit_page(resume_id: int, request: Request):
     return tpl.TemplateResponse(request, "resume_edit.html", {
         "resume_id":  resume_id,
         "user": user,
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
     })
 
 # ── AI section improvement ────────────────────────────────────────────────
@@ -871,9 +918,32 @@ async def settings_page(request: Request):
     user = await get_current_user(request)
     if not user:
         return RedirectResponse(url="/new?auth_required=1", status_code=303)
+    with get_db() as db:
+        rows = db.execute(
+            "SELECT provider, email_at_link FROM oauth_identities WHERE user_id=?",
+            (user["id"],)
+        ).fetchall()
     return tpl.TemplateResponse(request, "settings.html", {
-        "user": user,
+        **_auth_ctx(user),
+        "linked_providers": {r["provider"]: r["email_at_link"] for r in rows},
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
     })
+
+@app.post("/api/settings/oauth/{provider}/unlink")
+async def unlink_oauth(provider: str, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401)
+    if provider not in ("yandex", "vk", "mailru"):
+        raise HTTPException(404)
+    with get_db() as db:
+        db.execute(
+            "DELETE FROM oauth_identities WHERE provider=? AND user_id=?",
+            (provider, user["id"])
+        )
+        db.commit()
+    log.info("settings/oauth: unlink provider=%s user_id=%s", provider, user["id"])
+    return {"ok": True}
 
 # ── Public / legal pages (no auth required) ───────────────────────────────
 @app.get("/pricing", response_class=HTMLResponse)
@@ -1045,9 +1115,13 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
     if not email:
         log.error("auth/yandex: no default_email in userinfo")
         return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+    provider_uid = info.get("id") or ""
+    if not provider_uid:
+        log.error("auth/yandex: no id in userinfo")
+        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
 
     with get_db() as db:
-        u = _upsert_user_by_email(db, email)
+        u, linked = _resolve_oauth_user(db, request, "yandex", provider_uid, email)
         name = info.get("real_name") or info.get("display_name")
         if name and u.get("display_name") in (None, "", email.split("@")[0]):
             db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
@@ -1055,8 +1129,8 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
         sid = _create_session(db, u["id"])
         log_event(db, "login", user_id=u["id"], method="yandex")
         db.commit()
-    log.info("auth/yandex: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/new?login=success", status_code=303)
+    log.info("auth/yandex: login ok user_id=%s linked=%s", u["id"], linked)
+    r = RedirectResponse(url="/settings?linked=yandex" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("ya_state")
     _set_session_cookie(r, sid)
     return r
@@ -1131,9 +1205,13 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
     if not email:
         log.error("auth/vk: no email in userinfo")
         return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+    provider_uid = user_data.get("user_id") or ""
+    if not provider_uid:
+        log.error("auth/vk: no user_id in userinfo")
+        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
 
     with get_db() as db:
-        u = _upsert_user_by_email(db, email)
+        u, linked = _resolve_oauth_user(db, request, "vk", provider_uid, email)
         first_name = user_data.get("first_name") or ""
         last_name = user_data.get("last_name") or ""
         name = (first_name + " " + last_name).strip() if first_name or last_name else ""
@@ -1143,8 +1221,8 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
         sid = _create_session(db, u["id"])
         log_event(db, "login", user_id=u["id"], method="vk")
         db.commit()
-    log.info("auth/vk: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/new?login=success", status_code=303)
+    log.info("auth/vk: login ok user_id=%s linked=%s", u["id"], linked)
+    r = RedirectResponse(url="/settings?linked=vk" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("vk_state")
     r.delete_cookie("vk_verifier")
     _set_session_cookie(r, sid)
@@ -1201,9 +1279,13 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
     if not email:
         log.error("auth/mailru: no email in userinfo")
         return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+    provider_uid = info.get("id") or ""
+    if not provider_uid:
+        log.error("auth/mailru: no id in userinfo")
+        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
 
     with get_db() as db:
-        u = _upsert_user_by_email(db, email)
+        u, linked = _resolve_oauth_user(db, request, "mailru", provider_uid, email)
         name = info.get("name") or info.get("nickname") or ""
         if name and u.get("display_name") in (None, "", email.split("@")[0]):
             db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
@@ -1211,8 +1293,8 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
         sid = _create_session(db, u["id"])
         log_event(db, "login", user_id=u["id"], method="mailru")
         db.commit()
-    log.info("auth/mailru: login ok user_id=%s", u["id"])
-    r = RedirectResponse(url="/new?login=success", status_code=303)
+    log.info("auth/mailru: login ok user_id=%s linked=%s", u["id"], linked)
+    r = RedirectResponse(url="/settings?linked=mailru" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("mr_state")
     _set_session_cookie(r, sid)
     return r
@@ -1265,12 +1347,6 @@ def _is_pro(user_row) -> bool:
     except Exception:
         return False
 
-def _uses_left(user_row) -> int:
-    """Сколько генераций осталось. 999 = Pro (безлимит)."""
-    if _is_pro(user_row):
-        return 999
-    return user_row["free_left"] + user_row["paid_left"]
-
 def _deduct(db, user_id: int) -> tuple[bool, str, int]:
     """
     Списывает одну генерацию.
@@ -1283,11 +1359,10 @@ def _deduct(db, user_id: int) -> tuple[bool, str, int]:
     ).fetchone()
 
     if _is_pro(row):
-        # Формально безлимит, но без потолка один аккаунт (скомпрометированный
-        # или просто скрипт) мог бы жать AI_CONCURRENCY на скорости
-        # per-route-лимитера — это уже не «честное использование», а прямой
-        # счёт от внешнего AI-провайдера. Порог настолько высок, что рядовой
-        # пользователь его не заметит (см. PRO_FAIR_USE_LIMIT в config.py).
+        # Pro не списывает free_left/paid_left — вместо этого реальная квота
+        # (PRO_FAIR_USE_LIMIT генераций за PRO_FAIR_USE_DAYS дней, см.
+        # config.py) считается по факту использования, а не декрементом
+        # счётчика, поэтому окно проверяем через usage_events.
         window_start = f"-{PRO_FAIR_USE_DAYS} days"
         recent = db.execute(
             "SELECT COUNT(*) FROM usage_events"
@@ -2171,7 +2246,7 @@ async def create_payment(req: PayReq, request: Request):
     # Сумму и товар записываем в саму строку платежа: вебхук сверяет пришедший
     # OutSum именно с ними, а не с глобальной PRO_PRICE — так смена цены в
     # конфиге не ломает разбор уже созданных, но ещё не оплаченных счетов.
-    description = f"Резюмирую.рф Pro, {PRO_DAYS} дней безлимитных генераций"
+    description = f"Резюмирую.рф Pro, {PRO_FAIR_USE_LIMIT} генераций на {PRO_DAYS} дней"
 
     # В отличие от ЮKassa, у Робокассы нет отдельного вызова API для создания
     # платежа — просто собираем подписанный redirect URL сами. insert+update
@@ -2322,6 +2397,7 @@ async def pay_success(request: Request):
     resp = tpl.TemplateResponse(request, "pay_success.html", {
         "user": user,
         "pro_days": PRO_DAYS,
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
     })
     # Ответ зависит от состояния сессии и от того, доехал ли вебхук, — не кешируем.
     resp.headers["Cache-Control"] = "no-store"
@@ -2621,9 +2697,8 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
         ok, col, uses_left = _deduct(db, user["id"])
         if not ok:
             if col == "pro_capped":
-                raise ValueError("Достигнут лимит добросовестного использования Pro за "
-                                  f"{PRO_FAIR_USE_DAYS} дней (pro_limit) — это защита от "
-                                  "автоматических скриптов, попробуйте позже")
+                raise ValueError(f"Достигнут лимит Pro — {PRO_FAIR_USE_LIMIT} генераций за "
+                                  f"{PRO_FAIR_USE_DAYS} дней (pro_limit), попробуйте позже")
             raise ValueError("Закончились генерации (no_uses) — купите пакет или Pro на сайте")
     try:
         raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, ""))

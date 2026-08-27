@@ -57,6 +57,16 @@ def test_csp_allows_every_external_subresource_used_in_templates():
     assert not missing, f"CSP не разрешает используемые в шаблонах хосты: {missing}"
 
 
+def test_csp_allows_metrika_webvisor_websocket():
+    """Вебвизор Метрики (webvisor:true) держит WebSocket к mc.yandex.ru.
+
+    connect-src со схемой https его НЕ покрывает — браузер требует явный
+    wss-источник, иначе в консоли сыплется CSP-ошибка на mc.yandex.ru/solid.ws.
+    """
+    connect = next(p for p in main._CSP.split("; ") if p.startswith("connect-src"))
+    assert "wss://mc.yandex.ru" in connect, connect
+
+
 # ── Страницы ошибок ──────────────────────────────────────────────────────
 async def test_unknown_url_returns_branded_page(client):
     """MCP смонтирован на «/» и раньше отвечал голым «Not Found» на любой

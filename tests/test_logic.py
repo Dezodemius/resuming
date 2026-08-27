@@ -192,8 +192,8 @@ def test_deduct_pro_user_under_cap_still_unlimited(db):
 
 
 def test_deduct_pro_user_over_cap_is_blocked(db, monkeypatch):
-    """Без потолка «безлимит» — это в прямом смысле неограниченный счёт от
-    внешнего AI-провайдера на скомпрометированном/скриптовом аккаунте."""
+    """PRO_FAIR_USE_LIMIT — это реальная квота тарифа, а не только антиабьюз:
+    исчерпал лимит за период — новые генерации до его окончания не проходят."""
     import main
     monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 3)
     uid = _add_user(db, free_left=0, paid_left=0, is_pro=1, pro_expires_at=_future(30))

@@ -81,7 +81,7 @@
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>{{ free_uses }} AI-генерации после входа</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до {{ free_resumes }} сохранённых резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
-          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">безлимитные генерации</span></li>
+          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">{{ pro_fair_use_limit }} генераций в месяц</span></li>
           <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">безлимитное хранение резюме</span></li>
         </ul>
         <a class="btn-primary lp-plan__btn" href="/new" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border-2);box-shadow:none">Начать бесплатно</a>
@@ -93,14 +93,14 @@
         <div class="lp-plan__price">{{ pro_price|int }} ₽ <small>/ {{ pro_days }} дней</small></div>
         <div class="lp-plan__period">разовый платёж, автопродления нет</div>
         <ul class="lp-plan__list">
-          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span><b>Безлимитные</b> AI-генерации на {{ pro_days }} дней</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span><b>{{ pro_fair_use_limit }}</b> AI-генераций в месяц</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>безлимитное хранение резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>редактор с AI-подсказками по блокам</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация под любое число вакансий</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
         </ul>
         <button class="btn-primary lp-plan__btn" id="btn-buy" type="button" onclick="buyPro()">Оформить Pro — {{ pro_price|int }} ₽</button>
-        <div style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center">Безлимит в рамках добросовестного использования — до {{ pro_fair_use_limit }} генераций за {{ pro_fair_use_days }} дней, для живого поиска работы недостижимо</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center">Лимит действует весь оплаченный период — {{ pro_days }} дней</div>
       </div>
     </div>
 
