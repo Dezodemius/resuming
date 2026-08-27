@@ -262,8 +262,9 @@ _CSP = "; ".join([
     # все хрупко, а картинка не исполняется: разрешаем любой https.
     "img-src 'self' data: blob: https:",
     # wss://mc.yandex.* — Вебвизор Метрики держит WebSocket (mc.yandex.ru/solid.ws);
-    # схема https в connect-src его не покрывает, нужен отдельный wss-источник
-    "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com",
+    # схема https в connect-src его не покрывает, нужен отдельный wss-источник.
+    # cdnjs — source-map html2pdf (.js.map), браузер тянет его при открытых DevTools.
+    "connect-src 'self' https://cdnjs.cloudflare.com https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com",
     # blob:/'self' — html2pdf клонирует страницу в служебный iframe
     "frame-src 'self' blob: data: https://mc.yandex.ru",
     "worker-src 'self' blob:",
