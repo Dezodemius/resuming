@@ -49,10 +49,10 @@
   <div class="card">
     <button onclick="grant('pro')">Pro на {{ pro_days }} дн.</button>
     <button onclick="grant('pack')">+{{ paid_pack }} генераций</button>
-    <button onclick="grant('free')">Сброс в новичка ({{ free_uses }} генераций)</button>
+    <button onclick="grant('free')">Сброс в новичка ({{ free_uses }} {{ free_uses | plural('генерация', 'генерации', 'генераций') }})</button>
     <button onclick="grant('empty')">Обнулить — показать пейволл</button>
     <button onclick="grant('reset_usage')">Сбросить квоту Pro</button>
-    <p class="hint">Квота Pro — {{ pro_fair_use_limit }} генераций за {{ pro_fair_use_days }} дн.; считается по событиям, поэтому сбрасывается отдельной кнопкой. Резюме бесплатного тарифа — не больше {{ free_resumes }}.</p>
+    <p class="hint">Квота Pro — {{ pro_fair_use_limit }} {{ pro_fair_use_limit | plural('генерация', 'генерации', 'генераций') }} за {{ pro_fair_use_days }} дн.; считается по событиям, поэтому сбрасывается отдельной кнопкой. Резюме бесплатного тарифа — не больше {{ free_resumes }}.</p>
   </div>
 
   <h2>Состояние</h2>
