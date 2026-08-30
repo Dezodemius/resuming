@@ -33,12 +33,12 @@ async def test_generator_moved_to_new(client):
     assert 'id="panel-match"' in r.text
 
 
-async def test_root_redirects_authenticated_user_to_generator(client):
-    """Залогиненному маркетинговая страница не нужна — сразу в продукт."""
+async def test_root_redirects_authenticated_user_to_board(client):
+    """Залогиненному маркетинговая страница не нужна — сразу на доску его резюме."""
     await _login(client, "landing-auth@test.com")
     r = await client.get("/", follow_redirects=False)
     assert r.status_code in (302, 303)
-    assert r.headers["location"] == "/new"
+    assert r.headers["location"] == "/resumes"
     # Ответ зависит от cookie — он не должен попасть в общий кеш прокси
     assert "no-store" in r.headers.get("cache-control", "")
 

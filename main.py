@@ -738,10 +738,10 @@ def _auth_ctx(user) -> dict:
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Публичный лендинг. Залогиненного пользователя маркетинг не интересует —
-    отправляем сразу в генератор."""
+    отправляем сразу на доску его резюме."""
     user = await get_current_user(request)
     if user:
-        return RedirectResponse(url="/new", status_code=302, headers=_NO_STORE)
+        return RedirectResponse(url="/resumes", status_code=302, headers=_NO_STORE)
     resp = tpl.TemplateResponse(request, "landing.html", {
         **_auth_ctx(user),
         "app_url": APP_URL,
