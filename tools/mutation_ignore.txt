@@ -231,6 +231,17 @@ d1176395  # ensure_ascii=None ведёт себя как False — json.dumps п
 # Тот же случай ensure_ascii=None/False, что и выше.
 97bccde8  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
 
+# ── main._robokassa_receipt ─────────────────────────────────────────────────
+
+# ensure_ascii=False -> ensure_ascii=None. json.dumps проверяет значение на
+# истинность, поэтому оба варианта дают идентичную UTF-8 JSON-строку.
+be528ac7  # ensure_ascii=None и False дают один и тот же JSON
+
+# quote(raw, safe="") -> quote(raw, safe="XXXX"). Буква X входит в набор
+# unreserved-символов RFC 3986 и quote не кодирует её независимо от safe;
+# добавление X в safe поэтому не меняет результат ни для какой строки.
+ac02f3b0  # X и без параметра safe всегда остаётся незакодированной
+
 # ── main._finish_match_generation ───────────────────────────────────────────
 
 # (json.dumps(resume, ensure_ascii=False), resolved_text[:300], resume_id, user_id)  ->  ensure_ascii=None

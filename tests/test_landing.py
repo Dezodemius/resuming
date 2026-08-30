@@ -112,7 +112,7 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
     другое. Робокасса не требует вызова внешнего API для создания платежа —
     /api/pay сам собирает подписанные поля POST-формы."""
     import json
-    from urllib.parse import unquote
+    from urllib.parse import quote, unquote
 
     await _login(client, "pay-desc@test.com")
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
@@ -129,8 +129,7 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
     assert "Pro" in fields["Description"]
     assert str(main.PRO_DAYS) in fields["Description"]
 
-    receipt = json.loads(unquote(fields["Receipt"]))
-    assert receipt == {
+    expected_receipt = {
         "items": [{
             "name": fields["Description"],
             "quantity": 1,
@@ -140,12 +139,29 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
             "tax": "none",
         }],
     }
+    assert fields["Receipt"] == quote(
+        json.dumps(expected_receipt, ensure_ascii=False, separators=(",", ":")),
+        safe="",
+    )
+    receipt = json.loads(unquote(fields["Receipt"]))
+    assert receipt == expected_receipt
     assert fields["SignatureValue"] == main._robokassa_signature(
         "shop", main.PRO_PRICE, str(fields["InvId"]), fields["Receipt"], "pass1",
     )
     serialized = json.dumps(payment)
     assert "pass1" not in serialized
     assert "pass2" not in serialized
+
+
+def test_robokassa_receipt_encodes_slash_in_product_name():
+    """safe='' важен для произвольной номенклатуры: даже косая черта должна
+    участвовать в подписи в URL-кодированном виде."""
+    import json
+    from urllib.parse import unquote
+
+    encoded = main._robokassa_receipt("Доступ / Pro", "399.00")
+    assert "%2F" in encoded
+    assert json.loads(unquote(encoded))["items"][0]["name"] == "Доступ / Pro"
 
 
 async def test_payment_rejects_description_over_robokassa_limit(client, monkeypatch):
