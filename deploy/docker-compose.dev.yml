@@ -1,0 +1,45 @@
+# Дев-стенд на app-01 — третий контур, рядом с продом и ни в чём с ним не
+# пересекающийся.
+#
+# Отличия от deploy/docker-compose.prod.yml:
+#   • другое имя проекта (resuming-dev) — а значит и другой том с базой:
+#     resuming-dev_app_data против resuming_app_data. Стенд физически не может
+#     заглянуть в боевые данные, даже если кто-то перепутает compose-файл;
+#   • другой порт: 127.0.0.1:8002 против 8001 у прода. Хостовой nginx про 8002
+#     не знает, домена у стенда нет — снаружи он недоступен;
+#   • свой .env (DEV_MODE=1) в /srv/apps/resuming-dev, см. deploy/.env.dev.example.
+#
+# DEV_BIND меняет только адрес публикации. По умолчанию 127.0.0.1 — стенд
+# виден лишь изнутри машины, и попасть в него можно SSH-туннелем
+# (deploy/dev-tunnel.ps1). 0.0.0.0 открывает порт всему интернету: только
+# вместе с правилом ufw на конкретный адрес, см. deploy/README.md.
+name: resuming-dev
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  app:
+    build:
+      context: ..
+    container_name: resuming-dev-app
+    restart: unless-stopped
+    logging: *default-logging
+    env_file: ../.env
+    ports:
+      - "${DEV_BIND:-127.0.0.1}:8002:8000"
+    volumes:
+      - app_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  app_data:
