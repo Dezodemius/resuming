@@ -410,8 +410,6 @@ async def test_payment_invid_includes_offset(client, monkeypatch):
     стартует заново и без оффсета совпал бы с уже оплаченным старым номером —
     OpStateExt подтвердил бы новый счёт данными чужого, давно закрытого.
     """
-    from urllib.parse import parse_qs, urlparse
-
     main.init_db()
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
     monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
@@ -428,8 +426,7 @@ async def test_payment_invid_includes_offset(client, monkeypatch):
 
     r = await client.post("/api/pay", json={})
     assert r.status_code == 200, r.text
-    qs = parse_qs(urlparse(r.json()["url"]).query)
-    inv_id = int(qs["InvId"][0])
+    inv_id = int(r.json()["fields"]["InvId"])
     assert inv_id >= 100000, "InvId обязан включать оффсет, а не быть голым payments.id"
     with main.get_db() as db:
         row = db.execute("SELECT id FROM payments WHERE pay_id=?", (str(inv_id),)).fetchone()
@@ -440,8 +437,6 @@ async def test_payment_invid_includes_offset(client, monkeypatch):
 async def test_payment_invid_matches_default_offset_zero(client, monkeypatch):
     """Без настройки INV_ID_OFFSET (по умолчанию 0) поведение не меняется —
     существующие установки не должны молча получить сдвинутые номера счетов."""
-    from urllib.parse import parse_qs, urlparse
-
     main.init_db()
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
     monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
@@ -457,8 +452,7 @@ async def test_payment_invid_matches_default_offset_zero(client, monkeypatch):
     await client.get("/auth/email/verify?token=tok-offset-zero", follow_redirects=False)
 
     r = await client.post("/api/pay", json={})
-    qs = parse_qs(urlparse(r.json()["url"]).query)
-    inv_id = int(qs["InvId"][0])
+    inv_id = int(r.json()["fields"]["InvId"])
     with main.get_db() as db:
         row = db.execute("SELECT id FROM payments WHERE pay_id=?", (str(inv_id),)).fetchone()
     assert inv_id == row["id"]

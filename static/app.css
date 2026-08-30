@@ -116,6 +116,9 @@ a{color:inherit}
 .foot__nav a:hover{color:var(--text)}
 .foot__bottom{border-top:1px solid var(--border)}
 .foot__bottom-in{max-width:1240px;margin:0 auto;padding:16px 24px;font-size:12.5px;color:var(--text-3)}
+.foot__legal{margin-top:6px;line-height:1.55}
+.foot__legal a{color:inherit;text-decoration:none}
+.foot__legal a:hover{color:var(--text);text-decoration:underline}
 
 /* ── Buttons (shared) ───────────────────────────────────────────────────── */
 .btn-primary{display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 20px;border-radius:13px;background:var(--accent);color:var(--accent-ink);border:none;font-family:inherit;font-weight:700;font-size:14.5px;cursor:pointer;text-decoration:none;transition:transform .15s,box-shadow .15s,filter .15s;box-shadow:0 8px 22px var(--accent-tint)}

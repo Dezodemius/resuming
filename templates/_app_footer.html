@@ -11,6 +11,7 @@
       </div>
     </div>
     <nav class="foot__nav">
+      <a href="/new">Создать резюме</a>
       <a href="/pricing">Тарифы</a>
       <a href="/offer">Публичная оферта</a>
       <a href="/privacy">Политика конфиденциальности</a>
@@ -18,6 +19,13 @@
     </nav>
   </div>
   <div class="foot__bottom">
-    <div class="foot__bottom-in">© {{ current_year }} Резюмирую.рф</div>
+    <div class="foot__bottom-in">
+      <div>© {{ current_year }} Резюмирую.рф</div>
+      <div class="foot__legal">
+        {{ seller.status }} {{ seller.name }} · ИНН {{ seller.inn }} · г. {{ seller.city }} ·
+        <a href="tel:{{ seller.phone_href }}">{{ seller.phone }}</a> ·
+        <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>
+      </div>
+    </div>
   </div>
 </footer>

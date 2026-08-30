@@ -110,8 +110,9 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
     """В Description Робокассы уходит то же, что вебхук потом кладёт в аккаунт
     (Pro), а не «пакет адаптаций» — иначе покупатель платит за одно, получает
     другое. Робокасса не требует вызова внешнего API для создания платежа —
-    /api/pay сам собирает redirect URL, поэтому парсим его query-параметры."""
-    from urllib.parse import parse_qs, urlparse
+    /api/pay сам собирает подписанные поля POST-формы."""
+    import json
+    from urllib.parse import unquote
 
     await _login(client, "pay-desc@test.com")
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
@@ -120,12 +121,52 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
 
     r = await client.post("/api/pay", json={})
     assert r.status_code == 200, r.text
-    url = r.json()["url"]
-    assert url.startswith("https://auth.robokassa.ru/Merchant/Index.aspx?")
-    qs = parse_qs(urlparse(url).query)
-    assert qs["OutSum"][0] == main.PRO_PRICE
-    assert "Pro" in qs["Description"][0]
-    assert str(main.PRO_DAYS) in qs["Description"][0]
+    payment = r.json()
+    assert payment["action"] == "https://auth.robokassa.ru/Merchant/Index.aspx"
+    assert payment["method"] == "POST"
+    fields = payment["fields"]
+    assert fields["OutSum"] == main.PRO_PRICE
+    assert "Pro" in fields["Description"]
+    assert str(main.PRO_DAYS) in fields["Description"]
+
+    receipt = json.loads(unquote(fields["Receipt"]))
+    assert receipt == {
+        "items": [{
+            "name": fields["Description"],
+            "quantity": 1,
+            "sum": float(main.PRO_PRICE),
+            "payment_method": "full_payment",
+            "payment_object": "service",
+            "tax": "none",
+        }],
+    }
+    assert fields["SignatureValue"] == main._robokassa_signature(
+        "shop", main.PRO_PRICE, str(fields["InvId"]), fields["Receipt"], "pass1",
+    )
+    serialized = json.dumps(payment)
+    assert "pass1" not in serialized
+    assert "pass2" not in serialized
+
+
+async def test_payment_rejects_description_over_robokassa_limit(client, monkeypatch):
+    """Description у Robokassa ограничен 100 символами: ошибочная конфигурация
+    не должна создавать заведомо неоплачиваемый счёт."""
+    await _login(client, "pay-description-limit@test.com")
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 10 ** 101)
+
+    r = await client.post("/api/pay", json={})
+    assert r.status_code == 503
+    with main.get_db() as db:
+        count = db.execute(
+            "SELECT COUNT(*) FROM payments p"
+            " JOIN users u ON u.id=p.user_id"
+            " WHERE u.email=?",
+            ("pay-description-limit@test.com",),
+        ).fetchone()[0]
+    assert count == 0
 
 
 # ── Анонимные превью: лимит, который не сбрасывается очисткой cookie ─────────

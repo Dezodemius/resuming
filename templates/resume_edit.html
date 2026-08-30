@@ -13,9 +13,12 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260825">
+<link rel="stylesheet" href="/static/app.css?v=20260830">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
-<script>const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};</script>
+<script>
+const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
+const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 {% include '_metrika.html' %}
@@ -893,7 +896,7 @@ function aiErrorText(res, body) {
     return 'Закончились генерации — оформите Pro на странице тарифов';
   }
   if (res.status === 402 && body && body.error === 'pro_limit') {
-    return `Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций в месяц — исчерпан, попробуйте позже`;
+    return `Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней — исчерпан, попробуйте позже`;
   }
   return (body && body.detail) || 'Не удалось улучшить текст';
 }

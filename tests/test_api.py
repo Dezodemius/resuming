@@ -41,6 +41,72 @@ async def test_offer_page_shows_tariff_numbers(client):
     assert f"до {config.PRO_FAIR_USE_LIMIT} AI-генераций" in r.text
 
 
+@pytest.mark.parametrize("path", ["/", "/pricing", "/offer", "/contacts", "/privacy"])
+async def test_public_sales_pages_show_seller_details(client, path):
+    """Реквизиты самозанятого видны до покупки на каждой продающей странице."""
+    import config
+
+    r = await client.get(path)
+    assert r.status_code == 200
+    assert config.SELLER_NAME in r.text
+    assert config.SELLER_INN in r.text
+    assert config.SELLER_CITY in r.text
+    assert config.SELLER_PHONE in r.text
+    assert config.SELLER_EMAIL in r.text
+
+
+async def test_payment_copy_matches_one_time_access(client):
+    """Публичные страницы не обещают рекуррентность или безлимитную AI-квоту."""
+    for path in ("/", "/pricing", "/new"):
+        r = await client.get(path)
+        assert r.status_code == 200
+        lowered = r.text.lower()
+        assert "отмена в любой момент" not in lowered
+        assert "генераций в месяц" not in lowered
+        assert "pro-подпис" not in lowered
+        assert "автопродлен" in lowered
+
+
+async def test_privacy_page_matches_actual_data_locations(client):
+    """Политика не должна обещать вымышленное хранение в ЕС или отсутствие
+    хранения у внешнего AI-провайдера."""
+    r = await client.get("/privacy")
+    assert r.status_code == 200
+    assert "на территории Российской Федерации" in r.text
+    assert "DeepSeek" in r.text
+    assert "территории КНР" in r.text
+    assert "Германия / Финляндия" not in r.text
+    assert "без сохранения на стороне провайдера" not in r.text
+
+
+async def test_billing_returns_amount_of_actual_payment(client):
+    """История не подменяет старую сумму текущей ценой тарифа."""
+    main.init_db()
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO magic_tokens (token, email, expires_at, used)"
+            " VALUES (?,?,datetime('now','+10 minutes'),0)",
+            ("tok-billing-amount", "billing-amount@test.com"),
+        )
+        db.commit()
+    await client.get("/auth/email/verify?token=tok-billing-amount", follow_redirects=False)
+    with main.get_db() as db:
+        user_id = db.execute(
+            "SELECT id FROM users WHERE email=?", ("billing-amount@test.com",),
+        ).fetchone()["id"]
+        db.execute(
+            "INSERT INTO payments (user_id, pay_id, idem_key, status, amount, product)"
+            " VALUES (?,?,?,?,?,?)",
+            (user_id, "historic-1", "historic-idem-1", "succeeded", "275.50", "Старый Pro"),
+        )
+        db.commit()
+
+    r = await client.get("/api/billing")
+    assert r.status_code == 200
+    assert r.json()["payments"][0]["amount"] == "275.50"
+    assert r.json()["payments"][0]["product"] == "Старый Pro"
+
+
 @pytest.mark.parametrize("n,expected", [
     (0, "дней"),
     (1, "день"),

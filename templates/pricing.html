@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260825">
+<link rel="stylesheet" href="/static/app.css?v=20260830">
 <link rel="stylesheet" href="/static/landing.css?v=20260825">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <style>
@@ -81,7 +81,7 @@
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>{{ free_uses }} AI-генерации после входа</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до {{ free_resumes }} сохранённых резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
-          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">{{ pro_fair_use_limit }} генераций в месяц</span></li>
+          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">квота Pro: {{ pro_fair_use_limit }} генераций за {{ pro_fair_use_days }} дней</span></li>
           <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">безлимитное хранение резюме</span></li>
         </ul>
         <a class="btn-primary lp-plan__btn" href="/new" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border-2);box-shadow:none">Начать бесплатно</a>
@@ -93,13 +93,14 @@
         <div class="lp-plan__price">{{ pro_price|int }} ₽ <small>/ {{ pro_days }} дней</small></div>
         <div class="lp-plan__period">разовый платёж, автопродления нет</div>
         <ul class="lp-plan__list">
-          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span><b>{{ pro_fair_use_limit }}</b> AI-генераций в месяц</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до <b>{{ pro_fair_use_limit }}</b> AI-генераций за {{ pro_fair_use_days }} дней</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>безлимитное хранение резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>редактор с AI-подсказками по блокам</span></li>
-          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация под любое число вакансий</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация резюме под вакансии в пределах квоты</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
         </ul>
         <button class="btn-primary lp-plan__btn" id="btn-buy" type="button" onclick="buyPro()">Оформить Pro — {{ pro_price|int }} ₽</button>
+        <div style="font-size:10.5px;color:var(--text-3);margin-top:8px;text-align:center;line-height:1.5">Переходя к оплате, вы принимаете <a href="/offer">публичную оферту</a> и <a href="/privacy">политику конфиденциальности</a>.</div>
         <div style="font-size:11px;color:var(--text-3);margin-top:8px;text-align:center">Лимит действует весь оплаченный период — {{ pro_days }} дней</div>
       </div>
     </div>
@@ -109,11 +110,11 @@
       <h2>Условия оплаты и предоставления услуги</h2>
       <div class="pay-row">
         <span class="pay-ico">💳</span>
-        <div><b>Стоимость:</b> {{ pro_price|int }} ₽. Оплата через платёжный сервис Робокасса — банковской картой или через СБП.</div>
+        <div><b>Стоимость:</b> {{ pro_price|int }} ₽. Оплата через платёжный сервис Робокасса доступным на платёжной странице способом.</div>
       </div>
       <div class="pay-row">
         <span class="pay-ico">📅</span>
-        <div><b>Срок действия:</b> {{ pro_days }} календарных дней с момента подтверждения оплаты. Повторная оплата продлевает подписку от текущей даты окончания.</div>
+        <div><b>Срок действия:</b> {{ pro_days }} календарных дней с момента подтверждения оплаты. Повторная оплата добавляет новый период к уже оплаченному сроку.</div>
       </div>
       <div class="pay-row">
         <span class="pay-ico">⚡</span>
@@ -132,51 +133,30 @@
     <div class="lp-faq" style="text-align:left;margin-top:40px">
       <details>
         <summary>Как происходит оплата?</summary>
-        <div class="lp-faq__a">Через защищённый сервис Робокасса. Поддерживаются карты Visa, Mastercard, МИР и оплата через СБП. Данные карты на нашем сервере не хранятся.</div>
+        <div class="lp-faq__a">Через защищённую страницу Робокассы. Доступные способы, включая банковские карты и СБП, отображаются на платёжной странице. Данные карты на нашем сервере не хранятся.</div>
       </details>
       <details>
-        <summary>Подписка продлевается автоматически?</summary>
+        <summary>Доступ Pro продлевается автоматически?</summary>
         <div class="lp-faq__a">Нет. Деньги списываются один раз. Через {{ pro_days }} дней аккаунт возвращается на бесплатный тариф — чтобы продолжить, нужно оплатить снова.</div>
       </details>
       <details>
         <summary>Можно ли вернуть деньги?</summary>
-        <div class="lp-faq__a">Да. По ст. 32 закона «О защите прав потребителей» от договора можно отказаться в любой момент: напишите нам, и мы вернём деньги за вычетом фактически понесённых расходов, показав расчёт удерживаемой суммы. Если после оплаты подписка вообще не активировалась — восстановим доступ или вернём средства полностью. Подробности — в разделе 10 <a href="/offer">публичной оферты</a>.</div>
+        <div class="lp-faq__a">Да. По ст. 32 закона «О защите прав потребителей» от договора можно отказаться в любой момент: напишите нам, и мы вернём деньги за вычетом фактически понесённых расходов, показав расчёт удерживаемой суммы. Если после оплаты доступ Pro не активировался — восстановим доступ или вернём средства полностью. Подробности — в разделе 10 <a href="/offer">публичной оферты</a>.</div>
       </details>
       <details>
-        <summary>Что будет с резюме после окончания подписки?</summary>
+        <summary>Что будет с резюме после окончания Pro?</summary>
         <div class="lp-faq__a">Все сохранённые резюме остаются доступны для просмотра и скачивания в PDF. Ограничивается только создание новых AI-генераций.</div>
       </details>
     </div>
   </div>
 </section>
 
-<footer class="foot">
-  <div class="foot__top">
-    <div class="foot__brand">
-      <span class="logo-mark">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
-      </span>
-      <div>
-        <div class="foot__brand-name">Резюмирую.рф</div>
-        <div class="foot__brand-sub">AI-резюме под конкретную вакансию</div>
-      </div>
-    </div>
-    <nav class="foot__nav">
-      <a href="/new">Создать резюме</a>
-      <a href="/pricing">Тарифы</a>
-      <a href="/offer">Публичная оферта</a>
-      <a href="/privacy">Политика конфиденциальности</a>
-      <a href="/contacts">Контакты</a>
-    </nav>
-  </div>
-  <div class="foot__bottom">
-    <div class="foot__bottom-in">© 2026 Резюмирую.рф</div>
-  </div>
-</footer>
+{% include '_app_footer.html' %}
 
 <div class="loader" id="loader"><div class="spinner"></div></div>
 <div class="toast" id="toast"></div>
 
+<script src="/static/payment.js?v=20260830"></script>
 <script>
 (function () {
   const btn = document.getElementById('theme-btn');
@@ -232,8 +212,8 @@ async function buyPro() {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({}),
     });
     const d = await res.json();
-    if (d.url) { window.location.href = d.url; return; }
-    throw new Error(d.detail || 'Не удалось создать платёж');
+    if (!res.ok) throw new Error(d.detail || 'Не удалось создать платёж');
+    submitRobokassaPayment(d);
   } catch (e) {
     toast(e.message || 'Ошибка создания платежа', 'err');
     document.getElementById('loader').classList.remove('on');

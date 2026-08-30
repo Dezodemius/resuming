@@ -67,6 +67,12 @@ def test_csp_allows_metrika_webvisor_websocket():
     assert "wss://mc.yandex.ru" in connect, connect
 
 
+def test_csp_allows_robokassa_payment_form():
+    """Receipt отправляется POST-формой, которую form-action не должен блокировать."""
+    form_action = next(p for p in main._CSP.split("; ") if p.startswith("form-action"))
+    assert "https://auth.robokassa.ru" in form_action
+
+
 # ── Страницы ошибок ──────────────────────────────────────────────────────
 async def test_unknown_url_returns_branded_page(client):
     """MCP смонтирован на «/» и раньше отвечал голым «Not Found» на любой
