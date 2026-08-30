@@ -5,6 +5,7 @@
 платежа Робокассы в вебхуке, срок жизни magic-ссылки.
 """
 import hashlib
+import json
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -149,6 +150,38 @@ def test_robokassa_signature_is_md5_of_colon_joined_parts():
 
 def test_robokassa_signature_order_matters():
     assert main._robokassa_signature("a", "b") != main._robokassa_signature("b", "a")
+# Receipt уходит в подпись Password #1 и в поле формы одной и той же строкой,
+# поэтому важен каждый параметр сериализации: сумма позиции, кодировка
+# кириллицы, разделители JSON и набор символов, которые quote() не трогает.
+# Через /api/pay это не проверить — там цена ровная и без спецсимволов.
+def test_robokassa_receipt_rounds_sum_to_kopecks():
+    """Сумма позиции — рубли с копейками. Округление до целого разошлось бы
+    с OutSum, а лишние знаки Робокасса не принимает."""
+    from urllib.parse import unquote
+
+    item = json.loads(unquote(main._robokassa_receipt("Pro", "399.567")))["items"][0]
+    assert item["sum"] == 399.57
+
+
+def test_robokassa_receipt_keeps_cyrillic_literal():
+    r"""ensure_ascii=False обязателен: с \uXXXX-экранированием чек становится
+    нечитаемым в кабинете, а строка подписи — другой."""
+    from urllib.parse import unquote
+
+    raw = unquote(main._robokassa_receipt("Доступ Pro", "399.00"))
+    assert "Доступ Pro" in raw
+    assert "\\u04" not in raw
+
+
+def test_robokassa_receipt_json_has_no_padding_spaces():
+    """Разделители без пробелов: сериализация «как получится» дала бы другую
+    строку под подписью при том же содержимом."""
+    from urllib.parse import unquote
+
+    raw = unquote(main._robokassa_receipt("Pro", "399.00"))
+    assert '", "' not in raw
+    assert '": "' not in raw
+    assert '"items":[{' in raw
 
 
 def test_strip_xml_ns_allows_lookup_by_local_name():

@@ -2220,17 +2220,29 @@ async def fetch_job(request: Request):
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments (Робокасса) ─────────────────────────────────────────────────
+# Единственный платёжный адрес. Тот же адрес проверяет static/payment.js перед
+# отправкой формы и разрешает form-action в CSP — три места обязаны совпадать,
+# иначе браузер молча заблокирует переход на оплату.
+ROBOKASSA_PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+
+
 def _robokassa_signature(*parts: str) -> str:
     return hashlib.md5(":".join(parts).encode()).hexdigest()
 
 
 def _robokassa_receipt(product: str, amount: str) -> str:
-    """URL-кодированная номенклатура для подписи и POST-поля Receipt."""
+    """URL-кодированная номенклатура чека (одна позиция — доступ Pro).
+
+    Возвращается уже закодированной, потому что в подпись Password #1 и в
+    POST-поле Receipt обязана уйти одна и та же строка байт в байт: вторая
+    перекодировка на стороне формы разошлась бы с подписью, и Робокасса
+    отклонила бы платёж.
+    """
     payload = {
         "items": [{
             "name": product,
             "quantity": 1,
-            "sum": float(amount),
+            "sum": round(float(amount), 2),
             "payment_method": "full_payment",
             "payment_object": "service",
             "tax": "none",
@@ -2331,7 +2343,7 @@ async def create_payment(req: PayReq, request: Request):
         fields["IsTest"] = 1
     log.info("pay: платёж создан user=%s inv_id=%s", user["id"], inv_id)
     return {
-        "action": "https://auth.robokassa.ru/Merchant/Index.aspx",
+        "action": ROBOKASSA_PAY_URL,
         "method": "POST",
         "fields": fields,
     }
