@@ -35,18 +35,21 @@ python tools/mutation_diff.py --base origin/main   # мутанты по git-д�
 
 В dev-режиме без `SMTP_USER` magic-ссылка печатается в stdout вместо отправки письма.
 
-**Два контура деплоя** (подробно — `deploy/README.md`). Прод (`резюмирую.рф`)
+**Три контура деплоя** (подробно — `deploy/README.md`). Прод (`резюмирую.рф`)
 живёт на **app-01** (Timeweb, `/srv/apps/resuming`): пуш в `main` →
 `.github/workflows/ci_cd.yml` → SSH → `deploy/deploy-prod.sh` с
-`deploy/docker-compose.prod.yml` (только `app`, на `127.0.0.1`,
+`deploy/docker-compose.prod.yml` (только `app`, на `127.0.0.1:8001`,
 Ollama внешняя). Домен и TLS держит **хостовой** nginx этой машины, общий ещё с
-двумя проектами. Стенд — `deploy/deploy.sh`: архив рабочего дерева по SSH,
-`docker-compose.staging.yml` с app + nginx.
+двумя проектами. Дев-стенд — на той же машине, `/srv/apps/resuming-dev`: пуш в
+`develop` → джоба `deploy-dev` → `deploy/deploy-dev.sh` с
+`docker-compose.dev.yml` (`127.0.0.1:8002`, свой том, `DEV_MODE=1`, домена нет —
+вход SSH-туннелем). Стенд на отдельном VPS — `deploy/deploy.sh`: архив рабочего
+дерева по SSH, `docker-compose.staging.yml` с app + nginx.
 
-Корневой `docker-compose.yml` — третий, самодостаточный контур (локальная Ollama
-+ свой nginx на порту 80). **На app-01 его запускать нельзя**: займёт 80-й порт
-и уронит хостовой прокси вместе с соседними сайтами. Правки в инфраструктуре
-вносятся в каждый контур отдельно, они не наследуют друг друга.
+Корневой `docker-compose.yml` — четвёртый, самодостаточный контур (локальная
+Ollama + свой nginx на порту 80). **На app-01 его запускать нельзя**: займёт
+80-й порт и уронит хостовой прокси вместе с соседними сайтами. Правки в
+инфраструктуре вносятся в каждый контур отдельно, они не наследуют друг друга.
 
 ## Quality gates
 
@@ -131,6 +134,8 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
 | `CSP_MODE` | `enforce` (по умолчанию) / `report` / `off` — аварийный вентиль для CSP |
 | `RATE_LIMIT_ENABLED` | `0` выключает лимитер (тесты, отладка) |
+| `DEV_MODE` | `1` открывает `/dev` и `/api/dev/*` — вход без письма и тариф без оплаты (дев-стенд). При `APP_URL` на https гасится принудительно |
+| `DEV_BIND` | Адрес публикации порта дев-стенда (по умолчанию `127.0.0.1`) |
 | `CLEANUP_INTERVAL_SEC` / `ANON_USAGE_TTL_DAYS` / `EVENTS_TTL_DAYS` | Фоновая уборка БД |
 
 ## Context management (экономия токенов)
