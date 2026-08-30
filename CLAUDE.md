@@ -35,18 +35,21 @@ python tools/mutation_diff.py --base origin/main   # мутанты по git-д�
 
 В dev-режиме без `SMTP_USER` magic-ссылка печатается в stdout вместо отправки письма.
 
-**Два контура деплоя** (подробно — `deploy/README.md`). Прод (`резюмирую.рф`)
+**Три контура деплоя** (подробно — `deploy/README.md`). Прод (`резюмирую.рф`)
 живёт на **app-01** (Timeweb, `/srv/apps/resuming`): пуш в `main` →
 `.github/workflows/ci_cd.yml` → SSH → `deploy/deploy-prod.sh` с
-`deploy/docker-compose.prod.yml` (только `app`, на `127.0.0.1`,
+`deploy/docker-compose.prod.yml` (только `app`, на `127.0.0.1:8001`,
 Ollama внешняя). Домен и TLS держит **хостовой** nginx этой машины, общий ещё с
-двумя проектами. Стенд — `deploy/deploy.sh`: архив рабочего дерева по SSH,
-`docker-compose.staging.yml` с app + nginx.
+двумя проектами. Дев-стенд — на той же машине, `/srv/apps/resuming-dev`: пуш в
+`develop` → джоба `deploy-dev` → `deploy/deploy-dev.sh` с
+`docker-compose.dev.yml` (`127.0.0.1:8002`, свой том, `DEV_MODE=1`, домена нет —
+вход SSH-туннелем). Стенд на отдельном VPS — `deploy/deploy.sh`: архив рабочего
+дерева по SSH, `docker-compose.staging.yml` с app + nginx.
 
-Корневой `docker-compose.yml` — третий, самодостаточный контур (локальная Ollama
-+ свой nginx на порту 80). **На app-01 его запускать нельзя**: займёт 80-й порт
-и уронит хостовой прокси вместе с соседними сайтами. Правки в инфраструктуре
-вносятся в каждый контур отдельно, они не наследуют друг друга.
+Корневой `docker-compose.yml` — четвёртый, самодостаточный контур (локальная
+Ollama + свой nginx на порту 80). **На app-01 его запускать нельзя**: займёт
+80-й порт и уронит хостовой прокси вместе с соседними сайтами. Правки в
+инфраструктуре вносятся в каждый контур отдельно, они не наследуют друг друга.
 
 ## Quality gates
 
@@ -99,13 +102,13 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 
 **Лимиты использования** — у каждого пользователя: `free_left` (3 бесплатных), `paid_left` (докупаемые пачки), `is_pro` + `pro_expires_at` (подписка). `_deduct()` / `_refund()` — атомарные списания с откатом при ошибке AI. FREE_RESUMES=5 — лимит хранимых резюме для бесплатных.
 
-**Платежи** — Робокасса. `POST /api/pay` собирает подписанный redirect URL (`MD5(LOGIN:OutSum:InvId:PASSWORD1)`, `InvId` = `payments.id`) без вызова внешнего API. Вебхук `/api/pay/webhook` — ResultURL Робокассы (form/query, не JSON): проверяет подпись `MD5(OutSum:InvId:PASSWORD2)`, затем подтверждает платёж через `OpStateExt` (не доверяет только вебхуку) и отвечает `OK{InvId}` при успехе.
+**Платежи** — Робокасса, без вызова внешнего API: `POST /api/pay` сам собирает поля POST-формы и подпись `MD5(LOGIN:OutSum:InvId:Receipt:PASSWORD1)`, где `InvId` = `payments.id + INV_ID_OFFSET`, а `Receipt` (`_robokassa_receipt`) — URL-кодированная номенклатура чека из одной позиции (`full_payment` / `service` / `tax: none`). В подпись и в поле формы обязана уйти одна и та же закодированная строка — вторая перекодировка ломает платёж. `Description` Робокасса ограничивает 100 символами, поэтому слишком длинное описание роняет создание счёта в 503, а не создаёт неоплачиваемую строку. Ответ (`action` / `method` / `fields`) отправляет `static/payment.js` одноразовой формой; платёжный адрес продублирован в `ROBOKASSA_PAY_URL`, в `form-action` CSP и в самом `payment.js` — менять надо все три (держит `test_payment_url_agrees_across_backend_csp_and_frontend`). Вебхук `/api/pay/webhook` — ResultURL Робокассы (form/query, не JSON): проверяет подпись `MD5(OutSum:InvId:PASSWORD2)`, затем подтверждает платёж через `OpStateExt` (не доверяет только вебхуку) и отвечает `OK{InvId}` при успехе.
 
 **Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен). Есть глобальный backstop `240/minute` (`SlowAPIMiddleware` + `default_limits`) поверх точечных `@rate`. Ключ лимита — `_client_key`: `CF-Connecting-IP` → первый `X-Forwarded-For` → peer, иначе за Cloudflare+nginx все посетители попали бы в одно ведро. В тестах лимитер выключен через `RATE_LIMIT_ENABLED=0` (см. `tests/conftest.py`).
 
 **MCP** — FastMCP (streamable-http, stateless, json_response) смонтирован в конце `main.py` через `app.mount("/")`; endpoint — `/mcp`, session manager стартует внутри lifespan. Инструменты `get_profile` / `adapt_resume` авторизуются по `Authorization: Bearer <token>` через таблицу `api_tokens`; токен выдаёт `POST /api/mcp-token` (один активный на пользователя).
 
-**Фронтенд** — Jinja2-шаблоны в `templates/`. JS-логика встроена прямо в HTML. `_footer.html` и `_legal_base.html` — переиспользуемые части. Дизайн-каркас и токены — `static/app.css`, блоки лендинга и `/pricing` — `static/landing.css` (префикс `.lp-`).
+**Фронтенд** — Jinja2-шаблоны в `templates/`. JS-логика встроена прямо в HTML. `_app_footer.html` и `_legal_base.html` — переиспользуемые части; общий подвал включают все публичные страницы, `_footer.html` остался только у `/admin`. Публичные реквизиты продавца живут в `config.py` (`SELLER_*`) и приходят в шаблоны глобалом `seller` — дублировать их в разметке нельзя, подвал и юридические страницы обязаны совпадать. Дизайн-каркас и токены — `static/app.css`, блоки лендинга и `/pricing` — `static/landing.css` (префикс `.lp-`).
 
 ## Key env vars
 
@@ -131,6 +134,8 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `METRIKA_ID` | Номер счётчика Яндекс.Метрики (пусто = выключено) |
 | `CSP_MODE` | `enforce` (по умолчанию) / `report` / `off` — аварийный вентиль для CSP |
 | `RATE_LIMIT_ENABLED` | `0` выключает лимитер (тесты, отладка) |
+| `DEV_MODE` | `1` открывает `/dev` и `/api/dev/*` — вход без письма и тариф без оплаты (дев-стенд). При `APP_URL` на https гасится принудительно |
+| `DEV_BIND` | Адрес публикации порта дев-стенда (по умолчанию `127.0.0.1`) |
 | `CLEANUP_INTERVAL_SEC` / `ANON_USAGE_TTL_DAYS` / `EVENTS_TTL_DAYS` | Фоновая уборка БД |
 
 ## Context management (экономия токенов)

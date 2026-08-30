@@ -73,6 +73,27 @@ def test_csp_allows_robokassa_payment_form():
     assert "https://auth.robokassa.ru" in form_action
 
 
+def test_payment_url_agrees_across_backend_csp_and_frontend():
+    """Платёжный адрес записан в трёх местах: ответе /api/pay
+    (ROBOKASSA_PAY_URL), form-action в CSP и static/payment.js, который
+    сверяет пришедший action со своей константой. Разъедется любое одно —
+    оплата перестанет уходить: либо CSP заблокирует отправку формы, либо
+    payment.js откажется её собирать. Обе поломки молчаливые.
+    """
+    from urllib.parse import urlparse
+
+    origin = urlparse(main.ROBOKASSA_PAY_URL)
+    assert origin.scheme == "https"
+
+    form_action = next(p for p in main._CSP.split("; ") if p.startswith("form-action"))
+    assert f"{origin.scheme}://{origin.netloc}" in form_action
+
+    payment_js = (Path(__file__).resolve().parent.parent / "static" / "payment.js").read_text(
+        encoding="utf-8",
+    )
+    assert f"'{main.ROBOKASSA_PAY_URL}'" in payment_js, payment_js[:200]
+
+
 # ── Страницы ошибок ──────────────────────────────────────────────────────
 async def test_unknown_url_returns_branded_page(client):
     """MCP смонтирован на «/» и раньше отвечал голым «Not Found» на любой
