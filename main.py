@@ -11,7 +11,7 @@ import hashlib
 import hmac
 import time
 import xml.etree.ElementTree as ET
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -40,6 +40,8 @@ from config import (  # noqa: E402
     log,
     OLLAMA_URL, MODEL, AI_API_KEY, APP_URL,
     ROBOKASSA_LOGIN, ROBOKASSA_PASSWORD1, ROBOKASSA_PASSWORD2, ROBOKASSA_TEST_MODE,
+    SELLER_NAME, SELLER_STATUS, SELLER_INN, SELLER_CITY,
+    SELLER_PHONE, SELLER_PHONE_HREF, SELLER_EMAIL, SELLER_SITE,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
     VK_CLIENT_ID,
@@ -68,6 +70,16 @@ def get_ai_sem() -> asyncio.Semaphore:
 tpl = Jinja2Templates(directory="templates")
 tpl.env.globals["metrika_id"] = METRIKA_ID
 tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
+tpl.env.globals["seller"] = {
+    "name": SELLER_NAME,
+    "status": SELLER_STATUS,
+    "inn": SELLER_INN,
+    "city": SELLER_CITY,
+    "phone": SELLER_PHONE,
+    "phone_href": SELLER_PHONE_HREF,
+    "email": SELLER_EMAIL,
+    "site": SELLER_SITE,
+}
 
 def _plural(n: int, one: str, few: str, many: str) -> str:
     """Русская форма слова при числительном: 1 день, 2 дня, 5 дней."""
@@ -251,7 +263,8 @@ _CSP = "; ".join([
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'",
-    "form-action 'self'",
+    # POST-форма оплаты отправляется прямо на официальный интерфейс Robokassa.
+    "form-action 'self' https://auth.robokassa.ru",
     # inline-обработчики (onclick) и <style> прямо в шаблонах требуют
     # 'unsafe-inline'; 'unsafe-eval' нужен сборщику PDF
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
@@ -262,8 +275,9 @@ _CSP = "; ".join([
     # все хрупко, а картинка не исполняется: разрешаем любой https.
     "img-src 'self' data: blob: https:",
     # wss://mc.yandex.* — Вебвизор Метрики держит WebSocket (mc.yandex.ru/solid.ws);
-    # схема https в connect-src его не покрывает, нужен отдельный wss-источник
-    "connect-src 'self' https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com",
+    # схема https в connect-src его не покрывает, нужен отдельный wss-источник.
+    # cdnjs — source-map html2pdf (.js.map), браузер тянет его при открытых DevTools.
+    "connect-src 'self' https://cdnjs.cloudflare.com https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com",
     # blob:/'self' — html2pdf клонирует страницу в служебный iframe
     "frame-src 'self' blob: data: https://mc.yandex.ru",
     "worker-src 'self' blob:",
@@ -737,10 +751,10 @@ def _auth_ctx(user) -> dict:
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Публичный лендинг. Залогиненного пользователя маркетинг не интересует —
-    отправляем сразу в генератор."""
+    отправляем сразу на доску его резюме."""
     user = await get_current_user(request)
     if user:
-        return RedirectResponse(url="/new", status_code=302, headers=_NO_STORE)
+        return RedirectResponse(url="/resumes", status_code=302, headers=_NO_STORE)
     resp = tpl.TemplateResponse(request, "landing.html", {
         **_auth_ctx(user),
         "app_url": APP_URL,
@@ -764,7 +778,10 @@ async def generator_page(request: Request):
     user = await get_current_user(request)
     return tpl.TemplateResponse(request, "index.html", {
         **_auth_ctx(user),
+        "pro_price": PRO_PRICE,
+        "pro_days": PRO_DAYS,
         "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
     })
 
 
@@ -836,6 +853,7 @@ async def resume_edit_page(resume_id: int, request: Request):
         "resume_id":  resume_id,
         "user": user,
         "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
     })
 
 # ── AI section improvement ────────────────────────────────────────────────
@@ -927,6 +945,9 @@ async def settings_page(request: Request):
         **_auth_ctx(user),
         "linked_providers": {r["provider"]: r["email_at_link"] for r in rows},
         "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
+        "pro_price": PRO_PRICE,
+        "pro_days": PRO_DAYS,
     })
 
 @app.post("/api/settings/oauth/{provider}/unlink")
@@ -983,7 +1004,7 @@ async def billing_info(request: Request):
     pro = _is_pro(user)
     with get_db() as db:
         pays = db.execute(
-            "SELECT pay_id, status, created FROM payments"
+            "SELECT pay_id, status, amount, product, created FROM payments"
             " WHERE user_id=? ORDER BY created DESC LIMIT 10",
             (user["id"],)
         ).fetchall()
@@ -1366,7 +1387,11 @@ def _deduct(db, user_id: int) -> tuple[bool, str, int]:
         window_start = f"-{PRO_FAIR_USE_DAYS} days"
         recent = db.execute(
             "SELECT COUNT(*) FROM usage_events"
-            " WHERE user_id=? AND event IN ('generate','generate_fail')"
+            " WHERE user_id=?"
+            "   AND (event='generate' OR ("
+            "       event='generate_fail'"
+            "       AND json_extract(meta, '$.reason')='format_hijack'"
+            "   ))"
             "   AND created > datetime('now', ?)",
             (user_id, window_start),
         ).fetchone()[0]
@@ -2199,6 +2224,22 @@ def _robokassa_signature(*parts: str) -> str:
     return hashlib.md5(":".join(parts).encode()).hexdigest()
 
 
+def _robokassa_receipt(product: str, amount: str) -> str:
+    """URL-кодированная номенклатура для подписи и POST-поля Receipt."""
+    payload = {
+        "items": [{
+            "name": product,
+            "quantity": 1,
+            "sum": float(amount),
+            "payment_method": "full_payment",
+            "payment_object": "service",
+            "tax": "none",
+        }],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return quote(raw, safe="")
+
+
 def _strip_xml_ns(elem):
     """Убирает namespace из тегов, чтобы искать по локальному имени
     (State/Code/Info/OutSum) не завися от точного xmlns ответа Робокассы."""
@@ -2241,15 +2282,20 @@ async def create_payment(req: PayReq, request: Request):
         log.warning("pay: Робокасса не настроена (ROBOKASSA_LOGIN/PASSWORD1/PASSWORD2 пусты), user=%s", user["id"])
         raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
 
-    # Описание должно совпадать с тем, что реально выдаёт вебхук (Pro на
-    # PRO_DAYS дней) — иначе в чеке у покупателя одна услуга, а в аккаунте другая.
+    # Описание совпадает с фактическим разовым доступом и не содержит знаков,
+    # которые Robokassa запрещает в Description. Та же строка уходит в чек.
     # Сумму и товар записываем в саму строку платежа: вебхук сверяет пришедший
     # OutSum именно с ними, а не с глобальной PRO_PRICE — так смена цены в
     # конфиге не ломает разбор уже созданных, но ещё не оплаченных счетов.
-    description = f"Резюмирую.рф Pro, {PRO_FAIR_USE_LIMIT} генераций на {PRO_DAYS} дней"
+    description = (
+        f"Доступ Pro на {PRO_DAYS} дней до {PRO_FAIR_USE_LIMIT} AI генераций"
+    )
+    if len(description) > 100:
+        log.error("pay: Description превышает лимит Robokassa: %s символов", len(description))
+        raise HTTPException(503, "Оплата временно недоступна. Попробуйте позже.")
 
     # В отличие от ЮKassa, у Робокассы нет отдельного вызова API для создания
-    # платежа — просто собираем подписанный redirect URL сами. insert+update
+    # платежа — собираем подписанные поля POST-формы сами. insert+update
     # в одном db-блоке: при любой ошибке он откатится целиком сам (get_db()),
     # отдельная очистка «висячей» строки не нужна.
     #
@@ -2266,22 +2312,29 @@ async def create_payment(req: PayReq, request: Request):
         db.execute("UPDATE payments SET pay_id=? WHERE idem_key=?", (str(inv_id), idem))
         db.commit()
 
-    signature = _robokassa_signature(ROBOKASSA_LOGIN, PRO_PRICE, str(inv_id), ROBOKASSA_PASSWORD1)
-    params = {
+    receipt = _robokassa_receipt(description, PRO_PRICE)
+    signature = _robokassa_signature(
+        ROBOKASSA_LOGIN, PRO_PRICE, str(inv_id), receipt, ROBOKASSA_PASSWORD1,
+    )
+    fields = {
         "MerchantLogin": ROBOKASSA_LOGIN,
         "OutSum": PRO_PRICE,
         "InvId": inv_id,
         "Description": description,
         "SignatureValue": signature,
+        "Receipt": receipt,
         "Culture": "ru",
     }
     if user.get("email"):
-        params["Email"] = user["email"]
+        fields["Email"] = user["email"]
     if ROBOKASSA_TEST_MODE:
-        params["IsTest"] = 1
-    url = f"https://auth.robokassa.ru/Merchant/Index.aspx?{urlencode(params)}"
+        fields["IsTest"] = 1
     log.info("pay: платёж создан user=%s inv_id=%s", user["id"], inv_id)
-    return {"url": url}
+    return {
+        "action": "https://auth.robokassa.ru/Merchant/Index.aspx",
+        "method": "POST",
+        "fields": fields,
+    }
 
 # GET и POST — метод ResultURL выбирается в кабинете Робокассы. Раньше роут
 # принимал только POST, а разбор ветвился на request.method: при настройке
@@ -2378,12 +2431,12 @@ async def payment_webhook(request: Request):
     return PlainTextResponse(f"OK{inv_id}")
 
 # ── Возврат из Робокассы: Success URL / Fail URL ──────────────────────────
-# Это возврат браузера покупателя, а не уведомление о платеже. Подписку по ним
+# Это возврат браузера покупателя, а не уведомление о платеже. Доступ по ним
 # НЕ выдаём, даже если параметры выглядят правильно: единственный источник
 # правды — ResultURL-вебхук выше, который сверяет подпись и отдельно
 # подтверждает платёж через OpStateExt. Причины ровно две.
 #   1. Браузер сюда может вообще не вернуться (закрыл вкладку, потерял сеть) —
-#      и подписка всё равно обязана появиться. Значит логика выдачи должна жить
+#      и Pro всё равно обязан появиться. Значит логика выдачи должна жить
 #      в вебхуке, а дублировать её здесь — заводить второй путь к двойной выдаче.
 #   2. На эту страницу можно просто зайти руками.
 # Поэтому страницы ничего не принимают на веру и показывают то, что видит наша

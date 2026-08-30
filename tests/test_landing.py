@@ -33,12 +33,12 @@ async def test_generator_moved_to_new(client):
     assert 'id="panel-match"' in r.text
 
 
-async def test_root_redirects_authenticated_user_to_generator(client):
-    """Залогиненному маркетинговая страница не нужна — сразу в продукт."""
+async def test_root_redirects_authenticated_user_to_board(client):
+    """Залогиненному маркетинговая страница не нужна — сразу на доску его резюме."""
     await _login(client, "landing-auth@test.com")
     r = await client.get("/", follow_redirects=False)
     assert r.status_code in (302, 303)
-    assert r.headers["location"] == "/new"
+    assert r.headers["location"] == "/resumes"
     # Ответ зависит от cookie — он не должен попасть в общий кеш прокси
     assert "no-store" in r.headers.get("cache-control", "")
 
@@ -110,8 +110,9 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
     """В Description Робокассы уходит то же, что вебхук потом кладёт в аккаунт
     (Pro), а не «пакет адаптаций» — иначе покупатель платит за одно, получает
     другое. Робокасса не требует вызова внешнего API для создания платежа —
-    /api/pay сам собирает redirect URL, поэтому парсим его query-параметры."""
-    from urllib.parse import parse_qs, urlparse
+    /api/pay сам собирает подписанные поля POST-формы."""
+    import json
+    from urllib.parse import quote, unquote
 
     await _login(client, "pay-desc@test.com")
     monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
@@ -120,12 +121,68 @@ async def test_payment_description_matches_granted_service(client, monkeypatch):
 
     r = await client.post("/api/pay", json={})
     assert r.status_code == 200, r.text
-    url = r.json()["url"]
-    assert url.startswith("https://auth.robokassa.ru/Merchant/Index.aspx?")
-    qs = parse_qs(urlparse(url).query)
-    assert qs["OutSum"][0] == main.PRO_PRICE
-    assert "Pro" in qs["Description"][0]
-    assert str(main.PRO_DAYS) in qs["Description"][0]
+    payment = r.json()
+    assert payment["action"] == "https://auth.robokassa.ru/Merchant/Index.aspx"
+    assert payment["method"] == "POST"
+    fields = payment["fields"]
+    assert fields["OutSum"] == main.PRO_PRICE
+    assert "Pro" in fields["Description"]
+    assert str(main.PRO_DAYS) in fields["Description"]
+
+    expected_receipt = {
+        "items": [{
+            "name": fields["Description"],
+            "quantity": 1,
+            "sum": float(main.PRO_PRICE),
+            "payment_method": "full_payment",
+            "payment_object": "service",
+            "tax": "none",
+        }],
+    }
+    assert fields["Receipt"] == quote(
+        json.dumps(expected_receipt, ensure_ascii=False, separators=(",", ":")),
+        safe="",
+    )
+    receipt = json.loads(unquote(fields["Receipt"]))
+    assert receipt == expected_receipt
+    assert fields["SignatureValue"] == main._robokassa_signature(
+        "shop", main.PRO_PRICE, str(fields["InvId"]), fields["Receipt"], "pass1",
+    )
+    serialized = json.dumps(payment)
+    assert "pass1" not in serialized
+    assert "pass2" not in serialized
+
+
+def test_robokassa_receipt_encodes_slash_in_product_name():
+    """safe='' важен для произвольной номенклатуры: даже косая черта должна
+    участвовать в подписи в URL-кодированном виде."""
+    import json
+    from urllib.parse import unquote
+
+    encoded = main._robokassa_receipt("Доступ / Pro", "399.00")
+    assert "%2F" in encoded
+    assert json.loads(unquote(encoded))["items"][0]["name"] == "Доступ / Pro"
+
+
+async def test_payment_rejects_description_over_robokassa_limit(client, monkeypatch):
+    """Description у Robokassa ограничен 100 символами: ошибочная конфигурация
+    не должна создавать заведомо неоплачиваемый счёт."""
+    await _login(client, "pay-description-limit@test.com")
+    monkeypatch.setattr(main, "ROBOKASSA_LOGIN", "shop")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD1", "pass1")
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "pass2")
+    monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 10 ** 101)
+
+    r = await client.post("/api/pay", json={})
+    assert r.status_code == 503
+    with main.get_db() as db:
+        count = db.execute(
+            "SELECT COUNT(*) FROM payments p"
+            " JOIN users u ON u.id=p.user_id"
+            " WHERE u.email=?",
+            ("pay-description-limit@test.com",),
+        ).fetchone()[0]
+    assert count == 0
 
 
 # ── Анонимные превью: лимит, который не сбрасывается очисткой cookie ─────────

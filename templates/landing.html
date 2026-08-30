@@ -21,7 +21,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260825">
+<link rel="stylesheet" href="/static/app.css?v=20260830">
 <link rel="stylesheet" href="/static/landing.css?v=20260825">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 {% include '_metrika.html' %}
@@ -158,7 +158,7 @@
       <div class="lp-trust__i">
         <div class="lp-trust__ico">💳</div>
         <div>
-          <div class="lp-trust__t">Оплата картой и СБП</div>
+          <div class="lp-trust__t">Оплата через Робокассу</div>
           <div class="lp-trust__d">Данные карты у нас не хранятся</div>
         </div>
       </div>
@@ -364,7 +364,7 @@
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>ещё {{ free_uses }} генерации после входа</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до {{ free_resumes }} сохранённых резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
-          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">{{ pro_fair_use_limit }} генераций в месяц</span></li>
+          <li><svg class="no" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg><span class="dim">квота Pro: {{ pro_fair_use_limit }} генераций за {{ pro_fair_use_days }} дней</span></li>
         </ul>
         <a class="btn-primary lp-plan__btn" href="/new" data-goal="cta_plan_free" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border-2);box-shadow:none">Начать бесплатно</a>
       </div>
@@ -375,10 +375,10 @@
         <div class="lp-plan__price">{{ pro_price|int }} ₽ <small>/ {{ pro_days }} дней</small></div>
         <div class="lp-plan__period">разовый платёж, без автопродления</div>
         <ul class="lp-plan__list">
-          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span><b>{{ pro_fair_use_limit }}</b> генераций в месяц</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>до <b>{{ pro_fair_use_limit }}</b> AI-генераций за {{ pro_fair_use_days }} дней</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>без ограничения на число сохранённых резюме</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>редактор с AI-подсказками по каждому блоку</span></li>
-          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация под любое число вакансий</span></li>
+          <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>адаптация резюме под вакансии в пределах квоты</span></li>
           <li><svg class="ok" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg><span>экспорт в PDF</span></li>
         </ul>
         <a class="btn-primary lp-plan__btn" href="/pricing" data-goal="cta_plan_pro">Оформить Pro за {{ pro_price|int }} ₽</a>
@@ -387,7 +387,7 @@
     </div>
 
     <p class="lp-plans__note">
-      Подписка не продлевается автоматически. Условия — в <a href="/offer">публичной оферте</a>,
+      Доступ Pro оплачивается один раз и не продлевается автоматически. Условия — в <a href="/offer">публичной оферте</a>,
       подробное сравнение — на <a href="/pricing">странице тарифов</a>.
     </p>
   </div>
@@ -425,7 +425,7 @@
         </div>
       </details>
       <details>
-        <summary>Подписка спишется повторно?</summary>
+        <summary>Оплата спишется повторно?</summary>
         <div class="lp-faq__a">
           Нет. Pro — разовый платёж на {{ pro_days }} дней, автопродления нет.
           Когда срок закончится, аккаунт просто вернётся на бесплатный тариф, а сохранённые резюме
@@ -467,29 +467,7 @@
 </div>
 
 <!-- ══ Футер ═══════════════════════════════════════════════════════════ -->
-<footer class="foot">
-  <div class="foot__top">
-    <div class="foot__brand">
-      <span class="logo-mark">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h10l4 4v12H5z"></path><path d="M9 11h6M9 15h4"></path></svg>
-      </span>
-      <div>
-        <div class="foot__brand-name">Резюмирую.рф</div>
-        <div class="foot__brand-sub">AI-резюме под конкретную вакансию</div>
-      </div>
-    </div>
-    <nav class="foot__nav">
-      <a href="/new">Создать резюме</a>
-      <a href="/pricing">Тарифы</a>
-      <a href="/offer">Публичная оферта</a>
-      <a href="/privacy">Политика конфиденциальности</a>
-      <a href="/contacts">Контакты</a>
-    </nav>
-  </div>
-  <div class="foot__bottom">
-    <div class="foot__bottom-in">© {{ current_year }} Резюмирую.рф</div>
-  </div>
-</footer>
+{% include '_app_footer.html' %}
 
 <!-- Липкая кнопка на мобильных -->
 <div class="lp-sticky" id="lp-sticky">

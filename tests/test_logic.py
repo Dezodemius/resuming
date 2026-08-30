@@ -221,18 +221,36 @@ def test_deduct_pro_user_old_events_fall_out_of_window(db, monkeypatch):
     assert (ok, col, left) == (True, "pro", 999)
 
 
-def test_deduct_pro_fair_use_counts_failed_generations_too(db, monkeypatch):
-    """generate_fail тоже стоил вызова модели (в т.ч. пойманный уход от
-    формата) — не считать его значило бы, что скрипт, который всегда ловит
-    отказ, вообще не упирается в потолок."""
+def test_deduct_pro_fair_use_counts_format_hijack(db, monkeypatch):
+    """Пойманный уход модели от формата считается: иначе вредоносный скрипт,
+    который всегда провоцирует такой ответ, не упирается в защитную квоту."""
     import main
     monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 2)
     uid = _add_user(db, free_left=0, paid_left=0, is_pro=1, pro_expires_at=_future(30))
-    db.execute("INSERT INTO usage_events (user_id, event) VALUES (?, 'generate_fail')", (uid,))
+    db.execute(
+        "INSERT INTO usage_events (user_id, event, meta) VALUES (?, 'generate_fail', ?)",
+        (uid, json.dumps({"reason": "format_hijack"})),
+    )
     db.execute("INSERT INTO usage_events (user_id, event) VALUES (?, 'generate')", (uid,))
     db.commit()
     ok, col, left = _deduct(db, uid)
     assert (ok, col, left) == (False, "pro_capped", 0)
+
+
+def test_deduct_pro_fair_use_excludes_technical_failures(db, monkeypatch):
+    """Оферта обещает не включать в квоту запрос без результата из-за
+    технической ошибки — ai_error и parse_error не должны уменьшать лимит."""
+    import main
+    monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 1)
+    uid = _add_user(db, free_left=0, paid_left=0, is_pro=1, pro_expires_at=_future(30))
+    for reason in ("ai_error", "parse_error"):
+        db.execute(
+            "INSERT INTO usage_events (user_id, event, meta) VALUES (?, 'generate_fail', ?)",
+            (uid, json.dumps({"reason": reason})),
+        )
+    db.commit()
+    ok, col, left = _deduct(db, uid)
+    assert (ok, col, left) == (True, "pro", 999)
 
 
 # ── Anti-abuse: детект промпт-инъекций ─────────────────────────────────────

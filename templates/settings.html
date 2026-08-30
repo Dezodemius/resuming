@@ -13,9 +13,15 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260825">
+<link rel="stylesheet" href="/static/app.css?v=20260830">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
-<script>const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};</script>
+<script>
+const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
+const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
+const PRO_PRICE_RUB = {{ pro_price|int }};
+const PRO_DAYS = {{ pro_days }};
+</script>
+<script src="/static/payment.js?v=20260830"></script>
 <style>
 /* ── Page ── */
 .page{max-width:680px;margin:0 auto;padding:32px 22px 90px;display:flex;flex-direction:column;gap:16px}
@@ -245,16 +251,17 @@
   <div class="modal">
     <div class="modal-icon">✨</div>
     <h2>Резюмирую Pro</h2>
-    <p class="modal-p">Снимите все ограничения и откликайтесь<br>на любое количество вакансий</p>
-    <div class="modal-price">399 ₽</div>
-    <div class="modal-period">в месяц · отмена в любой момент</div>
+    <p class="modal-p">Больше AI-генераций и сохранённых<br>версий резюме для активного поиска</p>
+    <div class="modal-price">{{ pro_price|int }} ₽</div>
+    <div class="modal-period">разовый доступ на {{ pro_days }} дней · без автопродления</div>
     <ul class="modal-features">
-      <li><span class="feat-ok">✓</span> {{ pro_fair_use_limit }} AI-генераций в месяц</li>
+      <li><span class="feat-ok">✓</span> До {{ pro_fair_use_limit }} AI-генераций за {{ pro_fair_use_days }} дней</li>
       <li><span class="feat-ok">✓</span> Безлимитные сохранённые резюме</li>
       <li><span class="feat-ok">✓</span> Редактор и версии</li>
       <li><span class="feat-ok">✓</span> PDF всегда бесплатно</li>
     </ul>
-    <button class="btn-upgrade btn-upgrade-gold" onclick="startPayment()">Оплатить 399 ₽ через Робокассу</button>
+    <button class="btn-upgrade btn-upgrade-gold" onclick="startPayment()">Оплатить {{ pro_price|int }} ₽ через Робокассу</button>
+    <div style="font-size:10.5px;color:var(--text-3);line-height:1.5;text-align:center">Переходя к оплате, вы принимаете <a href="/offer" target="_blank">публичную оферту</a> и <a href="/privacy" target="_blank">политику конфиденциальности</a>.</div>
     <button class="btn-modal-close" onclick="closeUpgrade()">Отмена</button>
   </div>
 </div>
@@ -287,7 +294,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const p = new URLSearchParams(location.search);
   if (p.get('paid') === '1') {
     history.replaceState({}, '', '/settings');
-    toast('Подписка Pro активирована! 🎉', 'ok');
+    toast('Доступ Pro активирован! 🎉', 'ok');
   }
   const linked = p.get('linked');
   if (linked) {
@@ -328,18 +335,18 @@ function renderPlanRow(b) {
       <div class="plan-price">Pro</div>
       <div class="plan-period">Действует до ${expiresStr || '—'}</div>
       <ul class="plan-features">
-        <li><span class="feat-ok">✓</span><span class="feat-text">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">До ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Редактор резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF без ограничений</span></li>
       </ul>
-      <button class="btn-upgrade btn-upgrade-renew" onclick="openUpgrade()">Продлить ещё на месяц</button>
+      <button class="btn-upgrade btn-upgrade-renew" onclick="openUpgrade()">Купить ещё ${PRO_DAYS} дней</button>
     </div>
     <!-- Spacer / info -->
     <div class="plan-card" style="border-style:dashed;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;padding:2rem">
       <div style="font-size:28px">🎉</div>
       <div style="font-size:13px;font-weight:600;color:var(--text)">Вы на Pro!</div>
-      <div style="font-size:12px;color:var(--text-3);line-height:1.5">Все функции доступны.<br>Создавайте резюме для любых вакансий.</div>
+      <div style="font-size:12px;color:var(--text-3);line-height:1.5">Функции Pro доступны.<br>Создавайте версии резюме в пределах оплаченной квоты.</div>
       <a href="/new" style="color:var(--accent);font-size:12px;font-weight:600;text-decoration:none">→ Создать резюме</a>
     </div>
   ` : `
@@ -353,7 +360,7 @@ function renderPlanRow(b) {
         <li><span class="feat-ok">✓</span><span class="feat-text">3 AI-генерации</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">До 5 резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
-        <li><span class="feat-no">✗</span><span class="feat-text muted">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
+        <li><span class="feat-no">✗</span><span class="feat-text muted">Квота Pro: ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней</span></li>
         <li><span class="feat-no">✗</span><span class="feat-text muted">Безлимитные резюме</span></li>
       </ul>
       <button class="btn-upgrade btn-upgrade-current" disabled>Текущий план</button>
@@ -362,15 +369,15 @@ function renderPlanRow(b) {
     <div class="plan-card pro-card">
       <div class="plan-badge badge-pro">✨ Рекомендуем</div>
       <div class="plan-name">Pro</div>
-      <div class="plan-price">399 ₽ <span>/ мес</span></div>
-      <div class="plan-period">30 дней, отмена в любой момент</div>
+      <div class="plan-price">${PRO_PRICE_RUB} ₽</div>
+      <div class="plan-period">разовый доступ на ${PRO_DAYS} дней, без автопродления</div>
       <ul class="plan-features">
-        <li><span class="feat-ok">✓</span><span class="feat-text">${PRO_FAIR_USE_LIMIT} генераций в месяц</span></li>
+        <li><span class="feat-ok">✓</span><span class="feat-text">До ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Безлимитные резюме</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">PDF всегда</span></li>
         <li><span class="feat-ok">✓</span><span class="feat-text">Редактор и версии</span></li>
       </ul>
-      <button class="btn-upgrade btn-upgrade-gold" onclick="openUpgrade()">Стать Pro — 399 ₽</button>
+      <button class="btn-upgrade btn-upgrade-gold" onclick="openUpgrade()">Оформить Pro — ${PRO_PRICE_RUB} ₽</button>
     </div>
   `;
 }
@@ -382,7 +389,7 @@ function renderUsage(b) {
 
   // Generations
   if (isPro) {
-    document.getElementById('u-gen').innerHTML = `<span class="usage-unlimited">${PRO_FAIR_USE_LIMIT}/мес</span>`;
+    document.getElementById('u-gen').innerHTML = `<span class="usage-unlimited">${PRO_FAIR_USE_LIMIT} / ${PRO_FAIR_USE_DAYS} дн.</span>`;
     document.getElementById('u-gen-bar').style.width = '100%';
     document.getElementById('u-gen-bar').className = 'usage-bar-fill pro';
   } else {
@@ -419,7 +426,7 @@ function renderPayments(pays) {
   el.innerHTML = success.map(p => `
     <div class="pay-row">
       <div>
-        <div class="pay-desc">Pro-подписка · 399 ₽</div>
+        <div class="pay-desc">Разовый доступ Pro · ${formatMoney(p.amount)}</div>
         <div class="pay-date">${formatDate(p.created)}</div>
       </div>
       <span class="pay-status pay-ok">Оплачен</span>
@@ -440,8 +447,8 @@ async function startPayment() {
       body: JSON.stringify({})
     });
     const d = await res.json();
-    if (d.url) window.location.href = d.url;
-    else throw new Error('Ошибка создания платежа');
+    if (!res.ok) throw new Error(d.detail || 'Ошибка создания платежа');
+    submitRobokassaPayment(d);
   } catch(e) {
     toast('Ошибка: ' + e.message, 'err');
     document.getElementById('loader').classList.remove('on');
@@ -460,6 +467,12 @@ function formatDate(iso) {
   try {
     return new Date(iso).toLocaleDateString('ru-RU', {day:'2-digit',month:'long',year:'numeric'});
   } catch { return iso.slice(0,10); }
+}
+function formatMoney(amount) {
+  if (amount === null || amount === undefined || amount === '') return 'сумма не указана';
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value < 0) return 'сумма не указана';
+  return value.toLocaleString('ru-RU', {minimumFractionDigits:0, maximumFractionDigits:2}) + ' ₽';
 }
 let _tt;
 function toast(msg, type) {

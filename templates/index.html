@@ -13,12 +13,16 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260825">
+<link rel="stylesheet" href="/static/app.css?v=20260830">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
-<script>const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};</script>
+<script>
+const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
+const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/payment.js?v=20260830"></script>
 <script src="/static/esc.js?v=20260824"></script>
 <style>
 /* ── index-specific bits (caркас и общие компоненты — в /static/app.css) ── */
@@ -395,21 +399,22 @@
     <button class="modal__close" onclick="closePayModal()" type="button">×</button>
     <div style="font-size:34px;margin-bottom:8px">✨</div>
     <h2 id="paywall-title">Перейдите на Pro</h2>
-    <p class="modal__sub" id="paywall-msg" style="text-align:center">{{ pro_fair_use_limit }} генераций в месяц и сохранение любого количества резюме.</p>
-    <div class="pay-price">399 ₽</div>
-    <div class="pay-pack">Pro-подписка на 30 дней</div>
+    <p class="modal__sub" id="paywall-msg" style="text-align:center">До {{ pro_fair_use_limit }} AI-генераций за оплаченный период и сохранение любого количества резюме.</p>
+    <div class="pay-price">{{ pro_price|int }} ₽</div>
+    <div class="pay-pack">Разовый доступ Pro на {{ pro_days }} дней</div>
     <ul class="pay-feats">
-      <li>✓ {{ pro_fair_use_limit }} AI-генераций в месяц</li>
+      <li>✓ До {{ pro_fair_use_limit }} AI-генераций за {{ pro_fair_use_days }} дней</li>
       <li>✓ Безлимитные сохранённые резюме</li>
       <li>✓ PDF всегда бесплатно</li>
     </ul>
-    <button class="btn-build" id="btn-pay-modal" onclick="doPay()" type="button">Оплатить через Робокассу</button>
+    <button class="btn-build" id="btn-pay-modal" onclick="doPay()" type="button">Оплатить {{ pro_price|int }} ₽ через Робокассу</button>
+    <div style="font-size:10.5px;color:var(--text-3);line-height:1.5;margin-top:8px;text-align:center">Переходя к оплате, вы принимаете <a href="/offer" target="_blank">публичную оферту</a> и <a href="/privacy" target="_blank">политику конфиденциальности</a>.</div>
     <button class="btn-soft" onclick="closePayModal()" type="button" style="width:100%;justify-content:center;height:42px;margin-top:8px">Отмена</button>
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3);line-height:1.7;text-align:left">
-      <div>💳 <b>Стоимость:</b> 399 ₽ · <b>Срок:</b> 30 дней</div>
+      <div>💳 <b>Стоимость:</b> {{ pro_price|int }} ₽ · <b>Срок:</b> {{ pro_days }} дней</div>
       <div>⚡ Доступ открывается автоматически после оплаты</div>
       <div>💻 Услуга предоставляется в цифровой форме</div>
-      <div style="margin-top:6px"><a href="/offer" target="_blank" style="color:var(--text-2)">Оферта</a> · <a href="/privacy" target="_blank" style="color:var(--text-2)">Конфиденциальность</a></div>
+      <div>🔁 Автопродления и повторных списаний нет</div>
     </div>
   </div>
 </div>
@@ -453,7 +458,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (p.get('paid') === '1') {
     history.replaceState({}, '', '/new');
     await refreshSession();
-    toast('Оплата прошла! Адаптации добавлены.', 'ok');
+    toast('Оплата подтверждена, доступ Pro активирован!', 'ok');
   }
   if (p.get('auth_error')) {
     const provider = {yandex: 'Яндекс', vk: 'VK', mailru: 'Mail.ru'}[p.get('auth_error')] || 'соцсеть';
@@ -546,7 +551,7 @@ function updateStatusBar(t, pro) {
   bar.style.display = currentUser ? 'flex' : 'none';
   bar.classList.toggle('warn', !pro && t <= 1);
   document.getElementById('status-label').textContent = pro ? 'Квота Pro' : 'Генераций осталось';
-  document.getElementById('status-n').textContent = pro ? (PRO_FAIR_USE_LIMIT + '/мес') : t;
+  document.getElementById('status-n').textContent = pro ? (PRO_FAIR_USE_LIMIT + ' / ' + PRO_FAIR_USE_DAYS + ' дн.') : t;
 }
 
 // ── Auth modal ────────────────────────────────────────────────────
@@ -731,9 +736,9 @@ async function doMatch() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        // pro_limit — это исчерпанная квота уже оплаченной подписки, а не
-        // приглашение купить её снова: модалка оплаты тут неуместна.
-        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций в месяц — исчерпан. Попробуйте позже.`, 'err');
+        // pro_limit — это исчерпанная квота уже оплаченного доступа, а не
+        // приглашение купить его снова: модалка оплаты тут неуместна.
+        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней — исчерпан. Попробуйте позже.`, 'err');
         else openPayModal(err);
         return;
       }
@@ -787,7 +792,7 @@ async function doGeneralResume() {
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
         const err = (await res.json()).error || 'no_uses';
-        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций в месяц — исчерпан. Попробуйте позже.`, 'err');
+        if (err === 'pro_limit') toast(`Лимит Pro — ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней — исчерпан. Попробуйте позже.`, 'err');
         else openPayModal(err);
         return;
       }
@@ -966,10 +971,10 @@ function openPayModal(reason) {
   // причину раньше и показывают toast вместо этой модалки (см. doMatch/doGeneralResume):
   // предложение «оформить Pro» бессмысленно для того, у кого он уже есть.
   const titles = {
-    no_uses:      ['Генерации закончились', 'Оформите подписку Pro для продолжения.'],
-    resume_limit: ['Лимит резюме исчерпан', `Бесплатный тариф — до 5 резюме. Pro — безлимит.`],
+    no_uses:      ['Генерации закончились', 'Оформите разовый доступ Pro для продолжения.'],
+    resume_limit: ['Лимит резюме исчерпан', `Бесплатный тариф — до 5 резюме. В Pro число сохранённых резюме не ограничено.`],
   };
-  const [title, msg] = titles[reason] || ['Перейдите на Pro', `${PRO_FAIR_USE_LIMIT} генераций в месяц и сохранение резюме.`];
+  const [title, msg] = titles[reason] || ['Перейдите на Pro', `До ${PRO_FAIR_USE_LIMIT} генераций за ${PRO_FAIR_USE_DAYS} дней и сохранение резюме.`];
   document.getElementById('paywall-title').textContent = title;
   document.getElementById('paywall-msg').textContent   = msg;
   document.getElementById('modal-pay').classList.add('on');
@@ -983,8 +988,9 @@ async function doPay(){
   try {
     const res = await fetch('/api/pay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     const d = await res.json();
-    if(d.url){appLog('pay','переход на Робокассу');window.location.href=d.url;}
-    else throw new Error('Ошибка');
+    if (!res.ok) throw new Error(d.detail || 'Не удалось создать платёж');
+    appLog('pay','переход на Робокассу');
+    submitRobokassaPayment(d);
   } catch(e){appError('pay', e.message);toast('Ошибка: '+e.message,'err');setLoader(false);if(btn)btn.disabled=false}
 }
 

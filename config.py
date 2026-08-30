@@ -62,6 +62,18 @@ ROBOKASSA_LOGIN      = os.getenv("ROBOKASSA_LOGIN", "")
 ROBOKASSA_PASSWORD1  = os.getenv("ROBOKASSA_PASSWORD1", "")
 ROBOKASSA_PASSWORD2  = os.getenv("ROBOKASSA_PASSWORD2", "")
 ROBOKASSA_TEST_MODE  = os.getenv("ROBOKASSA_TEST_MODE", "0") == "1"
+
+# Публичные реквизиты продавца. Они показываются в подвале и юридических
+# документах, поэтому держим один источник правды вместо копий по шаблонам.
+SELLER_NAME          = "Гладков Егор Сергеевич"
+SELLER_STATUS        = "Самозанятый"
+SELLER_INN           = "183118105776"
+SELLER_CITY          = "Ижевск"
+SELLER_PHONE         = "+7 982 794-54-34"
+SELLER_PHONE_HREF    = "+79827945434"
+SELLER_EMAIL         = "gladkovyegor@gmail.com"
+SELLER_SITE          = "резюмирую.рф"
+
 def _idna_url(url: str) -> str:
     """Хост URL в punycode (IDNA). Браузер, Origin-заголовок и OAuth-провайдеры
     оперируют ASCII-формой домена, поэтому кириллический APP_URL ломает точное
