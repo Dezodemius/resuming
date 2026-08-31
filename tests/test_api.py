@@ -79,6 +79,16 @@ async def test_privacy_page_matches_actual_data_locations(client):
     assert "без сохранения на стороне провайдера" not in r.text
 
 
+async def test_new_page_notifies_about_personal_data_at_collection_points(client):
+    """152-ФЗ требует уведомить до начала обработки — у формы входа и у формы
+    профиля, а не только ссылкой на политику в подвале."""
+    r = await client.get("/new")
+    assert r.status_code == 200
+    assert "Продолжая вход любым способом" in r.text
+    assert "согласие на обработку персональных данных" in r.text
+    assert "передаются AI-провайдеру DeepSeek на территории КНР" in r.text
+
+
 async def test_billing_returns_amount_of_actual_payment(client):
     """История не подменяет старую сумму текущей ценой тарифа."""
     main.init_db()
@@ -268,6 +278,57 @@ async def test_empty_company_is_not_replaced_with_vacancy_title(client):
     rows = r.json()["resumes"]
     assert rows[0]["title"] == "Backend Developer"
     assert rows[0]["company_name"] == "Без компании"
+
+
+async def test_status_only_update_keeps_company_and_resume_data(client):
+    """Смена статуса не должна уносить карточку из своей компании.
+
+    Доска шлёт при перетаскивании только status. Если бы PUT трактовал
+    отсутствие company_name/resume_data как «очистить», карточка уезжала бы
+    из группы компании и теряла ATS, зарплату и город.
+    """
+    uid = await _login(client, "status-only@test.com")
+    data = {"target_role": "Курьер", "ats_match": 82, "salary": "80 000 ₽", "location": "Москва"}
+    with main.get_db() as db:
+        rid = main._save_resume(db, uid, data, "matched", "Авито")
+
+    r = await client.put(f"/api/resumes/{rid}", json={"status": "sent"})
+    assert r.status_code == 200
+
+    row = (await client.get("/api/resumes")).json()["resumes"][0]
+    assert row["status"] == "sent"
+    assert row["company_name"] == "Авито"
+    assert row["title"] == "Курьер"
+    assert row["match"] == 82
+    assert row["salary"] == "80 000 ₽"
+    assert row["location"] == "Москва"
+
+
+async def test_resume_list_is_not_cacheable(client):
+    """Список резюме нельзя кэшировать: доска показала бы старые колонки.
+
+    Заголовков кэширования у ответа не было вовсе, и браузер вправе
+    переиспользовать такой ответ по эвристике — карточка после смены статуса
+    оставалась бы в прежней колонке до жёсткой перезагрузки.
+    """
+    await _login(client, "no-store-list@test.com")
+    r = await client.get("/api/resumes")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+
+
+async def test_single_resume_is_not_cacheable(client):
+    """Отдельное резюме кэшировать опаснее всего: редактор пишет обратно то,
+    что прочитал этой ручкой, — из протухшего ответа он затрёт свежие правки.
+    """
+    uid = await _login(client, "no-store-one@test.com")
+    with main.get_db() as db:
+        rid = main._save_resume(db, uid, {"target_role": "Курьер"}, "matched", "Авито")
+
+    r = await client.get(f"/api/resumes/{rid}")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    assert r.json()["company_name"] == "Авито"
 
 
 # ── /api/improve-text: улучшение текста списывает генерацию ──────────────────
