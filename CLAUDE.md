@@ -102,6 +102,19 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 
 **Лимиты использования** — у каждого пользователя: `free_left` (3 бесплатных), `paid_left` (докупаемые пачки), `is_pro` + `pro_expires_at` (подписка). `_deduct()` / `_refund()` — атомарные списания с откатом при ошибке AI. FREE_RESUMES=5 — лимит хранимых резюме для бесплатных.
 
+**Согласие на передачу данных AI-провайдеру** — генерация уносит анкету
+внешнему провайдеру за пределы РФ (ст. 12 152-ФЗ), поэтому она закрыта
+отдельным подтверждением. У зарегистрированного оно живёт в
+`users.ai_consent_at` + `ai_consent_rev`, у анонима — флагом `consent` в теле
+`/api/generate-preview` (в браузере отметка лежит в `localStorage`). Проверяют
+`_has_ai_consent()` / `_consent_required()` (403 `consent_required`) —
+`_run_generation`, `/api/match/start` и `/api/improve-text`, то есть все пути к
+модели. Редакция текста — `AI_CONSENT_REV` в `config.py`: поднять её —
+значит спросить согласие заново у всех, поэтому она обязана совпадать с датой
+редакции `privacy.html`. Модалка общая для генератора и редактора —
+`templates/_consent_modal.html` + `static/consent.js` (глобал `AiConsent`),
+расхождение текста между страницами означало бы два разных согласия.
+
 **Платежи** — Робокасса, без вызова внешнего API: `POST /api/pay` сам собирает поля POST-формы и подпись `MD5(LOGIN:OutSum:InvId:Receipt:PASSWORD1)`, где `InvId` = `payments.id + INV_ID_OFFSET`, а `Receipt` (`_robokassa_receipt`) — URL-кодированная номенклатура чека из одной позиции (`full_payment` / `service` / `tax: none`). В подпись и в поле формы обязана уйти одна и та же закодированная строка — вторая перекодировка ломает платёж. `Description` Робокасса ограничивает 100 символами, поэтому слишком длинное описание роняет создание счёта в 503, а не создаёт неоплачиваемую строку. Ответ (`action` / `method` / `fields`) отправляет `static/payment.js` одноразовой формой; платёжный адрес продублирован в `ROBOKASSA_PAY_URL`, в `form-action` CSP и в самом `payment.js` — менять надо все три (держит `test_payment_url_agrees_across_backend_csp_and_frontend`). Вебхук `/api/pay/webhook` — ResultURL Робокассы (form/query, не JSON): проверяет подпись `MD5(OutSum:InvId:PASSWORD2)`, затем подтверждает платёж через `OpStateExt` (не доверяет только вебхуку) и отвечает `OK{InvId}` при успехе.
 
 **Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен). Есть глобальный backstop `240/minute` (`SlowAPIMiddleware` + `default_limits`) поверх точечных `@rate`. Ключ лимита — `_client_key`: `CF-Connecting-IP` → первый `X-Forwarded-For` → peer, иначе за Cloudflare+nginx все посетители попали бы в одно ведро. В тестах лимитер выключен через `RATE_LIMIT_ENABLED=0` (см. `tests/conftest.py`).

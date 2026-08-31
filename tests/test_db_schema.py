@@ -30,8 +30,8 @@ _EXPECTED_COLUMNS = {
                 "resume_data", "status", "updated", "user_id"],
     "sessions": ["created", "expires_at", "id", "user_id"],
     "usage_events": ["anon_id", "created", "event", "id", "meta", "user_id"],
-    "users": ["created", "display_name", "email", "free_left", "id", "is_pro",
-              "paid_left", "pro_expires_at"],
+    "users": ["ai_consent_at", "ai_consent_rev", "created", "display_name", "email",
+              "free_left", "id", "is_pro", "paid_left", "pro_expires_at"],
 }
 
 _EXPECTED_INDEXES = [

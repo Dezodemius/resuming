@@ -372,6 +372,14 @@ body.is-dragging{user-select:none;cursor:grabbing}
 .modal h2{font-size:19px;font-weight:800;letter-spacing:-0.02em;margin:0 0 6px}
 .modal__sub{font-size:13px;color:var(--text-2);margin:0 0 18px;line-height:1.5}
 .modal--create{max-width:520px}
+.modal--consent{max-width:460px}
+.consent-list{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:9px}
+.consent-list li{position:relative;padding-left:16px;font-size:12.5px;line-height:1.55;color:var(--text-2)}
+.consent-list li::before{content:"—";position:absolute;left:0;color:var(--text-3)}
+.consent-check{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--border);
+  border-radius:12px;background:var(--surface-2);cursor:pointer;margin-bottom:14px}
+.consent-check input{margin:2px 0 0;width:16px;height:16px;flex:none;accent-color:var(--accent);cursor:pointer}
+.consent-check span{font-size:12.5px;line-height:1.5;color:var(--text-2)}
 .modal .field{display:flex;flex-direction:column;gap:7px;margin-bottom:13px}
 .modal .field label{font-size:12.5px;font-weight:700;color:var(--text-2)}
 .modal .field label span{font-weight:500;color:var(--text-3)}

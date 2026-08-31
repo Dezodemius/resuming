@@ -58,6 +58,8 @@ def init_db():
                 paid_left    INTEGER NOT NULL DEFAULT 0,
                 is_pro       INTEGER NOT NULL DEFAULT 0,
                 pro_expires_at TEXT,
+                ai_consent_at  TEXT,
+                ai_consent_rev TEXT,
                 created      TEXT DEFAULT (datetime('now'))
             );
 
@@ -204,7 +206,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -226,6 +228,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 4:
         _migration_4_oauth_identities(db)
         db.execute("PRAGMA user_version = 4")
+        applied += 1
+    if version < 5:
+        _migration_5_ai_consent(db)
+        db.execute("PRAGMA user_version = 5")
         applied += 1
     if applied:
         db.commit()
@@ -433,3 +439,23 @@ def _migration_4_oauth_identities(db: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
     """)
+
+
+def _migration_5_ai_consent(db: sqlite3.Connection) -> None:
+    """Отметка согласия на передачу данных AI-провайдеру (ст. 12 152-ФЗ).
+
+    Генерация уносит имя, контакты и опыт внешнему провайдеру за пределы РФ,
+    и согласие на это должно быть отдельным подтверждённым действием, а не
+    следствием входа. Храним момент подтверждения и редакцию текста: меняется
+    условие передачи — поднимается AI_CONSENT_REV, и старая отметка перестаёт
+    засчитываться сама, без правки данных.
+
+    Обе колонки добавляются ALTER TABLE: `users` не участвует в FOREIGN KEY
+    соседних таблиц, пересобирать её целиком незачем. У существующих
+    пользователей останется NULL — согласие спросят перед первой генерацией.
+    """
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "ai_consent_at" not in columns:
+        db.execute("ALTER TABLE users ADD COLUMN ai_consent_at TEXT")
+    if "ai_consent_rev" not in columns:
+        db.execute("ALTER TABLE users ADD COLUMN ai_consent_rev TEXT")

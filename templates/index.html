@@ -394,6 +394,8 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
   </div>
 </div>
 
+{% include "_consent_modal.html" %}
+
 <!-- ── Payment modal ── -->
 <div class="modal-wrap" id="modal-pay">
   <div class="modal-backdrop" onclick="closePayModal()"></div>
@@ -564,6 +566,16 @@ function updateStatusBar(t, pro) {
   document.getElementById('status-n').textContent = pro ? (PRO_FAIR_USE_LIMIT + ' / ' + PRO_FAIR_USE_DAYS + ' дн.') : t;
 }
 
+// ── Consent ───────────────────────────────────────────────────────
+// Модалка и её логика — общие (static/consent.js): согласие одно и то же на
+// генератор и редактор. Здесь только связка с генерацией.
+async function handleConsentRefusal() {
+  // Сервер отказал вопреки нашей отметке: другой браузер, сброшенная отметка
+  // или новая редакция текста. Забываем своё представление и спрашиваем заново.
+  AiConsent.reset();
+  if (await AiConsent.ensure()) toast('Согласие сохранено — нажмите кнопку ещё раз', 'ok');
+}
+
 // ── Auth modal ────────────────────────────────────────────────────
 function openAuthModal(sub) {
   document.getElementById('modal-auth').classList.add('on');
@@ -729,6 +741,7 @@ async function doMatch() {
   if (job.length < 30 && !jobUrl) {
     toast('Вставьте текст вакансии (минимум 30 символов) или ссылку на неё', 'err'); return;
   }
+  if (!await AiConsent.ensure()) return;
   appLog('match', 'старт', {текст: job.length + ' симв.', ссылка: jobUrl || '—', авторизован: !!currentUser});
 
   setLoader(true, jobUrl && job.length < 30 ? 'Загружаю вакансию по ссылке и адаптирую…' : 'Анализирую вакансию и подбираю опыт…');
@@ -743,6 +756,10 @@ async function doMatch() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ job_text:job, company:v('job-company'), job_url:v('job-url'), extra_hint:v('m-hint') })
       });
+      if (res.status === 403) {
+        setLoader(false); document.getElementById('btn-match').disabled=false;
+        await handleConsentRefusal(); return;
+      }
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
         const err = (await res.json()).error || 'no_uses';
@@ -762,7 +779,7 @@ async function doMatch() {
       // Анонимный → только генерируем, не сохраняем
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint') })
+        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint'), consent:true })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
@@ -787,6 +804,7 @@ async function doMatch() {
 // ── General ───────────────────────────────────────────────────────
 async function doGeneralResume() {
   if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
+  if (!await AiConsent.ensure()) return;
   appLog('general', 'старт', {должность: v('g-role') || '—', авторизован: !!currentUser});
   setLoader(true, 'Создаю универсальное резюме…');
   document.getElementById('btn-general').disabled = true;
@@ -799,6 +817,10 @@ async function doGeneralResume() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ target_role:v('g-role'), hint:v('g-hint') })
       });
+      if (res.status === 403) {
+        setLoader(false); document.getElementById('btn-general').disabled=false;
+        await handleConsentRefusal(); return;
+      }
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
         const err = (await res.json()).error || 'no_uses';
@@ -815,7 +837,7 @@ async function doGeneralResume() {
     } else {
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint') })
+        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint'), consent:true })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-general').disabled=false;

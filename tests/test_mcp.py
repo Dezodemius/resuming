@@ -57,8 +57,9 @@ async def test_mcp_endpoint_without_auth_is_not_5xx(client):
 
 async def test_mcp_adapt_resume_refunds_generation_when_resume_limit_hit(db, monkeypatch):
     db.execute(
-        "INSERT INTO users (email, free_left, paid_left) VALUES (?,?,?)",
-        ("mcp-limit@test.com", 0, 1),
+        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev)"
+        " VALUES (?,?,?,datetime('now'),?)",
+        ("mcp-limit@test.com", 0, 1, main.AI_CONSENT_REV),
     )
     uid = db.execute(
         "SELECT id FROM users WHERE email=?", ("mcp-limit@test.com",)
@@ -87,7 +88,8 @@ async def test_mcp_adapt_resume_refunds_generation_when_resume_limit_hit(db, mon
     async def fake_call_ai(_prompt):
         return json.dumps({"name": "Test User", "target_role": "Developer"})
 
-    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: dict(
+        db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
     monkeypatch.setattr(main, "call_ai", fake_call_ai)
 
     with pytest.raises(ValueError, match="resume_limit"):
@@ -98,9 +100,12 @@ async def test_mcp_adapt_resume_refunds_generation_when_resume_limit_hit(db, mon
 
 
 def _mcp_user_with_profile(db, email: str, **balance) -> int:
+    # Согласие на передачу данных провайдеру человек даёт на сайте; тесты ниже
+    # проверяют не его, а поведение самого инструмента.
     db.execute(
-        "INSERT INTO users (email, free_left, paid_left) VALUES (?,?,?)",
-        (email, balance.get("free_left", 3), balance.get("paid_left", 0)),
+        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev)"
+        " VALUES (?,?,?,datetime('now'),?)",
+        (email, balance.get("free_left", 3), balance.get("paid_left", 0), main.AI_CONSENT_REV),
     )
     uid = db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
     profile = {
@@ -166,7 +171,31 @@ async def test_mcp_adapt_resume_pro_fair_use_cap(db, monkeypatch):
     db.execute("INSERT INTO usage_events (user_id, event) VALUES (?, 'generate')", (uid,))
     db.commit()
 
-    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: dict(
+        db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
 
     with pytest.raises(ValueError, match="pro_limit"):
         await main.adapt_resume("Python backend developer, высоконагруженные сервисы, продакшн", object())
+
+
+async def test_mcp_adapt_resume_without_consent_does_not_reach_the_model(db, monkeypatch):
+    """Согласие на передачу данных провайдеру нельзя обойти токеном MCP."""
+    uid = _mcp_user_with_profile(db, "mcp-noconsent@test.com", free_left=3)
+    db.execute("UPDATE users SET ai_consent_at=NULL, ai_consent_rev=NULL WHERE id=?", (uid,))
+    db.commit()
+    called = {"n": 0}
+
+    async def never(_prompt):                    # pragma: no cover
+        called["n"] += 1
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: dict(
+        db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
+    monkeypatch.setattr(main, "call_ai", never)
+
+    with pytest.raises(ValueError, match="согласие"):
+        await main.adapt_resume("Python backend developer, продакшн, высокие нагрузки", object())
+
+    assert called["n"] == 0
+    row = db.execute("SELECT free_left FROM users WHERE id=?", (uid,)).fetchone()
+    assert row["free_left"] == 3, "отказ по согласию не списывает генерацию"
