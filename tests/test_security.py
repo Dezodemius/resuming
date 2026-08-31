@@ -822,7 +822,10 @@ async def test_preview_does_not_fetch_url_when_anon_limit_spent(client, monkeypa
 
     r = await _preview_with_url(client)
     assert r.status_code == 429
-    assert r.json()["error"] == "anon_limit"
+    # Форма отказа — часть контракта с фронтом: он показывает по ней окно
+    # «попытки закончились» и подставляет число из limit.
+    assert r.json() == {"error": "anon_limit", "limit": main.ANON_LIMIT}
+    assert "anon_id" in r.cookies
 
 
 async def test_preview_fetches_url_while_limit_remains(client, monkeypatch):
@@ -882,7 +885,8 @@ async def test_magic_link_not_logged_on_prod(monkeypatch, caplog):
     with caplog.at_level("INFO"):
         err = await main._send_magic_email("victim@test.com", "secret-token-value")
 
-    assert err                                  # ручка ответит 500, а не «ok»
+    # Причина возвращается вызывающему — ручка ответит 500, а не «ok».
+    assert err == "SMTP не настроен"
     assert "secret-token-value" not in caplog.text
 
 

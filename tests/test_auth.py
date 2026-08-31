@@ -306,3 +306,148 @@ def test_login_report_vk_needs_no_secret(monkeypatch):
     )
     assert "vk" in active
     assert notes == []
+
+
+# ── Отправка magic-ссылки ────────────────────────────────────────────────
+# Само письмо — это и есть вход: ошибка в адресате, в параметрах SMTP или в
+# ссылке означает либо «войти нельзя», либо «ссылка ушла не туда». Сеть не
+# трогаем — подменяем aiosmtplib.send и смотрим, что именно ему передали.
+@pytest.fixture
+def smtp_ok(monkeypatch):
+    """Перехватывает вызов aiosmtplib.send. Возвращает словарь с (msg, kwargs)."""
+    import aiosmtplib
+
+    sent: dict = {}
+
+    async def fake_send(msg, **kwargs):
+        sent["msg"] = msg
+        sent["kwargs"] = kwargs
+
+    monkeypatch.setattr(aiosmtplib, "send", fake_send)
+    monkeypatch.setattr(main, "SMTP_USER", "robot@ya.ru")
+    monkeypatch.setattr(main, "SMTP_PASS", "smtp-secret")
+    monkeypatch.setattr(main, "SMTP_FROM", "Резюмирую <robot@ya.ru>")
+    monkeypatch.setattr(main, "SMTP_HOST", "smtp.ya.ru")
+    return sent
+
+
+async def test_magic_email_sent_to_requested_address(smtp_ok, monkeypatch):
+    monkeypatch.setattr(main, "SMTP_PORT", 465)
+    err = await main._send_magic_email("user@test.com", "tok-1")
+
+    assert err is None
+    msg = smtp_ok["msg"]
+    assert msg["To"] == "user@test.com"
+    assert msg["From"] == "Резюмирую <robot@ya.ru>"
+    assert msg["Subject"] == "Ваша ссылка для входа в Резюмирую.рф"
+    # multipart/alternative — иначе почтовые клиенты показывают исходник письма
+    # вместо кнопки входа.
+    assert msg.get_content_type() == "multipart/alternative"
+
+
+async def test_magic_email_body_carries_working_link(smtp_ok, monkeypatch):
+    """В письме — та самая ссылка verify с токеном и честный срок её жизни."""
+    monkeypatch.setattr(main, "SMTP_PORT", 465)
+    monkeypatch.setattr(main, "APP_URL", "https://example.test")
+    await main._send_magic_email("user@test.com", "tok-2")
+
+    body = smtp_ok["msg"].get_payload()[0]
+    assert body.get_content_type() == "text/html"
+    html = body.get_payload(decode=True).decode()
+    assert "https://example.test/auth/email/verify?token=tok-2" in html
+    assert str(main.MAGIC_MINUTES) in html
+
+
+async def test_magic_email_uses_configured_credentials(smtp_ok, monkeypatch):
+    monkeypatch.setattr(main, "SMTP_PORT", 465)
+    await main._send_magic_email("user@test.com", "tok-3")
+
+    kw = smtp_ok["kwargs"]
+    assert kw["hostname"] == "smtp.ya.ru"
+    assert kw["port"] == 465
+    assert kw["username"] == "robot@ya.ru"
+    assert kw["password"] == "smtp-secret"
+
+
+@pytest.mark.parametrize("port,use_tls,start_tls", [
+    (465, True, False),   # implicit TLS — соединение шифруется сразу
+    (587, False, True),   # submission — STARTTLS уже внутри открытого соединения
+    (25,  False, False),
+])
+async def test_magic_email_tls_mode_follows_port(smtp_ok, monkeypatch, port, use_tls, start_tls):
+    """Перепутанный режим TLS — это не «письмо чуть медленнее», а полный отказ
+    отправки: 465 без implicit TLS и 587 без STARTTLS не работают."""
+    monkeypatch.setattr(main, "SMTP_PORT", port)
+    await main._send_magic_email("user@test.com", "tok-4")
+
+    assert smtp_ok["kwargs"]["use_tls"] is use_tls
+    assert smtp_ok["kwargs"]["start_tls"] is start_tls
+
+
+async def test_magic_email_returns_reason_on_failure(monkeypatch):
+    """Причина возвращается вызывающему (он логирует и отвечает 500), а не
+    теряется: без неё «письмо не пришло» неотличимо от «письмо ушло»."""
+    import aiosmtplib
+
+    async def boom(msg, **kwargs):
+        raise ValueError("mailbox unavailable")
+
+    monkeypatch.setattr(aiosmtplib, "send", boom)
+    monkeypatch.setattr(main, "SMTP_USER", "robot@ya.ru")
+    err = await main._send_magic_email("user@test.com", "tok-5")
+
+    assert err is not None
+    assert "ValueError" in err
+    assert "mailbox unavailable" in err
+    assert "сетевого маршрута" not in err
+
+
+@pytest.mark.parametrize("errno", [51, 101, 113, 10051])
+async def test_magic_email_explains_blocked_network(monkeypatch, errno):
+    """Хостер режет исходящий SMTP — самая частая причина «письма не идут».
+    Коды ENETUNREACH/EHOSTUNREACH (в т.ч. виндовый 10051) поясняем словами."""
+    import aiosmtplib
+
+    async def boom(msg, **kwargs):
+        raise OSError(errno, "Network is unreachable")
+
+    monkeypatch.setattr(aiosmtplib, "send", boom)
+    monkeypatch.setattr(main, "SMTP_USER", "robot@ya.ru")
+    err = await main._send_magic_email("user@test.com", "tok-6")
+
+    # Подсказка именно дописывается к причине: сама причина (тип и текст
+    # исключения) нужна для разбора, без неё в логе остаётся один намёк.
+    assert err.startswith("OSError: ")
+    assert err.endswith(" — нет сетевого маршрута до SMTP-сервера (порт блокирует хостер/VPN)")
+
+
+async def test_magic_email_reads_errno_from_wrapped_os_error(monkeypatch):
+    """aiosmtplib прячет исходную OSError в атрибут os_error — код обязан
+    достать errno и оттуда, иначе подсказка про сеть не появится."""
+    import aiosmtplib
+
+    class Wrapped(Exception):
+        os_error = OSError(101, "Network is unreachable")
+
+    async def boom(msg, **kwargs):
+        raise Wrapped("connect failed")
+
+    monkeypatch.setattr(aiosmtplib, "send", boom)
+    monkeypatch.setattr(main, "SMTP_USER", "robot@ya.ru")
+    err = await main._send_magic_email("user@test.com", "tok-7")
+
+    assert "сетевого маршрута" in err
+
+
+async def test_magic_email_other_errno_has_no_network_hint(monkeypatch):
+    """Ошибка аутентификации — не про маршрут: подсказка не должна появляться."""
+    import aiosmtplib
+
+    async def boom(msg, **kwargs):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(aiosmtplib, "send", boom)
+    monkeypatch.setattr(main, "SMTP_USER", "robot@ya.ru")
+    err = await main._send_magic_email("user@test.com", "tok-8")
+
+    assert "сетевого маршрута" not in err
