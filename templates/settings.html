@@ -426,12 +426,20 @@ function renderPayments(pays) {
   el.innerHTML = success.map(p => `
     <div class="pay-row">
       <div>
-        <div class="pay-desc">Разовый доступ Pro · ${formatMoney(p.amount)}</div>
+        <div class="pay-desc">${escapeHtml(payTitle(p))} · ${formatMoney(p.amount)}</div>
         <div class="pay-date">${formatDate(p.created)}</div>
       </div>
       <span class="pay-status pay-ok">Оплачен</span>
     </div>
   `).join('');
+}
+
+// Подпись берём из самой строки платежа: у записей, созданных до появления
+// колонки, product пуст, и подставлять туда сегодняшнее название тарифа
+// нельзя — история перестала бы соответствовать тому, что человек купил.
+function payTitle(p) {
+  const product = typeof p.product === 'string' ? p.product.trim() : '';
+  return product || 'Доступ Pro';
 }
 
 // ── Upgrade ──────────────────────────────────────────────────────────────
@@ -467,6 +475,13 @@ function formatDate(iso) {
   try {
     return new Date(iso).toLocaleDateString('ru-RU', {day:'2-digit',month:'long',year:'numeric'});
   } catch { return iso.slice(0,10); }
+}
+// Описание платежа приходит из БД и подставляется в innerHTML — без
+// экранирования это была бы XSS через собственную историю платежей.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+  ));
 }
 function formatMoney(amount) {
   if (amount === null || amount === undefined || amount === '') return 'сумма не указана';

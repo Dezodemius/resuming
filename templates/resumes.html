@@ -144,12 +144,12 @@ let resumes = [];
 let generationPoll = null;
 let createSource = 'url';
 let state = {
-  view:   (localStorage.getItem('lib_view') || 'feed'),
+  view:   (localStorage.getItem('lib_view') || 'board'),
   filter: 'all',
   query:  '',
   selected: 0,
 };
-if (!['feed','board','explorer'].includes(state.view)) state.view = 'feed';
+if (!['feed','board','explorer'].includes(state.view)) state.view = 'board';
 
 // ── Boot ─────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {

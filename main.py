@@ -55,7 +55,7 @@ from config import (  # noqa: E402
     SECRET_KEY,
     ADMIN_EMAILS, ADMIN_IPS, METRIKA_ID,
     CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
-    RATE_LIMIT_ENABLED,
+    RATE_LIMIT_ENABLED, PAID_PACK, DEV_MODE,
 )
 
 # Семафор: не более AI_CONCURRENCY параллельных генераций.
@@ -560,6 +560,7 @@ from schemas import (  # noqa: E402
     EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
     PromoActivateReq, PromoCreateReq, TrackReq,
+    DevLoginReq, DevGrantReq,
     # Потолок значения промокода — один и тот же для схемы новых кодов и для
     # подстраховки при активации уже заведённых (см. promo_activate).
     _PROMO_VALUE_MAX as PROMO_VALUE_MAX,
@@ -2311,17 +2312,29 @@ async def fetch_job(request: Request):
     return {"text": await _fetch_job_text(url)}
 
 # ── Payments (Робокасса) ─────────────────────────────────────────────────
+# Единственный платёжный адрес. Тот же адрес проверяет static/payment.js перед
+# отправкой формы и разрешает form-action в CSP — три места обязаны совпадать,
+# иначе браузер молча заблокирует переход на оплату.
+ROBOKASSA_PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+
+
 def _robokassa_signature(*parts: str) -> str:
     return hashlib.md5(":".join(parts).encode()).hexdigest()
 
 
 def _robokassa_receipt(product: str, amount: str) -> str:
-    """URL-кодированная номенклатура для подписи и POST-поля Receipt."""
+    """URL-кодированная номенклатура чека (одна позиция — доступ Pro).
+
+    Возвращается уже закодированной, потому что в подпись Password #1 и в
+    POST-поле Receipt обязана уйти одна и та же строка байт в байт: вторая
+    перекодировка на стороне формы разошлась бы с подписью, и Робокасса
+    отклонила бы платёж.
+    """
     payload = {
         "items": [{
             "name": product,
             "quantity": 1,
-            "sum": float(amount),
+            "sum": round(float(amount), 2),
             "payment_method": "full_payment",
             "payment_object": "service",
             "tax": "none",
@@ -2437,7 +2450,7 @@ async def create_payment(req: PayReq, request: Request):
         fields["IsTest"] = 1
     log.info("pay: платёж создан user=%s inv_id=%s", user["id"], inv_id)
     return {
-        "action": "https://auth.robokassa.ru/Merchant/Index.aspx",
+        "action": ROBOKASSA_PAY_URL,
         "method": "POST",
         "fields": fields,
     }
@@ -2643,6 +2656,112 @@ async def promo_activate(body: PromoActivateReq, request: Request):
 
     log.info("promo/activate: user=%s code=%s kind=%s", user["id"], code[:4], kind)
     return {"ok": True, "kind": kind, "message": msg}
+
+# ── Дев-стенд: вход и тариф без оплаты ──────────────────────────────────────
+# Ручки ниже существуют только при DEV_MODE=1 (config.py гасит флаг, если
+# APP_URL боевой). Это обход авторизации и биллинга целиком, поэтому:
+#   • выключенный режим отдаёт 404, а не 403 — снаружи ручек не видно;
+#   • флаг проверяется на каждом запросе, а не условной регистрацией маршрутов:
+#     регистрация происходит один раз при импорте, и ошибка в таком условии
+#     тихо оставила бы ручки открытыми навсегда.
+#
+# Смысл контура — прогонять платные сценарии, ничего не покупая и не заводя
+# промокодов: выдал себе Pro, посмотрел, вернул аккаунт в состояние новичка,
+# повторил. Разворачивается это на app-01 отдельным контуром, наружу не
+# публикуется — deploy/README.md, раздел «Дев-стенд».
+def _require_dev() -> None:
+    if not DEV_MODE:
+        raise HTTPException(404, "Not Found")
+
+
+@app.get("/dev", response_class=HTMLResponse)
+async def dev_page(request: Request):
+    _require_dev()
+    user = await get_current_user(request)
+    return tpl.TemplateResponse(request, "dev.html", {
+        "current_email":      (user or {}).get("email") or "",
+        "pro_days":           PRO_DAYS,
+        "paid_pack":          PAID_PACK,
+        "free_uses":          FREE_USES,
+        "free_resumes":       FREE_RESUMES,
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days":  PRO_FAIR_USE_DAYS,
+    })
+
+
+@app.post("/api/dev/login")
+@rate("30/minute")
+async def dev_login(body: DevLoginReq, request: Request):
+    """Сессия по одной почте — без письма, OAuth и вообще любой проверки.
+
+    На стенде это единственный рабочий способ войти: magic-ссылка требует SMTP,
+    а redirect_uri у Яндекса/VK/Mail.ru зарегистрирован на боевой домен.
+    """
+    _require_dev()
+    email = _normalize_email(body.email)
+    with get_db() as db:
+        user = _upsert_user_by_email(db, email)
+        sid = _create_session(db, user["id"])
+        log_event(db, "login", user_id=user["id"], method="dev")
+        db.commit()
+    log.warning("dev/login: сессия выдана без проверки — user=%s %s", user["id"], email)
+    r = JSONResponse({"ok": True, "user_id": user["id"], "email": email})
+    _set_session_cookie(r, sid)
+    return r
+
+
+@app.post("/api/dev/grant")
+@rate("30/minute")
+async def dev_grant(body: DevGrantReq, request: Request):
+    """Переводит текущий аккаунт в нужное состояние тарифа."""
+    _require_dev()
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Сначала войдите через /api/dev/login")
+
+    plan = body.plan.strip().lower()
+    uid = user["id"]
+    with get_db() as db:
+        if plan == "pro":
+            days = PRO_DAYS if body.value is None else body.value
+            exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+            db.execute("UPDATE users SET is_pro=1, pro_expires_at=? WHERE id=?", (exp, uid))
+        elif plan == "pack":
+            count = PAID_PACK if body.value is None else body.value
+            db.execute("UPDATE users SET paid_left=paid_left+? WHERE id=?", (count, uid))
+        elif plan == "free":
+            # Состояние только что зарегистрировавшегося: снова видны и пейволл,
+            # и предел FREE_RESUMES на количество сохранённых резюме.
+            db.execute("UPDATE users SET is_pro=0, pro_expires_at=NULL,"
+                       " free_left=?, paid_left=0 WHERE id=?", (FREE_USES, uid))
+        elif plan == "empty":
+            db.execute("UPDATE users SET is_pro=0, pro_expires_at=NULL,"
+                       " free_left=0, paid_left=0 WHERE id=?", (uid,))
+        elif plan == "reset_usage":
+            # У квоты Pro нет счётчика-декремента: она считается по usage_events
+            # за окно PRO_FAIR_USE_DAYS, поэтому «вернуть генерации» можно
+            # только вычистив сами события.
+            db.execute("DELETE FROM usage_events WHERE user_id=?", (uid,))
+        else:
+            raise HTTPException(400, "Неизвестный plan")
+        db.commit()
+        row = db.execute(
+            "SELECT free_left, paid_left, is_pro, pro_expires_at FROM users WHERE id=?",
+            (uid,)
+        ).fetchone()
+
+    log.warning("dev/grant: user=%s plan=%s value=%s", uid, plan, body.value)
+    return {
+        "ok": True,
+        "plan": plan,
+        "state": {
+            "is_pro":         _is_pro(row),
+            "pro_expires_at": row["pro_expires_at"],
+            "free_left":      row["free_left"],
+            "paid_left":      row["paid_left"],
+        },
+    }
+
 
 # ── Admin pages and API ────────────────────────────────────────────────────
 @app.get("/admin", response_class=HTMLResponse)

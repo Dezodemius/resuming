@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DEV-пульт — Резюмирую.рф</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<!-- Страница намеренно не подключает app.css: пульт должен с первого взгляда
+     отличаться от самого продукта, чтобы его нельзя было спутать с боевым
+     интерфейсом на скриншоте или в записи экрана. -->
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; padding:32px 20px; background:#12151b; color:#e6e9ef;
+         font:15px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; letter-spacing:.04em; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.08em;
+       color:#8b93a5; margin:28px 0 10px; font-weight:600; }
+  .warn { background:#3a2a12; border:1px solid #7a5a20; color:#ffcf87;
+          padding:10px 14px; border-radius:6px; margin:12px 0 4px; font-size:13px; }
+  .card { background:#191d26; border:1px solid #2a3040; border-radius:8px; padding:16px; }
+  input { background:#0d1015; border:1px solid #2a3040; color:#e6e9ef;
+          padding:8px 10px; border-radius:6px; font:inherit; min-width:260px; }
+  button { background:#2a3345; border:1px solid #3a4560; color:#e6e9ef;
+           padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; margin:4px 6px 4px 0; }
+  button:hover { background:#35415a; }
+  button.go { background:#1f6f4a; border-color:#2b8f61; }
+  button.go:hover { background:#26855a; }
+  #state { white-space:pre-wrap; background:#0d1015; border:1px solid #2a3040;
+           border-radius:6px; padding:12px; min-height:22px; font-size:13px; margin-top:12px; }
+  a { color:#7fb2ff; }
+  .hint { color:#8b93a5; font-size:13px; margin:6px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DEV-пульт</h1>
+  <p class="hint">Вход и тариф без писем, оплаты и промокодов. Доступен только при <code>DEV_MODE=1</code>.</p>
+  <div class="warn">Каждая кнопка здесь — обход авторизации или биллинга. Если вы видите эту страницу на боевом домене, это авария: выключите <code>DEV_MODE</code> и перезапустите контейнер.</div>
+
+  <h2>Вход</h2>
+  <div class="card">
+    <input id="email" type="email" value="{{ current_email or 'dev@example.com' }}" placeholder="почта аккаунта">
+    <button class="go" onclick="devLogin()">Войти этой почтой</button>
+    <p class="hint">Аккаунта нет — заведётся. Разная почта = разные аккаунты, удобно щупать сценарий «новый пользователь».</p>
+  </div>
+
+  <h2>Тариф</h2>
+  <div class="card">
+    <button onclick="grant('pro')">Pro на {{ pro_days }} дн.</button>
+    <button onclick="grant('pack')">+{{ paid_pack }} генераций</button>
+    <button onclick="grant('free')">Сброс в новичка ({{ free_uses }} {{ free_uses | plural('генерация', 'генерации', 'генераций') }})</button>
+    <button onclick="grant('empty')">Обнулить — показать пейволл</button>
+    <button onclick="grant('reset_usage')">Сбросить квоту Pro</button>
+    <p class="hint">Квота Pro — {{ pro_fair_use_limit }} {{ pro_fair_use_limit | plural('генерация', 'генерации', 'генераций') }} за {{ pro_fair_use_days }} дн.; считается по событиям, поэтому сбрасывается отдельной кнопкой. Резюме бесплатного тарифа — не больше {{ free_resumes }}.</p>
+  </div>
+
+  <h2>Состояние</h2>
+  <div id="state">—</div>
+  <p class="hint"><a href="/">на главную</a> · <a href="/new">генератор</a> · <a href="/resumes">доска</a> · <a href="/admin">админка</a></p>
+</div>
+
+<script>
+function show(x) { document.getElementById('state').textContent =
+  typeof x === 'string' ? x : JSON.stringify(x, null, 2); }
+
+async function post(url, body) {
+  const r = await fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await r.json().catch(() => ({detail: 'ответ не JSON'}));
+  if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+  return data;
+}
+
+async function devLogin() {
+  try {
+    show(await post('/api/dev/login', {email: document.getElementById('email').value}));
+    refresh();
+  } catch (e) { show('Ошибка: ' + e.message); }
+}
+
+async function grant(plan) {
+  try { show(await post('/api/dev/grant', {plan: plan})); }
+  catch (e) { show('Ошибка: ' + e.message); }
+}
+
+async function refresh() {
+  try { show(await (await fetch('/api/me')).json()); }
+  catch (e) { show('Ошибка: ' + e.message); }
+}
+refresh();
+</script>
+</body>
+</html>
