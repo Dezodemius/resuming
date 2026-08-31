@@ -248,3 +248,40 @@ ac02f3b0  # X и без параметра safe всегда остаётся н
 # Тот же случай ensure_ascii=None/False, что и выше — успешная запись готового
 # резюме в фоновой генерации.
 4d4069bf  # ensure_ascii=None ведёт себя как False — json.dumps проверяет флаг на истинность
+
+# ── main._reject_json_constant / _as_resume_dict ────────────────────────────
+
+# raise ValueError(f"недопустимая JSON-константа {value}")  ->  ValueError(None)
+# Текст этого исключения наружу не выходит ни в каком виде: его ловит
+# `except ValueError` в _parse_ai и отбрасывает, а пользователю уходит
+# HTTPException(502) с собственной формулировкой. Под гейтом остаётся сам факт
+# исключения — его проверяет test_parse_ai_rejects_nan_and_infinity.
+# Автоматически такое не отсеивается: ValueError намеренно не в MESSAGE_CALLS
+# (см. tools/mutation_ignore.py) — в этом коде его текст бывает признаком
+# ("resume_limit"), просто не здесь.
+e356caca  # текст внутреннего ValueError: его ловит и отбрасывает _parse_ai
+
+# raise ValueError("ожидался JSON-объект резюме")  ->  ValueError(None) / "XX…XX"
+# Тот же случай: сообщение живёт ровно до `except ValueError` в _parse_ai.
+bcd09498  # текст внутреннего ValueError: его ловит и отбрасывает _parse_ai
+f88e7f9f  # текст внутреннего ValueError: его ловит и отбрасывает _parse_ai
+
+# ── main._json_for_db ───────────────────────────────────────────────────────
+
+# json.dumps(data, ensure_ascii=False, allow_nan=False)  ->  ensure_ascii=None
+# json.dumps(data, ensure_ascii=False, allow_nan=False)  ->  allow_nan=None
+# json.dumps проверяет оба флага на истинность, а не на identity: None ведёт
+# себя как False. NaN по-прежнему роняет сериализацию (проверено), кириллица
+# по-прежнему пишется как есть.
+a498517f  # ensure_ascii=None и False дают один и тот же JSON
+b20d4cb2  # allow_nan=None и False одинаково запрещают NaN — флаг проверяется на истинность
+
+# ── main._parse_ai ──────────────────────────────────────────────────────────
+
+# return _as_resume_dict(json.loads(cleaned, ...))  ->  _as_resume_dict(None)
+# Мутант всегда роняет первую попытку в ValueError, после чего срабатывает
+# резервный разбор {…} ниже. Первая попытка успешна только когда cleaned —
+# целый JSON-объект, а он уже .strip()-нут: тогда find("{") == 0,
+# rfind("}") == len-1, срез совпадает со всей строкой и резерв возвращает ровно
+# тот же объект. Наблюдаемого расхождения нет ни на одном входе.
+c0531606  # первую попытку самолечит резервный разбор {…}: срез равен всей строке

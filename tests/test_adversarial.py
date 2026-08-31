@@ -9,13 +9,11 @@
 """
 import json
 
-import httpx
 import pytest
 from fastapi import HTTPException
 
 import main
 from main import _as_resume_dict, _fail_stuck_generations, _parse_ai, _same_amount
-
 
 # ── Разбор ответа модели: только JSON-объект, без NaN/Infinity ─────────────
 # json.loads принимает и список, и голое число, и NaN. Всё это уезжало в
@@ -287,7 +285,10 @@ def test_fail_stuck_generations_marks_only_generating(db):
     rows = [json.loads(r["resume_data"])
             for r in db.execute("SELECT resume_data FROM resumes ORDER BY id").fetchall()]
     assert rows[0]["generation_status"] == "failed"
-    assert rows[0]["generation_error"]
+    # Текст видит пользователь на карточке — он должен объяснять причину.
+    assert rows[0]["generation_error"] == (
+        "Генерация прервана перезапуском сервиса. Попробуйте ещё раз."
+    )
     assert rows[1] == {"target_role": "Dev"}          # готовое резюме не тронуто
     assert _fail_stuck_generations() == 0             # повторный запуск ничего не меняет
 
