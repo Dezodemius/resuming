@@ -34,6 +34,11 @@ _COMMENT_MAX  = 500
 _DATE_MAX     = 64
 _EVENT_MAX    = 50
 _STATUS_MAX   = 20
+# Промокод: дней Pro либо генераций в пачке (PromoCreateReq), и число
+# активаций. Потолок — защита от опечатки в админке: 10 лет Pro (столько же
+# генераций в пачке) и 100 000 активаций перекрывают любую акцию.
+_PROMO_VALUE_MAX = 3650
+_PROMO_USES_MAX  = 100_000
 # Дней Pro / генераций в пачке, которые дев-стенд выдаёт себе сам (DevGrantReq).
 # Верхняя граница здесь только от опечатки в служебной форме.
 _DEV_VALUE_MAX = 10_000
@@ -185,8 +190,13 @@ class DevGrantReq(BaseModel):
 
 
 class PromoCreateReq(BaseModel):
+    # value и max_uses раньше были голыми int. Отрицательный gen_pack уводил
+    # paid_left в минус (а `free_left + paid_left` в _deduct — вместе с ним:
+    # аккаунт переставал генерировать вовсе), а pro_days с числом больше
+    # ~999999999 ронял активацию в OverflowError уже ПОСЛЕ того, как
+    # использование кода засчитано, — код сгорал впустую.
     kind:       str = Field(..., max_length=_KIND_MAX)  # "pro_days" | "gen_pack" | "unlimited"
-    value:      int
-    max_uses:   int
+    value:      int = Field(..., ge=0, le=_PROMO_VALUE_MAX)
+    max_uses:   int = Field(..., ge=1, le=_PROMO_USES_MAX)
     expires_at: Optional[str] = Field(None, max_length=_DATE_MAX)
     comment:    str = Field("", max_length=_COMMENT_MAX)
