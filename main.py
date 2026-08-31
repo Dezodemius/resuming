@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import quote, urlencode, urljoin, urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -151,6 +152,9 @@ async def _cleanup_loop():
 @asynccontextmanager
 async def lifespan(app):
     init_db()
+    stuck = _fail_stuck_generations()
+    if stuck:
+        log.warning("startup: %s резюме зависли в статусе generating — помечены неудачными", stuck)
     cleaner = asyncio.create_task(_cleanup_loop())
     try:
         # Session manager MCP-сервера должен жить весь срок работы приложения
@@ -556,6 +560,9 @@ from schemas import (  # noqa: E402
     EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
     PromoActivateReq, PromoCreateReq, TrackReq,
+    # Потолок значения промокода — один и тот же для схемы новых кодов и для
+    # подстраховки при активации уже заведённых (см. promo_activate).
+    _PROMO_VALUE_MAX as PROMO_VALUE_MAX,
 )
 
 ANON_LIMIT = ANON_LIMIT_CONST
@@ -1575,6 +1582,42 @@ async def call_ai(prompt: str) -> str:
             log.exception("AI call unexpected error after %.1f s", time.monotonic() - t0)
             raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
 
+def _reject_json_constant(value: str):
+    """parse_constant для json.loads: NaN/Infinity в ответе модели — отказ.
+
+    json.loads по умолчанию их принимает, а json.dumps — записывает, и такое
+    значение уезжает в resume_data. Прочитать его потом нельзя: JSON-ответы
+    Starlette сериализует с allow_nan=False, и GET /api/resumes/{id} по такому
+    резюме падает навсегда. Дешевле не пустить его в базу.
+    """
+    raise ValueError(f"недопустимая JSON-константа {value}")
+
+
+def _as_resume_dict(data: object) -> dict:
+    """Резюме — JSON-объект. Список, строка или число тоже разбираются без
+    ошибки, но дальше уезжают в resume_data и ломают библиотеку и редактор:
+    считаем их таким же нарушением формата, как и не-JSON."""
+    if isinstance(data, dict):
+        return data
+    # Именно ValueError: вызывающий _parse_ai ловит его тем же except, что и
+    # JSONDecodeError, и уходит в ту же попытку вытащить объект из текста.
+    raise ValueError("ожидался JSON-объект резюме")
+
+
+def _json_for_db(data: object) -> str:
+    """Сериализация пользовательских данных для записи в БД.
+
+    Тело запроса разбирает json.loads, который принимает NaN/Infinity, — и
+    один PUT с `{"resume_data": {"x": NaN}}` навсегда ломал чтение этого
+    резюме (а такой же профиль — вход в генератор): ответ отдать уже нельзя.
+    Отказываем на записи, а не на чтении.
+    """
+    try:
+        return json.dumps(data, ensure_ascii=False, allow_nan=False)
+    except ValueError:
+        raise HTTPException(400, "Некорректные числовые значения в данных")
+
+
 def _parse_ai(raw: str) -> dict:
     if not isinstance(raw, str):
         # r.json()["choices"][0]["message"]["content"] по контракту OpenAI —
@@ -1586,15 +1629,20 @@ def _parse_ai(raw: str) -> dict:
         raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
     cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
+        return _as_resume_dict(json.loads(cleaned, parse_constant=_reject_json_constant))
+    # ValueError, а не json.JSONDecodeError: тем же путём уходят отказ по
+    # NaN/Infinity и ответ, разобравшийся не в объект (JSONDecodeError —
+    # подкласс ValueError, прежние случаи ловятся как раньше).
+    except ValueError:
         # Модель иногда добавляет пояснения вокруг JSON или обрывает ответ
         # (например при упоре в num_predict). Пытаемся вытащить объект {...}.
         start, end = cleaned.find("{"), cleaned.rfind("}")
         if start != -1 and end > start:
             try:
-                return json.loads(cleaned[start:end + 1])
-            except json.JSONDecodeError:
+                return _as_resume_dict(
+                    json.loads(cleaned[start:end + 1], parse_constant=_reject_json_constant)
+                )
+            except ValueError:
                 pass
         log.warning("AI returned non-JSON (len=%d): %s", len(raw), raw[:500])
         raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
@@ -1655,11 +1703,10 @@ def _insert_pending_resume(db, user_id: int, req: MatchReq, job_text: str, job_u
     company = _resume_group_name(req.company, kind)
     title = (req.job_title or "").strip() or _guess_job_title(job_text)
     resume = _pending_resume_data(title, company)
-    now = datetime.now().isoformat()
     cur = db.execute(
         "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
-        " VALUES (?,?,?,?,?,?,?)",
-        (user_id, company, job_url, job_text[:300], json.dumps(resume, ensure_ascii=False), kind, now),
+        " VALUES (?,?,?,?,?,?,datetime('now'))",
+        (user_id, company, job_url, job_text[:300], _json_for_db(resume), kind),
     )
     return cur.lastrowid, resume
 
@@ -1703,6 +1750,27 @@ def _mark_generation_failed(db, user_id: int, resume_id: int, error_text: str) -
         "UPDATE resumes SET resume_data=?, updated=datetime('now') WHERE id=? AND user_id=?",
         (json.dumps(resume, ensure_ascii=False), resume_id, user_id),
     )
+
+
+def _fail_stuck_generations() -> int:
+    """Резюме, оставшиеся в статусе 'generating' с прошлого запуска.
+
+    /api/match/start списывает квоту и уходит в BackgroundTasks: рестарт
+    (деплой, OOM-killer) между ответом и завершением фоновой задачи оставляет
+    карточку «генерируется» навсегда — дожать её после перезапуска нечем, а
+    библиотека, пока такая карточка есть, опрашивает /api/resumes по кругу на
+    каждой открытой вкладке. Честнее один раз пометить их неудачными.
+    """
+    with get_db() as db:
+        changed = db.execute(
+            "UPDATE resumes SET resume_data = json_set(resume_data,"
+            "    '$.generation_status', 'failed',"
+            "    '$.generation_error', ?)"
+            " WHERE json_extract(resume_data, '$.generation_status') = 'generating'",
+            ("Генерация прервана перезапуском сервиса. Попробуйте ещё раз.",),
+        ).rowcount
+        db.commit()
+    return changed
 
 
 async def _finish_match_generation(
@@ -1759,13 +1827,17 @@ def _save_resume(db, user_id: int, resume: dict, kind: str,
     """Сохраняет резюме. Для бесплатных пользователей проверяет лимит FREE_RESUMES."""
     _ensure_resume_capacity(db, user_id)
 
-    now = datetime.now().isoformat()
+    # `updated` пишем тем же datetime('now'), что и остальные записи в таблице:
+    # datetime.now().isoformat() давал локальное время с 'T', а UPDATE ниже по
+    # файлу — UTC через пробел. ORDER BY updated в /api/resumes — текстовое
+    # сравнение, и 'T' > ' ' ставил свежесозданные резюме выше только что
+    # отредактированных независимо от реального времени.
     company_name = _resume_group_name(company, kind)
     c = db.execute(
         "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
-        " VALUES (?,?,?,?,?,?,?)",
+        " VALUES (?,?,?,?,?,?,datetime('now'))",
         (user_id, company_name, job_url, job_snippet[:300],
-         json.dumps(resume, ensure_ascii=False), kind, now)
+         _json_for_db(resume), kind)
     )
     db.commit()
     return c.lastrowid
@@ -1781,7 +1853,7 @@ async def save_profile(req: ProfileData, request: Request):
         db.execute(
             "INSERT INTO profiles (user_id, data) VALUES (?,?)"
             " ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated=datetime('now')",
-            (user["id"], json.dumps(data, ensure_ascii=False))
+            (user["id"], _json_for_db(data))
         )
         db.commit()
     return {"ok": True}
@@ -1833,12 +1905,22 @@ async def get_resume(resume_id: int, request: Request):
     r["resume_data"] = json.loads(r["resume_data"])
     return r
 
+# Статусы доски — те же пять, что рисует templates/resumes.html (STATUS_ORDER).
+# PUT принимал любую строку любой длины: карточка с посторонним статусом не
+# попадает ни в одну колонку доски и пропадает из вида, а 100 000 символов в
+# company_name сохранялись в базу как есть.
+RESUME_STATUSES = ("draft", "sent", "waiting", "accepted", "rejected")
+RESUME_COMPANY_MAX = 200
+
+
 @app.put("/api/resumes/{resume_id}")
 async def update_resume(resume_id: int, request: Request):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Требуется авторизация")
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Некорректное тело запроса")
     with get_db() as db:
         existing = db.execute(
             "SELECT id FROM resumes WHERE id=? AND user_id=?", (resume_id, user["id"])
@@ -1848,11 +1930,16 @@ async def update_resume(resume_id: int, request: Request):
         fields, vals = [], []
         if "resume_data" in body:
             fields.append("resume_data=?")
-            vals.append(json.dumps(body["resume_data"], ensure_ascii=False))
+            vals.append(_json_for_db(body["resume_data"]))
         if "company_name" in body:
+            company = str(body["company_name"] or "")
+            if len(company) > RESUME_COMPANY_MAX:
+                raise HTTPException(400, "Слишком длинное название компании")
             fields.append("company_name=?")
-            vals.append(body["company_name"])
+            vals.append(company)
         if "status" in body:
+            if body["status"] not in RESUME_STATUSES:
+                raise HTTPException(400, "Недопустимый статус резюме")
             fields.append("status=?")
             vals.append(body["status"])
         if fields:
@@ -1885,13 +1972,17 @@ async def save_resume_json(request: Request):
     if not user:
         raise HTTPException(401, "Требуется авторизация")
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Некорректное тело запроса")
     resume_data = body.get("resume_data")
-    if not resume_data:
+    # Именно объект: список или строка тоже сохранялись в resume_data, после
+    # чего карточка не открывалась ни в библиотеке, ни в редакторе.
+    if not isinstance(resume_data, dict) or not resume_data:
         raise HTTPException(400, "Нет данных резюме")
     with get_db() as db:
         rid = _save_resume(
             db, user["id"], resume_data,
-            body.get("kind", "general"),
+            "general" if body.get("kind") != "matched" else "matched",
             body.get("company_name", ""),
             body.get("job_url", ""),
             body.get("job_snippet", ""),
@@ -2249,6 +2340,21 @@ def _strip_xml_ns(elem):
     return elem
 
 
+def _same_amount(got: str, expected: str) -> bool:
+    """Сравнение сумм по значению, а не по написанию.
+
+    Робокасса не обещает вернуть OutSum ровно в том виде, в каком он ушёл:
+    "399.00" может приехать как "399" или "399.0000". Строковое сравнение на
+    таком ответе давало «amount mismatch» — деньги у покупателя списаны, Pro
+    не выдан, и наружу это никак не видно. Нечисловое значение — по-прежнему
+    отказ (Decimal бросит InvalidOperation).
+    """
+    try:
+        return Decimal(str(got)) == Decimal(str(expected))
+    except (InvalidOperation, ValueError, TypeError):
+        return False
+
+
 async def _robokassa_confirmed(inv_id: str, expected_sum: str) -> bool:
     """Независимая проверка платежа через OpStateExt — не доверяем только
     подписи вебхука, как раньше не доверяли только телу вебхука ЮKassa."""
@@ -2264,7 +2370,7 @@ async def _robokassa_confirmed(inv_id: str, expected_sum: str) -> bool:
     out_sum = root.findtext(".//Info/OutSum")
     if code != "100":
         return False
-    if out_sum != expected_sum:
+    if not _same_amount(out_sum, expected_sum):
         log.warning("pay/webhook: сумма в OpStateExt %s не совпадает с ожидаемой %s", out_sum, expected_sum)
         return False
     return True
@@ -2381,7 +2487,7 @@ async def payment_webhook(request: Request):
     # что показывали покупателю. У платежей, созданных до этой правки, колонка
     # пуста — для них остаётся прежнее поведение (сверка с PRO_PRICE).
     expected_amount = pay_row["amount"] or PRO_PRICE
-    if out_sum != expected_amount:
+    if not _same_amount(out_sum, expected_amount):
         log.warning("pay/webhook: сумма в вебхуке %s не совпадает с ожидаемой %s", out_sum, expected_amount)
         return PlainTextResponse("amount mismatch", status_code=400)
 
@@ -2502,6 +2608,11 @@ async def promo_activate(body: PromoActivateReq, request: Request):
     with get_db() as db:
         promo = db.execute("SELECT kind, value FROM promo_codes WHERE code=?", (code,)).fetchone()
         kind, value = promo["kind"], promo["value"]
+        # Схема ограничивает value только у новых кодов; заведённые раньше (или
+        # правкой в базе) могли быть любыми. Отрицательный gen_pack уводил
+        # paid_left в минус и запирал аккаунт, огромный pro_days ронял
+        # timedelta в OverflowError уже после списания активации.
+        value = max(0, min(int(value or 0), PROMO_VALUE_MAX))
 
         if kind == "pro_days":
             existing = db.execute(
