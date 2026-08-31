@@ -29,7 +29,10 @@ if grep -qE '^[[:space:]]*APP_URL=https' .env; then
     echo "дев-стенд разворачивается в /srv/apps/resuming-dev со своим .env."
     exit 1
 fi
-if ! grep -qE '^[[:space:]]*DEV_MODE=1[[:space:]]*$' .env; then
+# Словарь «да» здесь тот же, что у config.flag(): проверка строже кода
+# означала бы отказ выкатить стенд с рабочим DEV_MODE=true — контур поднялся
+# бы, а скрипт бы его не пустил.
+if ! grep -qiE '^[[:space:]]*DEV_MODE=(1|true|yes|on)[[:space:]]*$' .env; then
     echo "ОШИБКА: в .env нет DEV_MODE=1 — стенд поднимется без /dev и"
     echo "тестировать платные сценарии на нём будет нечем."
     exit 1

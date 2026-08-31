@@ -68,7 +68,33 @@ def get_ai_sem() -> asyncio.Semaphore:
         _ai_sem = asyncio.Semaphore(AI_CONCURRENCY)
     return _ai_sem
 
-tpl = Jinja2Templates(directory="templates")
+def _plan_context(request: Request) -> dict:
+    """Цифры тарифа — в контекст каждого шаблона, а не в контекст каждой ручки.
+
+    Раньше этот набор выписывали руками в шести хендлерах, и наборы разошлись:
+    /pricing передавал семь ключей, /new — четыре, /resumes — ни одного.
+    Забытый ключ Jinja подставляет пустой строкой и не жалуется, поэтому цена
+    на странице просто исчезала бы — а заметить это можно только глазами.
+    Общие части (подвал, блок «сколько осталось») включаются куда угодно, так
+    что набор обязан быть один на все страницы.
+
+    Читается на каждый рендер, а не замораживается в env.globals: тесты
+    подменяют значения через monkeypatch(main, "PRO_FAIR_USE_LIMIT", …), и
+    зашитый на импорте глобал такую подмену бы не увидел.
+    """
+    return {
+        "pro_price":          PRO_PRICE,
+        "pro_days":           PRO_DAYS,
+        "free_uses":          FREE_USES,
+        "free_resumes":       FREE_RESUMES,
+        "anon_limit":         ANON_LIMIT_CONST,
+        "paid_pack":          PAID_PACK,
+        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
+        "pro_fair_use_days":  PRO_FAIR_USE_DAYS,
+    }
+
+
+tpl = Jinja2Templates(directory="templates", context_processors=[_plan_context])
 tpl.env.globals["metrika_id"] = METRIKA_ID
 tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 tpl.env.globals["seller"] = {
@@ -766,13 +792,6 @@ async def root(request: Request):
     resp = tpl.TemplateResponse(request, "landing.html", {
         **_auth_ctx(user),
         "app_url": APP_URL,
-        "pro_price": PRO_PRICE,
-        "pro_days": PRO_DAYS,
-        "free_uses": FREE_USES,
-        "free_resumes": FREE_RESUMES,
-        "anon_limit": ANON_LIMIT_CONST,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
     })
     # Ответ зависит от cookie сессии: без no-store прокси может отдать лендинг
     # залогиненному пользователю (и наоборот).
@@ -784,13 +803,7 @@ async def root(request: Request):
 async def generator_page(request: Request):
     """Генератор резюме. Доступен и анонимам — это шаг воронки «попробовать»."""
     user = await get_current_user(request)
-    return tpl.TemplateResponse(request, "index.html", {
-        **_auth_ctx(user),
-        "pro_price": PRO_PRICE,
-        "pro_days": PRO_DAYS,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
-    })
+    return tpl.TemplateResponse(request, "index.html", _auth_ctx(user))
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
@@ -860,8 +873,6 @@ async def resume_edit_page(resume_id: int, request: Request):
     return tpl.TemplateResponse(request, "resume_edit.html", {
         "resume_id":  resume_id,
         "user": user,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
     })
 
 # ── AI section improvement ────────────────────────────────────────────────
@@ -952,10 +963,6 @@ async def settings_page(request: Request):
     return tpl.TemplateResponse(request, "settings.html", {
         **_auth_ctx(user),
         "linked_providers": {r["provider"]: r["email_at_link"] for r in rows},
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
-        "pro_price": PRO_PRICE,
-        "pro_days": PRO_DAYS,
     })
 
 @app.post("/api/settings/oauth/{provider}/unlink")
@@ -977,24 +984,11 @@ async def unlink_oauth(provider: str, request: Request):
 # ── Public / legal pages (no auth required) ───────────────────────────────
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing_page(request: Request):
-    return tpl.TemplateResponse(request, "pricing.html", {
-        "pro_price": PRO_PRICE,
-        "pro_days": PRO_DAYS,
-        "free_uses": FREE_USES,
-        "free_resumes": FREE_RESUMES,
-        "anon_limit": ANON_LIMIT_CONST,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
-    })
+    return tpl.TemplateResponse(request, "pricing.html")
 
 @app.get("/offer", response_class=HTMLResponse)
 async def offer_page(request: Request):
-    return tpl.TemplateResponse(request, "offer.html", {
-        "pro_price": PRO_PRICE,
-        "pro_days": PRO_DAYS,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days": PRO_FAIR_USE_DAYS,
-    })
+    return tpl.TemplateResponse(request, "offer.html")
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page(request: Request):
@@ -1991,6 +1985,93 @@ async def save_resume_json(request: Request):
     return {"resume_id": rid}
 
 # ── Generate / Match ───────────────────────────────────────────────────────
+# Синхронная генерация — это всегда одна и та же последовательность:
+# проверить вход на инъекцию → списать → сходить в модель → разобрать ответ →
+# сохранить, возвращая списание на каждом шаге, где виноват не пользователь.
+# Различаются между /api/match, /api/generate-from-profile и /api/generate
+# ровно четыре вещи: ярлык для журнала, что считать входом, какой промпт
+# собрать и как сохранить результат.
+#
+# До этого последовательность была выписана в каждой ручке отдельно — три
+# почти дословные копии по полсотни строк. Копии успели разойтись однажды
+# (возврат списания при уходе модели от формата чинили не везде), а цена
+# расхождения здесь — деньги пользователя: лишнее списание или, наоборот,
+# бесплатный вызов модели. Один экземпляр этой последовательности — не
+# косметика, а способ не чинить одно и то же трижды.
+async def _run_generation(
+    user: dict,
+    kind: str,
+    *,
+    inputs: tuple,
+    prompt: str,
+    save,
+):
+    """Общий ход синхронной генерации. Возвращает тело ответа или 402.
+
+    `kind`   — ярлык операции в журнале usage_events (виден в /admin);
+    `inputs` — то, что пришло от пользователя, для проверки на инъекцию;
+    `prompt` — уже собранный текст для модели (сборка промпта — чистая
+               функция, поэтому её можно посчитать до проверок);
+    `save`   — `(db, resume) -> resume_id`; знает, куда и с какими полями
+               класть готовое резюме.
+    """
+    if _looks_like_injection(*inputs):
+        with get_db() as db:
+            err = _flag_abuse(db, user=user)
+            log_event(db, "abuse_blocked", user_id=user["id"], kind=kind, stage="input")
+            db.commit()
+        return JSONResponse(status_code=402, content={"error": err})
+
+    with get_db() as db:
+        ok, col, uses_left = _deduct(db, user["id"])
+        if not ok:
+            return JSONResponse(status_code=402, content={"error": "pro_limit" if col == "pro_capped" else "no_uses"})
+
+    try:
+        raw = await call_ai(prompt)
+    except Exception:
+        # Сбой модели или сети — не действие пользователя, списание возвращаем.
+        with get_db() as db:
+            _refund(db, user["id"], col)
+            log_event(db, "generate_fail", user_id=user["id"], kind=kind, reason="ai_error")
+            db.commit()
+        raise
+
+    try:
+        resume = _parse_ai(raw)
+    except HTTPException:
+        with get_db() as db:
+            if _looks_like_honest_json_attempt(raw):
+                # Модель честно пыталась отдать JSON и сорвалась — не вина
+                # пользователя.
+                _refund(db, user["id"], col)
+                log_event(db, "generate_fail", user_id=user["id"], kind=kind, reason="parse_error")
+                db.commit()
+            else:
+                # Ответ не про резюме вовсе: инъекция увела модель с формата.
+                # Списание не возвращаем — иначе это бесплатный вызов модели.
+                err = _flag_abuse(db, user=user)
+                log_event(db, "generate_fail", user_id=user["id"], kind=kind, reason="format_hijack")
+                db.commit()
+                return JSONResponse(status_code=402, content={"error": err})
+        raise
+
+    with get_db() as db:
+        try:
+            rid = save(db, resume)
+            log_event(db, "generate", user_id=user["id"], kind=kind, col=col)
+            db.commit()
+        except ValueError as e:
+            if "resume_limit" in str(e):
+                # Генерация уже потрачена на успешный вызов AI, а сохранить
+                # результат некуда — возвращаем списание, иначе пользователь
+                # платит за упор в лимит хранилища.
+                _refund(db, user["id"], col)
+                return JSONResponse(status_code=402, content={"error": "resume_limit"})
+            raise
+    return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+
+
 @app.post("/api/match")
 @rate("20/minute")
 async def match_to_job(req: MatchReq, request: Request):
@@ -2005,52 +2086,14 @@ async def match_to_job(req: MatchReq, request: Request):
         p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
     if not p:
         raise HTTPException(404, "Сначала сохраните профиль")
-    if _looks_like_injection(p["data"], job_text, req.extra_hint, req.company):
-        with get_db() as db:
-            err = _flag_abuse(db, user=user)
-            log_event(db, "abuse_blocked", user_id=user["id"], kind="match", stage="input")
-            db.commit()
-        return JSONResponse(status_code=402, content={"error": err})
-    with get_db() as db:
-        ok, col, uses_left = _deduct(db, user["id"])
-        if not ok:
-            return JSONResponse(status_code=402, content={"error": "pro_limit" if col == "pro_capped" else "no_uses"})
-    try:
-        raw = await call_ai(_match_prompt(json.loads(p["data"]), job_text, req.extra_hint))
-    except Exception:
-        with get_db() as db:
-            _refund(db, user["id"], col)
-            log_event(db, "generate_fail", user_id=user["id"], kind="match", reason="ai_error")
-            db.commit()
-        raise
-    try:
-        resume = _parse_ai(raw)
-    except HTTPException:
-        with get_db() as db:
-            if _looks_like_honest_json_attempt(raw):
-                _refund(db, user["id"], col)
-                log_event(db, "generate_fail", user_id=user["id"], kind="match", reason="parse_error")
-                db.commit()
-            else:
-                err = _flag_abuse(db, user=user)
-                log_event(db, "generate_fail", user_id=user["id"], kind="match", reason="format_hijack")
-                db.commit()
-                return JSONResponse(status_code=402, content={"error": err})
-        raise
-    with get_db() as db:
-        try:
-            rid = _save_resume(db, user["id"], resume, "matched", req.company, job_url, job_text)
-            log_event(db, "generate", user_id=user["id"], kind="match", col=col)
-            db.commit()
-        except ValueError as e:
-            if "resume_limit" in str(e):
-                # Генерация уже потрачена на успешный вызов AI, а сохранить
-                # результат некуда — возвращаем списание, иначе пользователь
-                # платит за упор в лимит хранилища.
-                _refund(db, user["id"], col)
-                return JSONResponse(status_code=402, content={"error": "resume_limit"})
-            raise
-    return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+    return await _run_generation(
+        user, "match",
+        inputs=(p["data"], job_text, req.extra_hint, req.company),
+        prompt=_match_prompt(json.loads(p["data"]), job_text, req.extra_hint),
+        save=lambda db, resume: _save_resume(
+            db, user["id"], resume, "matched", req.company, job_url, job_text
+        ),
+    )
 
 
 @app.post("/api/match/start")
@@ -2119,49 +2162,12 @@ async def generate_from_profile(req: GenerateFromProfileReq, request: Request):
         p = db.execute("SELECT data FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
     if not p:
         raise HTTPException(404, "Сначала сохраните профиль")
-    if _looks_like_injection(p["data"], req.target_role, req.hint):
-        with get_db() as db:
-            err = _flag_abuse(db, user=user)
-            log_event(db, "abuse_blocked", user_id=user["id"], kind="from_profile", stage="input")
-            db.commit()
-        return JSONResponse(status_code=402, content={"error": err})
-    with get_db() as db:
-        ok, col, uses_left = _deduct(db, user["id"])
-        if not ok:
-            return JSONResponse(status_code=402, content={"error": "pro_limit" if col == "pro_capped" else "no_uses"})
-    try:
-        raw = await call_ai(_general_prompt(json.loads(p["data"]), req.target_role, req.hint))
-    except Exception:
-        with get_db() as db:
-            _refund(db, user["id"], col)
-            log_event(db, "generate_fail", user_id=user["id"], kind="from_profile", reason="ai_error")
-            db.commit()
-        raise
-    try:
-        resume = _parse_ai(raw)
-    except HTTPException:
-        with get_db() as db:
-            if _looks_like_honest_json_attempt(raw):
-                _refund(db, user["id"], col)
-                log_event(db, "generate_fail", user_id=user["id"], kind="from_profile", reason="parse_error")
-                db.commit()
-            else:
-                err = _flag_abuse(db, user=user)
-                log_event(db, "generate_fail", user_id=user["id"], kind="from_profile", reason="format_hijack")
-                db.commit()
-                return JSONResponse(status_code=402, content={"error": err})
-        raise
-    with get_db() as db:
-        try:
-            rid = _save_resume(db, user["id"], resume, "general")
-            log_event(db, "generate", user_id=user["id"], kind="from_profile", col=col)
-            db.commit()
-        except ValueError as e:
-            if "resume_limit" in str(e):
-                _refund(db, user["id"], col)
-                return JSONResponse(status_code=402, content={"error": "resume_limit"})
-            raise
-    return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+    return await _run_generation(
+        user, "from_profile",
+        inputs=(p["data"], req.target_role, req.hint),
+        prompt=_general_prompt(json.loads(p["data"]), req.target_role, req.hint),
+        save=lambda db, resume: _save_resume(db, user["id"], resume, "general"),
+    )
 
 @app.post("/api/generate")
 @rate("20/minute")
@@ -2169,49 +2175,12 @@ async def generate(req: GenerateReq, request: Request):
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
-    if _looks_like_injection(json.dumps(req.model_dump(), ensure_ascii=False)):
-        with get_db() as db:
-            err = _flag_abuse(db, user=user)
-            log_event(db, "abuse_blocked", user_id=user["id"], kind="generate", stage="input")
-            db.commit()
-        return JSONResponse(status_code=402, content={"error": err})
-    with get_db() as db:
-        ok, col, uses_left = _deduct(db, user["id"])
-        if not ok:
-            return JSONResponse(status_code=402, content={"error": "pro_limit" if col == "pro_capped" else "no_uses"})
-    try:
-        raw = await call_ai(_generate_prompt(req))
-    except Exception:
-        with get_db() as db:
-            _refund(db, user["id"], col)
-            log_event(db, "generate_fail", user_id=user["id"], kind="generate", reason="ai_error")
-            db.commit()
-        raise
-    try:
-        resume = _parse_ai(raw)
-    except HTTPException:
-        with get_db() as db:
-            if _looks_like_honest_json_attempt(raw):
-                _refund(db, user["id"], col)
-                log_event(db, "generate_fail", user_id=user["id"], kind="generate", reason="parse_error")
-                db.commit()
-            else:
-                err = _flag_abuse(db, user=user)
-                log_event(db, "generate_fail", user_id=user["id"], kind="generate", reason="format_hijack")
-                db.commit()
-                return JSONResponse(status_code=402, content={"error": err})
-        raise
-    with get_db() as db:
-        try:
-            rid = _save_resume(db, user["id"], resume, "general")
-            log_event(db, "generate", user_id=user["id"], kind="generate", col=col)
-            db.commit()
-        except ValueError as e:
-            if "resume_limit" in str(e):
-                _refund(db, user["id"], col)
-                return JSONResponse(status_code=402, content={"error": "resume_limit"})
-            raise
-    return {"resume": resume, "resume_id": rid, "uses_left": uses_left}
+    return await _run_generation(
+        user, "generate",
+        inputs=(json.dumps(req.model_dump(), ensure_ascii=False),),
+        prompt=_generate_prompt(req),
+        save=lambda db, resume: _save_resume(db, user["id"], resume, "general"),
+    )
 
 # ── Fetch job URL ──────────────────────────────────────────────────────────
 def _assert_public_host(host: str) -> None:
@@ -2566,11 +2535,7 @@ async def payment_webhook(request: Request):
 @app.api_route("/pay/success", methods=["GET", "HEAD", "POST"], response_class=HTMLResponse)
 async def pay_success(request: Request):
     user = await get_current_user(request)
-    resp = tpl.TemplateResponse(request, "pay_success.html", {
-        "user": user,
-        "pro_days": PRO_DAYS,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-    })
+    resp = tpl.TemplateResponse(request, "pay_success.html", {"user": user})
     # Ответ зависит от состояния сессии и от того, доехал ли вебхук, — не кешируем.
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -2579,10 +2544,7 @@ async def pay_success(request: Request):
 @app.api_route("/pay/fail", methods=["GET", "HEAD", "POST"], response_class=HTMLResponse)
 async def pay_fail(request: Request):
     user = await get_current_user(request)
-    resp = tpl.TemplateResponse(request, "pay_fail.html", {
-        "user": user,
-        "pro_price": PRO_PRICE,
-    })
+    resp = tpl.TemplateResponse(request, "pay_fail.html", {"user": user})
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -2679,13 +2641,7 @@ async def dev_page(request: Request):
     _require_dev()
     user = await get_current_user(request)
     return tpl.TemplateResponse(request, "dev.html", {
-        "current_email":      (user or {}).get("email") or "",
-        "pro_days":           PRO_DAYS,
-        "paid_pack":          PAID_PACK,
-        "free_uses":          FREE_USES,
-        "free_resumes":       FREE_RESUMES,
-        "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
-        "pro_fair_use_days":  PRO_FAIR_USE_DAYS,
+        "current_email": (user or {}).get("email") or "",
     })
 
 
@@ -2768,8 +2724,7 @@ async def dev_grant(body: DevGrantReq, request: Request):
 async def admin_page(request: Request):
     user = await get_current_user(request)
     _require_admin(request, user)
-    return tpl.TemplateResponse(request, "admin.html", {
-    })
+    return tpl.TemplateResponse(request, "admin.html")
 
 @app.post("/api/admin/promo")
 async def admin_create_promo(body: PromoCreateReq, request: Request):
