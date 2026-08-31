@@ -43,6 +43,7 @@ from config import (  # noqa: E402
     ROBOKASSA_LOGIN, ROBOKASSA_PASSWORD1, ROBOKASSA_PASSWORD2, ROBOKASSA_TEST_MODE,
     SELLER_NAME, SELLER_STATUS, SELLER_INN, SELLER_CITY,
     SELLER_PHONE, SELLER_PHONE_HREF, SELLER_EMAIL, SELLER_SITE,
+    AI_CONSENT_REV,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
     VK_CLIENT_ID,
@@ -96,6 +97,9 @@ def _plan_context(request: Request) -> dict:
 
 tpl = Jinja2Templates(directory="templates", context_processors=[_plan_context])
 tpl.env.globals["metrika_id"] = METRIKA_ID
+# Редакция согласия — в разметку модалки и в ключ отметки анонима в браузере:
+# поднялась редакция, и прежняя отметка перестаёт совпадать сама.
+tpl.env.globals["ai_consent_rev"] = AI_CONSENT_REV
 tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 tpl.env.globals["seller"] = {
     "name": SELLER_NAME,
@@ -438,6 +442,28 @@ async def get_current_user(request: Request) -> Optional[dict]:
         ).fetchone()
     return dict(row) if row else None
 
+
+# ── Согласие на передачу данных AI-провайдеру ─────────────────────────────
+# Генерация уносит имя, контакты и опыт внешнему провайдеру за пределы РФ
+# (ст. 12 152-ФЗ). Такое согласие обязано быть отдельным подтверждённым
+# действием, поэтому проверка стоит на сервере, а не только галочкой в форме:
+# запрос мимо интерфейса не должен уносить данные наружу.
+def _has_ai_consent(user: dict) -> bool:
+    """Дал ли пользователь согласие на действующую редакцию условий передачи.
+
+    Сверяем не сам факт отметки, а её редакцию: изменится текст в части
+    передачи данных провайдеру — поднимется AI_CONSENT_REV, и прежнее согласие
+    перестанет засчитываться, потому что человек соглашался на другое.
+    """
+    return bool(user.get("ai_consent_at")) and user.get("ai_consent_rev") == AI_CONSENT_REV
+
+
+def _consent_required() -> JSONResponse:
+    """Отказ до вызова модели: данные наружу не уходят, списания нет."""
+    return JSONResponse(status_code=403,
+                        content={"error": "consent_required", "rev": AI_CONSENT_REV})
+
+
 def _normalize_email(email: str) -> str:
     """Адрес как ключ аккаунта — всегда в нижнем регистре.
 
@@ -725,6 +751,13 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     сбросить свой можно, просто не вернув cookie). По адресу посетителя —
     предел, который очисткой cookie не обходится.
     """
+    # Согласие едет в самом запросе: аккаунта, где его можно было бы хранить,
+    # у анонима нет, а данные уходят провайдеру ровно так же, как у
+    # зарегистрированного. Проверяем первым делом — до cookie, лимитов и
+    # загрузки вакансии по ссылке.
+    if not req.consent:
+        return _consent_required()
+
     # Читаем и верифицируем подписанный cookie
     signed  = request.cookies.get("anon_id", "")
     anon_id = _verify_anon(signed) if signed else None
@@ -744,6 +777,10 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     with get_db() as db:
         if _anon_limit_reached(db, anon_id, ip_key):
             return _anon_denied(anon_id)
+        # Отметка согласия — единственный его след: у анонима нет строки в
+        # users, куда её можно было бы записать. Строк выходит не больше, чем
+        # анонимных генераций, и их подчищает та же уборка usage_events.
+        log_event(db, "ai_consent", anon_id=anon_id, rev=AI_CONSENT_REV)
 
     # Текст вакансии: строго вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
@@ -959,6 +996,8 @@ async def improve_text(req: ImproveReq, request: Request):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
+    if not _has_ai_consent(user):
+        return _consent_required()
     if not req.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
     # Длину ограничиваем и при наличии квоты: одним запросом иначе можно занять
@@ -1430,7 +1469,29 @@ async def me(request: Request):
         "total":          999 if pro_active else user["free_left"] + user["paid_left"],
         "resume_count":   resume_cnt,
         "resume_limit":   None if pro_active else FREE_RESUMES,
+        "ai_consent":     _has_ai_consent(user),
+        "ai_consent_rev": AI_CONSENT_REV,
     }
+
+
+@app.post("/api/consent")
+@rate("20/minute")
+async def give_ai_consent(request: Request):
+    """Подтверждение согласия на передачу данных AI-провайдеру.
+
+    Отдельная ручка, а не флаг в теле генерации: согласие должно храниться с
+    моментом и редакцией, а не подтверждаться заново каждым запросом.
+    """
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(401, "Войдите в аккаунт")
+    with get_db() as db:
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE id=?",
+            (AI_CONSENT_REV, user["id"]),
+        )
+        log_event(db, "ai_consent", user_id=user["id"], rev=AI_CONSENT_REV)
+    return {"ok": True, "rev": AI_CONSENT_REV}
 
 # ── Usage / plan helpers ───────────────────────────────────────────────────
 def _is_pro(user_row) -> bool:
@@ -2097,6 +2158,9 @@ async def _run_generation(
     `save`   — `(db, resume) -> resume_id`; знает, куда и с какими полями
                класть готовое резюме.
     """
+    if not _has_ai_consent(user):
+        return _consent_required()
+
     if _looks_like_injection(*inputs):
         with get_db() as db:
             err = _flag_abuse(db, user=user)
@@ -2184,6 +2248,8 @@ async def start_match_to_job(req: MatchReq, request: Request, background_tasks: 
     user = await _resolve_user(request, req.email)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
+    if not _has_ai_consent(user):
+        return _consent_required()
     job_text, job_url = _validate_job_source(req.job_text, req.job_url)
 
     with get_db() as db:
@@ -3019,6 +3085,11 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
     Списывает одну генерацию (как кнопка «Адаптировать» на сайте).
     Возвращает готовый JSON резюме, id сохранённой версии и остаток генераций."""
     user = _mcp_user(ctx)
+    # Токен MCP — путь к модели без браузера, и согласие на передачу данных
+    # провайдеру он не отменяет: подтвердить его можно только на сайте.
+    if not _has_ai_consent(user):
+        raise ValueError("Нужно согласие на передачу данных AI-провайдеру — "
+                          "подтвердите его на сайте перед первой генерацией")
     # Семантика 1-в-1 с /api/match (но текст вакансии передаётся только текстом)
     job_text = vacancy_text.strip()
     if len(job_text) < 30:

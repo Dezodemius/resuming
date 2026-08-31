@@ -73,6 +73,15 @@ async def _login(client, email):
         db.commit()
     await client.get(f"/auth/email/verify?token=tok-{email}", follow_redirects=False)
     with main.get_db() as db:
+        # Согласие на передачу данных AI-провайдеру живой пользователь
+        # подтверждает в модалке перед первой генерацией. Тесты ниже проверяют
+        # не его, а поведение самой генерации, поэтому ставим отметку сразу —
+        # иначе каждый из них упирался бы в 403 consent_required.
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
+            (main.AI_CONSENT_REV, email),
+        )
+        db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 
@@ -299,8 +308,9 @@ def test_fail_stuck_generations_marks_only_generating(db):
 # целиком, работая через MCP вместо сайта, и статистика его не видела.
 
 async def test_mcp_adapt_resume_counts_toward_pro_quota(db, monkeypatch):
-    db.execute("INSERT INTO users (email, is_pro, pro_expires_at)"
-               " VALUES ('mcp-quota@test.com', 1, datetime('now','+30 days'))")
+    db.execute("INSERT INTO users (email, is_pro, pro_expires_at, ai_consent_at, ai_consent_rev)"
+               " VALUES ('mcp-quota@test.com', 1, datetime('now','+30 days'), datetime('now'), ?)",
+               (main.AI_CONSENT_REV,))
     uid = db.execute("SELECT id FROM users WHERE email='mcp-quota@test.com'").fetchone()["id"]
     db.execute("INSERT INTO profiles (user_id, data) VALUES (?,?)",
                (uid, json.dumps({"name": "Тест", "skills": "Python"}, ensure_ascii=False)))
@@ -309,7 +319,8 @@ async def test_mcp_adapt_resume_counts_toward_pro_quota(db, monkeypatch):
     async def fake_call_ai(_prompt):
         return json.dumps({"name": "Тест", "target_role": "Developer"})
 
-    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: dict(
+        db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
     monkeypatch.setattr(main, "call_ai", fake_call_ai)
     monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 1)
 

@@ -275,6 +275,8 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
 
 {% include '_app_footer.html' %}
 
+{% include "_consent_modal.html" %}
+
 <!-- AI improvement sheet -->
 <div class="ed-ai-sheet" id="ai-sheet">
   <div class="ed-ai-backdrop" onclick="closeAI()"></div>
@@ -874,6 +876,7 @@ async function aiImprove(kind) {
       body: JSON.stringify({ kind, text, context })
     });
     const d = await res.json();
+    if (await consentGate(res, d)) return;
     if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind };
     showAISheet(kind === 'summary' ? 'Профессиональный профиль' : 'Навыки', d.improved);
@@ -896,6 +899,7 @@ async function aiImproveBullets(expIdx) {
       body: JSON.stringify({ kind:'bullets', text, context:`${role} в ${company}` })
     });
     const d = await res.json();
+    if (await consentGate(res, d)) return;
     if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind:'bullets', expIdx };
     showAISheet(`Достижения · ${role || 'опыт'}`, d.improved);
@@ -906,6 +910,13 @@ async function aiImproveBullets(expIdx) {
 // Улучшение текста списывает генерацию, как и обычная адаптация: на исчерпании
 // квоты бэкенд отвечает 402 {"error":"no_uses"} — без поля detail, поэтому
 // разбираем ответ отдельно, иначе пользователь видел «Ошибка AI: undefined».
+async function consentGate(res, body) {
+  if (!AiConsent.refused(res, body)) return false;
+  AiConsent.reset();
+  if (await AiConsent.ensure()) toast('Согласие сохранено — нажмите кнопку ещё раз', 'ok');
+  return true;
+}
+
 function aiErrorText(res, body) {
   if (res.status === 402 && body && body.error === 'no_uses') {
     return 'Закончились генерации — оформите Pro на странице тарифов';

@@ -205,6 +205,15 @@ async def _login(client, email):
         db.commit()
     await client.get(f"/auth/email/verify?token=tok-{email}", follow_redirects=False)
     with main.get_db() as db:
+        # Согласие на передачу данных AI-провайдеру живой пользователь
+        # подтверждает в модалке перед первой генерацией. Тесты ниже проверяют
+        # не его, а поведение самой генерации, поэтому ставим отметку сразу —
+        # иначе каждый из них упирался бы в 403 consent_required.
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
+            (main.AI_CONSENT_REV, email),
+        )
+        db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 

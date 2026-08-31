@@ -302,7 +302,7 @@ def test_pick_survivor_ignores_account_without_expiry_date():
 
 
 def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
-    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2, 3, 4).
+    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2–5).
 
     Если условие версии съедет и шаг 1 выполнится повторно, он пересоберёт
     users по своему списку колонок и вернёт колонки Telegram обратно.
@@ -315,7 +315,7 @@ def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
     conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
-    assert db_module.migrate(conn) == 3, "должны примениться только шаги 2, 3 и 4, не шаг 1 повторно"
+    assert db_module.migrate(conn) == 4, "должны примениться только шаги 2–5, не шаг 1 повторно"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
     assert db_module.migrate(conn) == 0, "повторный прогон ничего не делает"
@@ -360,7 +360,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
     )
     conn.commit()
 
-    assert db_module.migrate(conn) == 2, "должны примениться шаги 3 и 4"
+    assert db_module.migrate(conn) == 3, "должны примениться шаги 3, 4 и 5"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
     assert {"amount", "product"} <= columns
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
@@ -376,7 +376,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
 
 def test_migration_3_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_3_db(tmp_path, monkeypatch)
-    assert db_module.migrate(conn) == 2
+    assert db_module.migrate(conn) == 3
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
 
@@ -448,7 +448,7 @@ def test_fresh_db_has_oauth_identities_table(db):
 def test_migration_4_creates_oauth_identities_table(tmp_path, monkeypatch):
     conn = _pre_migration_4_db(tmp_path, monkeypatch)
 
-    assert db_module.migrate(conn) == 1, "должен примениться только шаг 4"
+    assert db_module.migrate(conn) == 2, "должны примениться шаги 4 и 5"
     tables = {row["name"] for row in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()}
@@ -479,6 +479,81 @@ def test_migration_4_table_enforces_one_user_per_provider_identity(tmp_path, mon
 
 def test_migration_4_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_4_db(tmp_path, monkeypatch)
+    assert db_module.migrate(conn) == 2
+    assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
+    conn.close()
+
+
+# ── Миграция 5: users получает отметку согласия на передачу данных ─────────
+# Согласие на трансграничную передачу (ст. 12 152-ФЗ) хранится в самой строке
+# пользователя: момент подтверждения и редакция текста. Шаг — ALTER TABLE ADD
+# COLUMN, `users` не пересобирается.
+_PRE_5_USERS = """
+    CREATE TABLE users (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        email       TEXT UNIQUE COLLATE NOCASE,
+        display_name TEXT,
+        free_left    INTEGER NOT NULL DEFAULT 3,
+        paid_left    INTEGER NOT NULL DEFAULT 0,
+        is_pro       INTEGER NOT NULL DEFAULT 0,
+        pro_expires_at TEXT,
+        created      TEXT DEFAULT (datetime('now'))
+    );
+"""
+
+
+def _pre_migration_5_db(tmp_path, monkeypatch):
+    """База на SCHEMA_VERSION=4: users ещё без колонок согласия."""
+    import config
+
+    path = str(tmp_path / "pre-migration-5.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    main.init_db()
+    conn = db_module.connect()
+    conn.executescript("DROP TABLE users;" + _PRE_5_USERS + "PRAGMA user_version = 4;")
+    conn.commit()
+    return conn
+
+
+def test_migration_5_adds_consent_columns(tmp_path, monkeypatch):
+    conn = _pre_migration_5_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1, "должен примениться только шаг 5"
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    assert {"ai_consent_at", "ai_consent_rev"} <= columns
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+
+    # У существующего пользователя отметки нет: согласие спросят перед первой
+    # генерацией, а не проставят задним числом за него.
+    row = conn.execute("SELECT ai_consent_at, ai_consent_rev FROM users WHERE id=1").fetchone()
+    assert row["ai_consent_at"] is None
+    assert row["ai_consent_rev"] is None
+    conn.close()
+
+
+def test_migration_5_is_idempotent(tmp_path, monkeypatch):
+    conn = _pre_migration_5_db(tmp_path, monkeypatch)
     assert db_module.migrate(conn) == 1
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
+
+
+def test_migration_5_guard_short_circuits_on_new_schema(tmp_path, monkeypatch):
+    """Прямой вызов шага на уже мигрированной базе не должен падать."""
+    conn = _pre_migration_5_db(tmp_path, monkeypatch)
+    db_module.migrate(conn)
+    before = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+
+    db_module._migration_5_ai_consent(conn)
+
+    after = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    assert before == after
+    conn.close()
+
+
+def test_fresh_db_users_has_consent_columns(db):
+    """Новая база создаётся сразу с итоговой схемой — колонки есть без миграции."""
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    assert {"ai_consent_at", "ai_consent_rev"} <= columns

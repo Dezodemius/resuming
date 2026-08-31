@@ -1,0 +1,30 @@
+<!-- Согласие на передачу данных AI-провайдеру.
+
+     Отдельное подтверждённое действие перед первой генерацией: данные анкеты
+     уходят провайдеру за пределы РФ (ст. 12 152-ФЗ), и такое согласие нельзя
+     выводить ни из факта входа, ни из мелкой строки под кнопкой. Разметка
+     общая для генератора и редактора — расхождение текста согласия между
+     страницами означало бы два разных согласия вместо одного.
+
+     Логика — static/consent.js (глобал AiConsent), редакция едет в data-rev. -->
+<div class="modal-wrap" id="modal-consent" data-rev="{{ ai_consent_rev }}">
+  <div class="modal-backdrop" data-consent-close></div>
+  <div class="modal modal--consent">
+    <button class="modal__close" type="button" data-consent-close>×</button>
+    <h2>Согласие на обработку данных</h2>
+    <p class="modal__sub">Чтобы собрать резюме, сервис передаёт данные вашей анкеты AI-провайдеру.</p>
+    <ul class="consent-list">
+      <li>Что передаётся: имя, контакты, город, опыт работы, образование, навыки и текст вакансии.</li>
+      <li>Кому: AI-провайдер <b>DeepSeek</b>, обработка на территории КНР — за пределами России.</li>
+      <li>Зачем: создание и адаптация резюме. Ничего другого с этими данными не делается.</li>
+      <li>Отозвать согласие можно письмом на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>.</li>
+    </ul>
+    <label class="consent-check">
+      <input type="checkbox" id="consent-box">
+      <span>Я даю согласие на обработку моих персональных данных и их трансграничную передачу
+        AI-провайдеру на условиях <a href="/privacy" target="_blank">политики конфиденциальности</a>.</span>
+    </label>
+    <button class="btn-build" id="btn-consent" type="button" disabled>Продолжить</button>
+  </div>
+</div>
+<script src="/static/consent.js"></script>

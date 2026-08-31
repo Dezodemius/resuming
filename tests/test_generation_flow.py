@@ -28,6 +28,15 @@ async def _login(client, email):
         db.commit()
     await client.get(f"/auth/email/verify?token=tok-{email}", follow_redirects=False)
     with main.get_db() as db:
+        # Согласие на передачу данных AI-провайдеру живой пользователь
+        # подтверждает в модалке перед первой генерацией. Тесты ниже проверяют
+        # не его, а поведение самой генерации, поэтому ставим отметку сразу —
+        # иначе каждый из них упирался бы в 403 consent_required.
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
+            (main.AI_CONSENT_REV, email),
+        )
+        db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 
@@ -148,7 +157,7 @@ async def test_format_hijack_is_not_refunded(client, monkeypatch):
 async def test_injection_in_input_blocks_before_the_model(client, monkeypatch):
     uid = await _login(client, "sync-injection@test.com")
     _save_profile(uid)
-    _set_balance(uid, 3, 0)
+    _set_balance(uid, 3, 2)
     called = {"n": 0}
 
     async def never(prompt):                     # pragma: no cover
@@ -162,7 +171,14 @@ async def test_injection_in_input_blocks_before_the_model(client, monkeypatch):
     )
 
     assert r.status_code == 402
+    # Тот же код, что и у обычного «лимит исчерпан»: детект не должен выдавать
+    # себя отдельным сообщением, а фронтенд — ветвиться на него.
+    assert r.json()["error"] == "no_uses"
     assert called["n"] == 0, "инъекция обязана отсекаться до вызова модели"
+    with main.get_db() as db:
+        row = db.execute("SELECT free_left, paid_left FROM users WHERE id=?", (uid,)).fetchone()
+    assert row["free_left"] == 0, "бесплатный остаток должен обнулиться"
+    assert row["paid_left"] == 2, "купленные генерации эвристика не трогает"
     event, meta = _last_event(uid)
     assert event == "abuse_blocked"
     assert meta == {"kind": "match", "stage": "input"}
