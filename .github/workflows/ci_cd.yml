@@ -30,6 +30,65 @@ jobs:
         env:
           SECRET_KEY: ci-test-secret-key-not-for-production
 
+  # Дев-стенд на той же машине: отдельный каталог, отдельная база, порт
+  # 127.0.0.1:8002 без домена. Ронять прод он не может — общего у контуров
+  # только сервер, — поэтому и требования к джобе мягче: не настроен доступ,
+  # значит пропускаем с предупреждением, а не красим пуш в develop в красное.
+  deploy-dev:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    steps:
+      - name: Настроен ли доступ к стенду
+        id: gate
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+          USER: ${{ secrets.SSH_USER }}
+          KEY: ${{ secrets.SSH_DEV_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          [ -n "$HOST" ] || missing="$missing SSH_HOST"
+          [ -n "$USER" ] || missing="$missing SSH_USER"
+          [ -n "$KEY" ] || missing="$missing SSH_DEV_KEY"
+          [ -n "$KNOWN_HOSTS" ] || missing="$missing SSH_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "::warning::Дев-стенд не настроен (нет секретов:$missing) — выкат пропущен. Как поднять: deploy/README.md, раздел «Дев-стенд»."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Ключ отдельный от боевого и с собственным forced-command: он умеет
+      # только поднять стенд из origin/develop. Одним ключом на два контура
+      # обойтись нельзя — forced-command привязан к ключу, а не к команде.
+      - name: Ключ доступа к стенду
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.SSH_DEV_KEY }}" > ~/.ssh/id_deploy_dev
+          chmod 600 ~/.ssh/id_deploy_dev
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Проверка снаружи, как у прода, здесь невозможна и не нужна: стенд
+      # слушает 127.0.0.1. За него отвечает сам deploy-dev.sh — он ждёт
+      # healthcheck и дёргает /healthz и /dev изнутри машины, так что упавший
+      # выкат приезжает сюда ненулевым кодом ssh.
+      - name: Выкатить стенд
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_deploy_dev -p "${SSH_PORT:-22}" -o BatchMode=yes -o ConnectTimeout=20 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}"
+
+      - name: Как зайти
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          echo "Стенд обновлён. С ноутбука:"
+          echo "  ./deploy/dev-tunnel.ps1        # или ssh -N -L 8002:127.0.0.1:8002 app01"
+          echo "  http://localhost:8002/dev"
+
   deploy:
     needs: test
     runs-on: ubuntu-latest

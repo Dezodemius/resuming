@@ -1,15 +1,15 @@
 # Деплой
 
-Два независимых контура. Ниже сначала прод, потом стенд.
+Три независимых контура. Ниже по порядку: прод, дев-стенд, стенд на отдельном VPS.
 
-| | Прод | Стенд |
-|---|---|---|
-| Что | `резюмирую.рф` | копия по IP, без домена и TLS |
-| Где | app-01 (Timeweb), `/srv/apps/resuming` | отдельный VPS, `/opt/resuming` |
-| Чем | `ci_cd.yml` → SSH → `deploy/deploy-prod.sh` | `deploy/deploy.sh` с ноутбука |
-| Compose | `deploy/docker-compose.prod.yml` | `deploy/docker-compose.staging.yml` |
-| Что поднимается | `app`, на `127.0.0.1` | `app` + `nginx` |
-| Кто держит домен | **хостовой** nginx машины, общий с двумя другими проектами | свой nginx в compose |
+| | Прод | Дев-стенд | Стенд |
+|---|---|---|---|
+| Что | `резюмирую.рф` | копия `develop` для своих тестов | копия по IP, без домена и TLS |
+| Где | app-01 (Timeweb), `/srv/apps/resuming` | app-01, `/srv/apps/resuming-dev` | отдельный VPS, `/opt/resuming` |
+| Чем | `ci_cd.yml` → SSH → `deploy/deploy-prod.sh` | `ci_cd.yml` → SSH → `deploy/deploy-dev.sh` | `deploy/deploy.sh` с ноутбука |
+| Compose | `deploy/docker-compose.prod.yml` | `deploy/docker-compose.dev.yml` | `deploy/docker-compose.staging.yml` |
+| Что поднимается | `app`, на `127.0.0.1:8001` | `app`, на `127.0.0.1:8002` | `app` + `nginx` |
+| Кто держит домен | **хостовой** nginx машины, общий с двумя другими проектами | никто — вход по SSH-туннелю | свой nginx в compose |
 
 Корневой `docker-compose.yml` — третий, самодостаточный вариант (с локальной
 Ollama и собственным nginx на порту 80). **На app-01 его запускать нельзя**: он
@@ -182,6 +182,152 @@ docker-шлюза — поэтому в `ADMIN_IPS` нужна запись `172
 
 Вход через Яндекс/VK/Mail.ru в туннеле не работает: `redirect_uri` у провайдеров
 зарегистрирован на боевой домен.
+
+## Дев-стенд на app-01
+
+Копия приложения из ветки `develop`, поднятая на той же машине рядом с продом и
+намеренно невидимая снаружи. Смысл — гонять платные сценарии, ничего не покупая:
+на стенде включён `DEV_MODE=1`, и страница `/dev` выдаёт вход по любой почте и
+любой тариф одной кнопкой. Промокоды и тестовый магазин Робокассы для этого
+больше не нужны.
+
+Пуш в `develop` → джоба `deploy-dev` в `.github/workflows/ci_cd.yml` → SSH на
+app-01 → обёртка приводит `/srv/apps/resuming-dev` к `origin/develop` и
+запускает `deploy/deploy-dev.sh`. Скрипт пересобирает образ, ждёт healthcheck и
+проверяет изнутри машины `/healthz` и `/dev` — последнее заодно доказывает, что
+`DEV_MODE` реально включился, а не был погашен проверкой `APP_URL`.
+
+Чем контуры разведены:
+
+| | Прод | Дев-стенд |
+|---|---|---|
+| Каталог | `/srv/apps/resuming` | `/srv/apps/resuming-dev` |
+| Ветка | `main` | `develop` |
+| Compose-проект | `resuming` | `resuming-dev` |
+| Том с базой | `resuming_app_data` | `resuming-dev_app_data` |
+| Контейнер | `resuming-app` | `resuming-dev-app` |
+| Порт | `127.0.0.1:8001` | `127.0.0.1:8002` |
+| Ключ выката | `SSH_KEY` | `SSH_DEV_KEY` |
+| `DEV_MODE` | выключен и не включается | `1` |
+
+Общего у них — только машина и внешний AI-провайдер. Базы разные (разные тома),
+`.env` разные, образы разные. Данные прода стенду недоступны физически.
+
+### Разовая настройка
+
+1. **Каталог и `.env`.** Отдельный клон, не копия боевого дерева:
+
+   ```bash
+   ssh app01 'git clone -b develop https://github.com/Dezodemius/resuming.git /srv/apps/resuming-dev'
+   ```
+
+   Затем заполнить `/srv/apps/resuming-dev/.env` по образцу
+   `deploy/.env.dev.example`. Боевой `.env` копировать нельзя: стенд начал бы
+   слать письма и дёргать Робокассу от лица прода. Обязательный минимум —
+   `DEV_MODE=1`, `APP_URL=http://localhost:8002`, свой `SECRET_KEY`, ключ
+   AI-провайдера. `deploy-dev.sh` откажется работать, если `APP_URL` начинается
+   с `https` или если `DEV_MODE=1` в файле нет.
+
+2. **Ключ.** Отдельная пара — не та, что у прода: forced-command привязан к
+   ключу, и одним ключом два разных выката не сделать.
+
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/resuming_ci_dev -C "resuming-ci-deploy-dev" -N ""
+   ```
+
+3. **Обёртка на сервере:**
+
+   ```bash
+   ssh app01 'cat > /usr/local/sbin/resuming-deploy-dev <<"EOF"
+   #!/bin/bash
+   set -euo pipefail
+   cd /srv/apps/resuming-dev
+   git fetch --quiet origin develop
+   git reset --hard --quiet origin/develop
+   exec bash deploy/deploy-dev.sh
+   EOF
+   chmod 700 /usr/local/sbin/resuming-deploy-dev'
+   ```
+
+   `git reset --hard` не трогает `.env` — он в `.gitignore`.
+
+4. **Публичный ключ с ограничением** — строкой в `/root/.ssh/authorized_keys`
+   на app-01, рядом с боевым:
+
+   ```
+   command="/usr/local/sbin/resuming-deploy-dev",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,restrict ssh-ed25519 AAAA... resuming-ci-deploy-dev
+   ```
+
+5. **Секрет репозитория** — один новый, остальное переиспользуется:
+
+   ```bash
+   gh secret set SSH_DEV_KEY < ~/.ssh/resuming_ci_dev
+   ```
+
+   Пока секрета нет, джоба `deploy-dev` не падает, а пропускает выкат с
+   предупреждением: пуш в `develop` — обычная рабочая операция, и красить её в
+   красное из-за ненастроенного стенда неправильно.
+
+### Как заходить
+
+Стенд слушает `127.0.0.1:8002` — снаружи его нет. Пробрасываем порт к себе:
+
+```powershell
+./deploy/dev-tunnel.ps1
+```
+
+То же самое руками: `ssh -N -L 8002:127.0.0.1:8002 app01`. Дальше —
+`http://localhost:8002/dev`. Пускает внутрь обычный SSH-ключ, поэтому смена
+внешнего адреса (в том числе включённый VPN) ничего не ломает.
+
+Вход через Яндекс/VK/Mail.ru в туннеле не работает — `redirect_uri` у
+провайдеров зарегистрирован на боевой домен. На стенде для этого и есть `/dev`.
+
+### Если нужен доступ прямо по адресу, без туннеля
+
+Например, чтобы открыть стенд с телефона. Тогда `DEV_BIND` в `.env` стенда
+меняется на `0.0.0.0`, а порт закрывается файрволом на конкретный адрес:
+
+```bash
+ssh app01 'ufw allow from <ваш-внешний-адрес> to any port 8002 proto tcp'
+```
+
+Порядок именно такой: сначала правило `ufw`, потом `DEV_BIND`. Иначе между
+перезапуском контейнера и правилом остаётся окно, в котором `/dev` открыт всему
+интернету — то есть кто угодно заходит любым аккаунтом. И помните, что внешний
+адрес меняется вместе с VPN и перезагрузкой роутера: правило придётся
+переписывать, а туннель — нет.
+
+### Что даёт `DEV_MODE`
+
+| | |
+|---|---|
+| `GET /dev` | пульт: поле почты и кнопки тарифов |
+| `POST /api/dev/login` | сессия по одной почте, без письма и OAuth |
+| `POST /api/dev/grant` | `pro` / `pack` / `free` / `empty` / `reset_usage` |
+
+`free` возвращает аккаунт в состояние новичка, `empty` обнуляет счётчики (так
+проверяется пейволл), `reset_usage` чистит `usage_events` — иначе квоту Pro не
+отмотать, она считается по событиям за окно, а не декрементом.
+
+Выключенный `DEV_MODE` отдаёт на все три 404, а не 403: снаружи ручек не видно
+вовсе. Плюс `config.py` гасит флаг сам, если `APP_URL` начинается с `https`, —
+боевой контур игнорирует переменную, даже если её принесёт случайно
+скопированный `.env`, и пишет об этом `critical` в лог.
+
+### Повседневное
+
+```bash
+ssh app01 'docker logs -f resuming-dev-app'
+ssh app01 'cd /srv/apps/resuming-dev && docker compose -f deploy/docker-compose.dev.yml restart'
+ssh app01 'cd /srv/apps/resuming-dev && docker compose -f deploy/docker-compose.dev.yml down'
+```
+
+Снести базу стенда и начать с чистого листа (прода не касается — том другой):
+
+```bash
+ssh app01 'cd /srv/apps/resuming-dev && docker compose -f deploy/docker-compose.dev.yml down -v && bash deploy/deploy-dev.sh'
+```
 
 ## Стенд timeweb.cloud
 

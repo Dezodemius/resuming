@@ -34,6 +34,9 @@ _COMMENT_MAX  = 500
 _DATE_MAX     = 64
 _EVENT_MAX    = 50
 _STATUS_MAX   = 20
+# Дней Pro / генераций в пачке, которые дев-стенд выдаёт себе сам (DevGrantReq).
+# Верхняя граница здесь только от опечатки в служебной форме.
+_DEV_VALUE_MAX = 10_000
 
 # Виды промокодов, которые умеет выдавать админка и разбирать активация.
 PROMO_KINDS = frozenset({"pro_days", "gen_pack", "unlimited"})
@@ -165,6 +168,23 @@ class TrackReq(BaseModel):
 
 class PromoActivateReq(BaseModel):
     code: str = Field(..., max_length=_CODE_MAX)
+
+
+class DevLoginReq(EmailReq):
+    """Вход на дев-стенде: аккаунт заводится по почте, как при magic-ссылке,
+    только без самой ссылки. Отдельный класс, а не EmailReq на месте вызова, —
+    чтобы служебная ручка не выглядела в коде как обычная почтовая форма."""
+
+
+class DevGrantReq(BaseModel):
+    """Что выдать текущему аккаунту на дев-стенде.
+
+    Набор значений plan проверяет main.py — так же, как kind у промокода:
+    перечень живёт рядом с обработкой, а не в двух местах сразу.
+    """
+    plan:  str = Field(..., max_length=_KIND_MAX)
+    # Дней Pro либо генераций в пачке; None — значение по умолчанию из config.
+    value: Optional[int] = Field(None, ge=0, le=_DEV_VALUE_MAX)
 
 
 class PromoCreateReq(BaseModel):
