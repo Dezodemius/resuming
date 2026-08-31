@@ -341,3 +341,168 @@ async def test_settings_page_offers_connect_for_unlinked_provider(monkeypatch, c
     assert r.status_code == 200
     assert '/auth/vk' in r.text
     assert "Подключить" in r.text
+
+# ── Занятый адрес: провайдеру не отдают чужой аккаунт ───────────────────────
+# Раньше новая привязка без сессии подхватывала существующего пользователя по
+# email, который назвал провайдер. Это доверие к чужому справочнику: провайдер,
+# отдающий неподтверждённый адрес, отдавал вместе с ним и чужой аккаунт со
+# всеми резюме и оплаченным Pro. Теперь совпадение адреса требует доказать
+# владение аккаунтом — войти своим способом и подключить провайдера в
+# настройках.
+
+
+async def _create_user_without_session(db, email):
+    """Аккаунт как после входа по magic-link: есть, но привязок к OAuth нет."""
+    with db as c:
+        c.execute("INSERT INTO users (email) VALUES (?)", (email,))
+        c.commit()
+        return c.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
+
+
+@pytest.mark.asyncio
+async def test_vk_callback_refuses_account_owned_by_someone_else(monkeypatch, client, db):
+    uid = await _create_user_without_session(db, "victim@example.com")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    client.cookies.set("vk_state", "s1")
+    client.cookies.set("vk_verifier", "v1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"user": {"user_id": 777, "email": "victim@example.com"}},
+    ])
+
+    r = await client.get("/auth/vk/callback?code=abc&state=s1&device_id=dev", follow_redirects=False)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/new?auth_link_required=vk"
+    assert "session_id" not in r.cookies, "вход не должен состояться"
+    assert db.execute(
+        "SELECT COUNT(*) c FROM oauth_identities WHERE provider='vk'"
+    ).fetchone()["c"] == 0, "привязка не должна была записаться"
+    assert db.execute("SELECT COUNT(*) c FROM sessions WHERE user_id=?", (uid,)).fetchone()["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_refusal_does_not_depend_on_letter_case(monkeypatch, client, db):
+    """Регистр адреса не обходной путь: users.email COLLATE NOCASE."""
+    await _create_user_without_session(db, "victim@example.com")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    client.cookies.set("vk_state", "s1")
+    client.cookies.set("vk_verifier", "v1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"user": {"user_id": 777, "email": "Victim@Example.COM"}},
+    ])
+
+    r = await client.get("/auth/vk/callback?code=abc&state=s1&device_id=dev", follow_redirects=False)
+
+    assert r.headers["location"] == "/new?auth_link_required=vk"
+    assert db.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 1
+
+
+@pytest.mark.asyncio
+async def test_yandex_callback_refuses_account_owned_by_someone_else(monkeypatch, client, db):
+    """Отказ живёт в общем обработчике, а не в одном колбэке."""
+    await _create_user_without_session(db, "victim@example.com")
+    monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "cid")
+    monkeypatch.setattr(main, "YANDEX_CLIENT_SECRET", "sec")
+    client.cookies.set("ya_state", "s1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"id": "9001", "default_email": "victim@example.com"},
+    ])
+
+    r = await client.get("/auth/yandex/callback?code=abc&state=s1", follow_redirects=False)
+
+    assert r.headers["location"] == "/new?auth_link_required=yandex"
+    assert db.execute("SELECT COUNT(*) c FROM oauth_identities").fetchone()["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_mailru_callback_refuses_account_owned_by_someone_else(monkeypatch, client, db):
+    await _create_user_without_session(db, "victim@example.com")
+    monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "cid")
+    monkeypatch.setattr(main, "MAILRU_CLIENT_SECRET", "sec")
+    client.cookies.set("mr_state", "s1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"id": "9002", "email": "victim@example.com"},
+    ])
+
+    r = await client.get("/auth/mailru/callback?code=abc&state=s1", follow_redirects=False)
+
+    assert r.headers["location"] == "/new?auth_link_required=mailru"
+    assert db.execute("SELECT COUNT(*) c FROM oauth_identities").fetchone()["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_owner_links_the_same_provider_after_logging_in(monkeypatch, client, db):
+    """Путь из отказа: войти своим способом и подключить провайдера в настройках.
+
+    Тот же адрес и тот же provider_uid, что в отказе выше, — разница только в
+    сессии, то есть в доказательстве владения аккаунтом.
+    """
+    uid, sid = await _create_logged_in_user(client, db, "owner@example.com")
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    client.cookies.set("session_id", sid)
+    client.cookies.set("vk_state", "s1")
+    client.cookies.set("vk_verifier", "v1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"user": {"user_id": 777, "email": "owner@example.com"}},
+    ])
+
+    r = await client.get("/auth/vk/callback?code=abc&state=s1&device_id=dev", follow_redirects=False)
+
+    assert r.headers["location"] == "/settings?linked=vk"
+    row = db.execute(
+        "SELECT user_id FROM oauth_identities WHERE provider='vk' AND provider_uid='777'"
+    ).fetchone()
+    assert row["user_id"] == uid
+    assert db.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 1
+
+
+@pytest.mark.asyncio
+async def test_second_login_through_saved_identity_is_not_refused(monkeypatch, client, db):
+    """Отказ не должен задевать обычный повторный вход.
+
+    После первой привязки аккаунт находится по oauth_identities, до сверки
+    адреса дело не доходит — иначе каждый второй вход упирался бы в отказ.
+    """
+    monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    client.cookies.set("vk_state", "s1")
+    client.cookies.set("vk_verifier", "v1")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"user": {"user_id": 555, "email": "fresh@example.com"}},
+    ])
+    r1 = await client.get("/auth/vk/callback?code=abc&state=s1&device_id=dev", follow_redirects=False)
+    assert r1.headers["location"] == "/new?login=success"
+
+    client.cookies.delete("session_id")
+    client.cookies.set("vk_state", "s2")
+    client.cookies.set("vk_verifier", "v2")
+    _mock_oauth_http(monkeypatch, [
+        {"access_token": "tok"},
+        {"user": {"user_id": 555, "email": "fresh@example.com"}},
+    ])
+    r2 = await client.get("/auth/vk/callback?code=abc&state=s2&device_id=dev", follow_redirects=False)
+
+    assert r2.headers["location"] == "/new?login=success"
+    assert db.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 1
+
+
+def test_oauth_email_taken_carries_provider():
+    """Провайдер виден и в атрибуте, и в тексте исключения.
+
+    Первое читает обработчик и подставляет в редирект, второе попадает в
+    трейсбек, если исключение когда-нибудь выйдет за его пределы, — иначе там
+    будет пустое «OAuthEmailTaken» без единой подсказки, какой это вход.
+    """
+    exc = main.OAuthEmailTaken("vk")
+
+    assert exc.provider == "vk"
+    assert str(exc) == "vk"
