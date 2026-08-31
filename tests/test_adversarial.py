@@ -292,6 +292,36 @@ def test_fail_stuck_generations_marks_only_generating(db):
     assert _fail_stuck_generations() == 0             # повторный запуск ничего не меняет
 
 
+# ── Генерация через MCP должна считаться в квоте Pro ──────────────────────
+# Окно PRO_FAIR_USE_LIMIT считается по событиям 'generate' (см. _deduct).
+# Удачный adapt_resume такого события не писал: Pro обходил свою квоту
+# целиком, работая через MCP вместо сайта, и статистика его не видела.
+
+async def test_mcp_adapt_resume_counts_toward_pro_quota(db, monkeypatch):
+    db.execute("INSERT INTO users (email, is_pro, pro_expires_at)"
+               " VALUES ('mcp-quota@test.com', 1, datetime('now','+30 days'))")
+    uid = db.execute("SELECT id FROM users WHERE email='mcp-quota@test.com'").fetchone()["id"]
+    db.execute("INSERT INTO profiles (user_id, data) VALUES (?,?)",
+               (uid, json.dumps({"name": "Тест", "skills": "Python"}, ensure_ascii=False)))
+    db.commit()
+
+    async def fake_call_ai(_prompt):
+        return json.dumps({"name": "Тест", "target_role": "Developer"})
+
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "call_ai", fake_call_ai)
+    monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 1)
+
+    out = await main.adapt_resume("Senior Python developer with production systems", object())
+    assert out["resume_id"]
+    assert db.execute(
+        "SELECT COUNT(*) FROM usage_events WHERE user_id=? AND event='generate'", (uid,)
+    ).fetchone()[0] == 1
+    # Квота исчерпана — следующий вызов через MCP обязан упереться в неё.
+    with pytest.raises(ValueError, match="pro_limit"):
+        await main.adapt_resume("Senior Python developer with production systems", object())
+
+
 # ── Формат `updated`: тот же, что у остальных записей таблицы ─────────────
 # _save_resume писал локальное время через isoformat() ('2026-08-31T09:17:35'),
 # а UPDATE в /api/resumes/{id} — UTC через пробел. ORDER BY updated —

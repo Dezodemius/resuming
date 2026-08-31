@@ -2890,6 +2890,12 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
     with get_db() as db:
         try:
             rid = _save_resume(db, user["id"], resume, "matched", "", "", job_text)
+            # Без этой записи удачная генерация через MCP не попадала ни в
+            # статистику, ни — что важнее — в окно PRO_FAIR_USE_LIMIT: оно
+            # считается по событиям 'generate' (см. _deduct), так что Pro
+            # обходил свою квоту целиком, работая через MCP вместо сайта.
+            log_event(db, "generate", user_id=user["id"], kind="mcp_adapt", col=col)
+            db.commit()
         except ValueError as e:
             if "resume_limit" in str(e):
                 _refund(db, user["id"], col)
