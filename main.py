@@ -1959,7 +1959,10 @@ async def list_resumes(request: Request):
             " FROM resumes WHERE user_id=? ORDER BY updated DESC",
             (user["id"],)
         ).fetchall()
-    return {"resumes": [dict(r) for r in rows]}
+    # no-store: список меняется на каждый чих (смена статуса, генерация в фоне),
+    # а без заголовков кэширования браузер вправе переиспользовать ответ по
+    # эвристике — и доска показывала бы карточку в старой колонке.
+    return JSONResponse({"resumes": [dict(r) for r in rows]}, headers=_NO_STORE)
 
 @app.get("/api/resumes/{resume_id}")
 async def get_resume(resume_id: int, request: Request):
@@ -1974,7 +1977,10 @@ async def get_resume(resume_id: int, request: Request):
         raise HTTPException(404, "Резюме не найдено")
     r = dict(row)
     r["resume_data"] = json.loads(r["resume_data"])
-    return r
+    # no-store: редактор пишет обратно то, что прочитал отсюда. Протухший ответ
+    # здесь означает не «устаревшая карточка», а перезапись свежего резюме
+    # старыми данными.
+    return JSONResponse(r, headers=_NO_STORE)
 
 # Статусы доски — те же пять, что рисует templates/resumes.html (STATUS_ORDER).
 # PUT принимал любую строку любой длины: карточка с посторонним статусом не
