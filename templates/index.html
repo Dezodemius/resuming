@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260830">
+<link rel="stylesheet" href="/static/app.css?v=20260831">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
@@ -291,6 +291,7 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
         <div class="field"><label>Навыки (через запятую)</label><textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой…"></textarea></div>
         <div class="field"><label>Языки</label><input id="p-langs" value="Русский — родной"></div>
       </section>
+      <p style="font-size:11px;color:var(--text-3);line-height:1.55;margin:0 0 10px">Имя, контакты и опыт из профиля обрабатываются, чтобы собрать резюме, и для этого передаются AI-провайдеру DeepSeek на территории КНР. Цели обработки, сроки хранения и ваши права — в <a href="/privacy" target="_blank">политике конфиденциальности</a>.</p>
       <button class="btn-build" type="button" onclick="saveProfile()">Сохранить профиль</button>
     </div>
   </div>
@@ -384,6 +385,7 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
         <button onclick="requestMagicLink()" type="button">Войти</button>
       </div>
       <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;text-align:center">Без пароля — пришлём ссылку на почту</p>
+      <p style="font-size:10.5px;color:var(--text-3);line-height:1.5;margin:10px 0 0;text-align:center">Продолжая вход любым способом, вы принимаете <a href="/offer" target="_blank">публичную оферту</a> и даёте согласие на обработку персональных данных на условиях <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>
     </div>
     <div class="magic-sent" id="magic-sent">
       <div class="icon">📬</div>

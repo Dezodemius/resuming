@@ -194,12 +194,12 @@ a{color:inherit}
 
 /* board (kanban) */
 .board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,1fr);gap:14px;overflow-x:auto;padding-bottom:10px;align-items:start}
-.col{background:var(--surface-2);border:1px solid var(--border);border-radius:18px;padding:11px;display:flex;flex-direction:column;gap:10px}
+.col{min-height:112px;background:var(--surface-2);border:1px solid var(--border);border-radius:18px;padding:11px;display:flex;flex-direction:column;gap:10px}
 .col__head{display:flex;align-items:center;gap:9px;padding:4px 6px 2px}
 .col__dot{width:9px;height:9px;border-radius:50%;background:var(--st,#10b981);box-shadow:0 0 0 4px var(--st-bg,rgba(16,185,129,.15));flex-shrink:0}
 .col__label{font-weight:700;font-size:13.5px;color:var(--text);flex:1}
 .col__count{font-size:12px;font-weight:700;color:var(--text-3);background:var(--surface-3);border-radius:7px;padding:1px 8px}
-.bcard{text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:11px;cursor:pointer;transition:transform .16s,box-shadow .16s,filter .16s;font-family:inherit;color:var(--text)}
+.bcard{touch-action:pan-y;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px;display:flex;flex-direction:column;gap:11px;cursor:pointer;transition:transform .16s,box-shadow .16s,filter .16s;font-family:inherit;color:var(--text)}
 .bcard:hover{border-color:var(--accent-line);transform:translateY(-3px);box-shadow:var(--shadow-lg)}
 .bcard__top{display:flex;align-items:center;gap:9px}
 .bcard__top .avatar-co{width:27px;height:27px;border-radius:8px;font-size:11.5px}
@@ -212,6 +212,11 @@ a{color:inherit}
 .bcard__foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:10px;border-top:1px solid var(--border)}
 .bcard__salary{font-size:12px;color:var(--text-2);font-weight:600}
 .bcard__loc{font-size:11px;color:var(--text-3);white-space:nowrap}
+.bcard.bcard--dragging{opacity:.35;transform:none;box-shadow:none;border-style:dashed}
+.bcard.bcard--ghost{position:fixed;z-index:120;pointer-events:none;margin:0;opacity:.95;box-shadow:var(--shadow-lg);transform:rotate(1.5deg)}
+body.is-dragging{user-select:none;cursor:grabbing}
+.col--over{border-color:var(--accent-line);background:var(--surface-3)}
+.col--over .col__add{border-color:var(--accent-line)}
 .col__add{display:flex;align-items:center;justify-content:center;gap:6px;height:38px;border-radius:12px;background:none;border:1px dashed var(--border-2);color:var(--text-3);font-family:inherit;font-weight:600;font-size:12.5px;cursor:pointer;text-decoration:none;transition:transform .15s,box-shadow .15s,filter .15s}
 .col__add:hover{border-color:var(--border-2);background:var(--surface-3)}
 
