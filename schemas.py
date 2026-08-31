@@ -35,6 +35,9 @@ _DATE_MAX     = 64
 _EVENT_MAX    = 50
 _STATUS_MAX   = 20
 
+# Виды промокодов, которые умеет выдавать админка и разбирать активация.
+PROMO_KINDS = frozenset({"pro_days", "gen_pack", "unlimited"})
+
 # Анонимный inline-профиль (AnonymousPreviewReq.profile) типизированной
 # модели не имеет — см. её докстринг. Единственный способ ограничить размер —
 # пройтись по значению вручную: общий вес сериализованного словаря плюс длина
@@ -170,3 +173,16 @@ class PromoCreateReq(BaseModel):
     max_uses:   int
     expires_at: Optional[str] = Field(None, max_length=_DATE_MAX)
     comment:    str = Field("", max_length=_COMMENT_MAX)
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        # Тот же список стоит CHECK-ограничением в схеме promo_codes, но
+        # ограничение ловит опечатку («pro_dyas») уже в sqlite — то есть
+        # необработанным IntegrityError и 500-й в ответ. Здесь она становится
+        # понятной 422 и не доходит до базы. Ограничение при этом остаётся
+        # вторым рубежом: на базе, созданной до его появления, CREATE TABLE
+        # IF NOT EXISTS его не добавит (см. CLAUDE.md про миграции).
+        if v not in PROMO_KINDS:
+            raise ValueError(f"kind должен быть одним из: {', '.join(sorted(PROMO_KINDS))}")
+        return v

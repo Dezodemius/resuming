@@ -241,3 +241,63 @@ async def test_admin_stats(client, db, user_session, monkeypatch):
     assert "payments_30days" in data
     assert "promos_30days" in data
     assert "top_users" in data
+
+
+# ── Неизвестный kind не должен означать «безлимит» ───────────────────────────
+# Разбор kind при активации — цепочка if/elif, и раньше на её конце стоял
+# `else: # unlimited`. Значит любой код с непонятным видом (опечатка в админке,
+# строка, дописанная в таблицу мимо приложения) выдавал вечный Pro бесплатно.
+@pytest.mark.asyncio
+async def test_admin_create_promo_rejects_unknown_kind(client, db, user_session, monkeypatch):
+    """Админка не заводит код с видом вне белого списка — 422 от схемы."""
+    monkeypatch.setattr(main, "ADMIN_EMAILS", ["test@example.com"])
+
+    resp = await client.post(
+        "/api/admin/promo",
+        json={"kind": "pro_dyas", "value": 30, "max_uses": 1},
+        cookies={"session_id": user_session["session_id"]}
+    )
+
+    assert resp.status_code == 422
+    with db as c:
+        assert c.execute("SELECT count(*) FROM promo_codes").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_activate_unknown_kind_does_not_grant_unlimited(client, db, user_session):
+    """Код с неизвестным видом (уже лежит в базе) не выдаёт ничего и не сгорает.
+
+    Строку заводим с выключенными CHECK-ограничениями — так выглядит база, где
+    таблица promo_codes создана до появления CHECK (init_db выполняет
+    CREATE TABLE IF NOT EXISTS и на существующей таблице ограничение не
+    добавляет) или куда код дописали мимо приложения.
+    """
+    with db as c:
+        c.execute("PRAGMA ignore_check_constraints = 1")
+        c.execute(
+            "INSERT INTO promo_codes (code, kind, value, max_uses) VALUES (?,?,?,?)",
+            ("WEIRDKIND0001", "pro_dyas", 30, 1)
+        )
+        c.commit()
+        c.execute("PRAGMA ignore_check_constraints = 0")
+
+    resp = await client.post(
+        "/api/promo/activate",
+        json={"code": "WEIRDKIND0001"},
+        cookies={"session_id": user_session["session_id"]}
+    )
+
+    assert resp.status_code == 400
+    with db as c:
+        user = c.execute("SELECT is_pro, pro_expires_at, paid_left FROM users WHERE id=?",
+                         (user_session["user_id"],)).fetchone()
+        promo = c.execute("SELECT used_count FROM promo_codes WHERE code=?",
+                          ("WEIRDKIND0001",)).fetchone()
+        activations = c.execute("SELECT count(*) FROM promo_activations WHERE code=?",
+                                ("WEIRDKIND0001",)).fetchone()[0]
+    assert user["is_pro"] == 0
+    assert user["pro_expires_at"] is None
+    assert user["paid_left"] == 0
+    # Попытка откачена целиком: код не сгорел и активация не записана.
+    assert promo["used_count"] == 0
+    assert activations == 0

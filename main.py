@@ -516,6 +516,14 @@ def _require_admin(request: Request, user):
 async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
     """Отправляет magic-ссылку. Возвращает None при успехе, иначе строку с причиной ошибки."""
     if not SMTP_USER:
+        # Токен входа — это сама авторизация. Печатать его в лог допустимо
+        # только там, где письма и не должно быть (локальная разработка, стенд:
+        # APP_URL без https). На боевом контуре пустой SMTP_USER — это авария
+        # конфигурации, и она не должна превращать app.log (он лежит на volume
+        # рядом с БД) в набор готовых ключей от чужих аккаунтов.
+        if APP_URL.startswith("https://"):
+            log.error("magic-email: SMTP_USER не задан — письмо не отправлено")
+            return "SMTP не настроен"
         log.info("[DEV] Magic link: %s/auth/email/verify?token=%s", APP_URL, token)
         return None
     log.info("magic-email: sending to %s via %s:%s", to_email, SMTP_HOST, SMTP_PORT)
@@ -606,6 +614,24 @@ def _anon_bump(db, key: str, window_hours: int) -> None:
 def _anon_refund(db, key: str) -> None:
     db.execute("UPDATE anon_usage SET uses = MAX(uses - 1, 0) WHERE anon_id=?", (key,))
 
+
+def _anon_limit_reached(db, anon_id: str, ip_key: str) -> bool:
+    """Исчерпаны ли анонимные попытки — хоть по cookie, хоть по адресу."""
+    return (_anon_uses(db, anon_id, ANON_COOKIE_WINDOW_HOURS) >= ANON_LIMIT
+            or _anon_uses(db, ip_key, ANON_IP_WINDOW_HOURS) >= ANON_IP_LIMIT)
+
+
+def _anon_denied(anon_id: str) -> JSONResponse:
+    """Отказ по анонимному лимиту.
+
+    Cookie ставим и на отказе: иначе отказ не закрепляется за посетителем и
+    следующий заход снова выглядит первым.
+    """
+    denied = JSONResponse(status_code=429,
+                          content={"error": "anon_limit", "limit": ANON_LIMIT})
+    _set_anon_cookie(denied, anon_id)
+    return denied
+
 # ── Anonymous preview (no auth, no save) ─────────────────────────────────
 @app.post("/api/generate-preview")
 @rate("10/minute")
@@ -627,6 +653,16 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     # Пишем подписанный cookie обратно (httpOnly)
     _set_anon_cookie(response, anon_id)
 
+    # Ссылку на вакансию сервер качает сам, поэтому право на загрузку
+    # проверяем ДО неё, а не только перед вызовом модели. Раньше исчерпавший
+    # лимит аноним всё равно гонял сервер по любым адресам: публичная ручка
+    # оставалась тем самым открытым загрузчиком, ради которого /api/fetch-job
+    # закрыт сессией. @rate тут не заменяет проверку — он про частоту, а не
+    # про право пользоваться загрузкой.
+    with get_db() as db:
+        if _anon_limit_reached(db, anon_id, ip_key):
+            return _anon_denied(anon_id)
+
     # Текст вакансии: строго вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
     if req.kind == "match":
@@ -640,9 +676,7 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
             _flag_abuse(db, anon_id=anon_id, ip_key=ip_key)
             log_event(db, "abuse_blocked", anon_id=anon_id, kind="preview", stage="input")
             db.commit()
-        denied = JSONResponse(status_code=429, content={"error": "anon_limit", "limit": ANON_LIMIT})
-        _set_anon_cookie(denied, anon_id)
-        return denied
+        return _anon_denied(anon_id)
 
     # Считаем по двум ключам сразу. Счёт по cookie — «честный» для обычного
     # посетителя, но он не удерживает ничего: клиенту достаточно не возвращать
@@ -650,14 +684,8 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     # Поэтому решает ещё и счётчик по адресу с суточным окном.
     with get_db() as db:
         uses = _anon_uses(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
-        ip_uses = _anon_uses(db, ip_key, ANON_IP_WINDOW_HOURS)
-        if uses >= ANON_LIMIT or ip_uses >= ANON_IP_LIMIT:
-            denied = JSONResponse(status_code=429,
-                                  content={"error": "anon_limit", "limit": ANON_LIMIT})
-            # Cookie ставим и на отказе: иначе отказ не закрепляется за
-            # посетителем и следующий заход снова выглядит первым.
-            _set_anon_cookie(denied, anon_id)
-            return denied
+        if _anon_limit_reached(db, anon_id, ip_key):
+            return _anon_denied(anon_id)
         _anon_bump(db, anon_id, ANON_COOKIE_WINDOW_HOURS)
         _anon_bump(db, ip_key, ANON_IP_WINDOW_HOURS)
         db.commit()
@@ -2352,6 +2380,14 @@ async def payment_webhook(request: Request):
     if not (out_sum and inv_id and received_signature):
         return PlainTextResponse("bad request", status_code=400)
 
+    # Без Password#2 подпись ниже считается от пустой строки, то есть её может
+    # собрать кто угодно: единственное доказательство подлинности уведомления
+    # исчезает. Ненастроенная Робокасса обязана отклонять вебхуки, а не
+    # проверять их несуществующим ключом (создание платежа так себя и ведёт).
+    if not ROBOKASSA_PASSWORD2:
+        log.error("pay/webhook: ROBOKASSA_PASSWORD2 не задан — уведомление отклонено")
+        return PlainTextResponse("not configured", status_code=503)
+
     # Подпись Робокассы (Password#2) — единственное, что доказывает, что
     # запрос реально пришёл от Робокассы, а не подделан снаружи.
     expected_signature = _robokassa_signature(out_sum, inv_id, ROBOKASSA_PASSWORD2)
@@ -2523,9 +2559,22 @@ async def promo_activate(body: PromoActivateReq, request: Request):
         elif kind == "gen_pack":
             db.execute("UPDATE users SET paid_left=paid_left+? WHERE id=?", (value, user["id"]))
             msg = f"+{value} генераций"
-        else:  # unlimited
+        elif kind == "unlimited":
             db.execute("UPDATE users SET is_pro=1, pro_expires_at='2099-12-31 00:00:00' WHERE id=?", (user["id"],))
             msg = "Безлимит активирован"
+        else:
+            # Раньше на этом месте стоял `else: # unlimited` — то есть любой
+            # kind, кроме двух известных, означал вечный Pro. Новые коды такой
+            # вид не получат (CHECK в схеме плюс проверка в PromoCreateReq), но
+            # на базе, созданной до появления CHECK, он мог туда попасть — и
+            # раздавал бы безлимит бесплатно. Активацию откатываем, чтобы
+            # непонятный код не сгорел впустую.
+            log.error("promo/activate: неизвестный kind=%r (код %s) — активация отменена",
+                      kind, code[:4])
+            db.execute("UPDATE promo_codes SET used_count = used_count - 1 WHERE code = ?", (code,))
+            db.execute("DELETE FROM promo_activations WHERE code=? AND user_id=?", (code, user["id"]))
+            db.commit()
+            raise HTTPException(400, "Код недействителен")
 
         log_event(db, "promo_activate", user_id=user["id"], code_prefix=code[:4])
         db.commit()
