@@ -450,6 +450,41 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+class OAuthEmailTaken(Exception):
+    """Провайдер принёс email, на котором уже заведён аккаунт, а сессии нет.
+
+    Не ошибка провайдера и не сбой: это ровно та развилка, где раньше молча
+    отдавался чужой аккаунт. Колбэки переводят её в понятный отказ со ссылкой
+    на подключение провайдера в настройках.
+    """
+
+    def __init__(self, provider: str):
+        super().__init__(provider)
+        self.provider = provider
+
+
+@app.exception_handler(OAuthEmailTaken)
+async def oauth_email_taken_handler(request: Request, exc: OAuthEmailTaken):
+    """Отказ вместо молчаливой выдачи чужого аккаунта.
+
+    Обработчик, а не try/except в каждом из трёх колбэков: развилка у них
+    общая, а сами они и так дословные копии друг друга (см. задачу про их
+    объединение) — три одинаковых перехвата пришлось бы потом сводить вместе.
+    Исключение вылетает изнутри `with get_db()`, то есть транзакция
+    откатывается сама и недописанной привязки не остаётся.
+    """
+    log.warning("auth/%s: адрес уже занят, нужен вход своим способом", exc.provider)
+    return RedirectResponse(url=f"/new?auth_link_required={exc.provider}", status_code=303)
+
+
+def _user_by_email(db, email: str) -> Optional[dict]:
+    """Аккаунт по адресу или None. Регистр не важен: users.email COLLATE NOCASE."""
+    row = db.execute(
+        "SELECT * FROM users WHERE email=?", (_normalize_email(email),)
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def _upsert_user_by_email(db, email: str) -> dict:
     email = _normalize_email(email)
     db.execute(
@@ -472,10 +507,21 @@ def _resolve_oauth_user(db, request: Request, provider: str, provider_uid: str, 
     обычный вход, а осознанное подключение способа входа к текущему аккаунту
     (человек уже залогинен и всё равно нажал «Войти с …»): новая привязка
     уходит на пользователя сессии, а не на того, что нашёлся или завёлся бы
-    по email. Без сессии — обычный вход/регистрация по email, как раньше.
+    по email.
+
+    Без сессии заводим НОВЫЙ аккаунт, но только если адреса ещё нет в базе.
+    Раньше здесь был подхват существующего аккаунта по email провайдера, и это
+    означало доверие к чужому справочнику: провайдер, отдающий адрес, который
+    его владелец не подтверждал, отдавал вместе с ним и чужой аккаунт со всеми
+    резюме и оплаченным Pro. Подтверждение адреса — не то, что можно взять на
+    слово у третьей стороны, поэтому совпадение email теперь требует доказать
+    владение аккаунтом: войти своим способом и подключить провайдера в
+    /settings (там уже есть кнопки «Подключить»). Это единственный путь, на
+    котором обе стороны проверены.
 
     Возвращает (user, linked): linked=True — это была привязка к сессии, а
     не вход, дальше решает редирект (в /settings, а не в /new).
+    Бросает OAuthEmailTaken, если адрес занят, а сессии нет.
     """
     provider_uid = str(provider_uid)
     row = db.execute(
@@ -493,6 +539,8 @@ def _resolve_oauth_user(db, request: Request, provider: str, provider_uid: str, 
     ).fetchone() if sid else None
 
     linked = session_row is not None
+    if not linked and _user_by_email(db, email):
+        raise OAuthEmailTaken(provider)
     user = dict(session_row) if session_row else _upsert_user_by_email(db, email)
     db.execute(
         "INSERT INTO oauth_identities (provider, provider_uid, user_id, email_at_link) VALUES (?,?,?,?)",

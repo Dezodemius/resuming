@@ -466,6 +466,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     appError('auth', `вход через ${provider} не удался`);
     toast(`Не удалось войти через ${provider}. Попробуйте другой способ.`, 'err');
   }
+  if (p.get('auth_link_required')) {
+    // Провайдер отдал адрес, на котором уже есть аккаунт, а посетитель не
+    // залогинен. Подхватывать чужой аккаунт по слову провайдера нельзя, но и
+    // упираться в глухое «не удалось» незачем: путь есть, и он в одном шаге.
+    const provider = {yandex: 'Яндекс', vk: 'VK', mailru: 'Mail.ru'}[p.get('auth_link_required')] || 'соцсеть';
+    history.replaceState({}, '', '/new');
+    openAuthModal('С этой почтой уже есть аккаунт. Войдите по письму, а потом подключите ' + provider + ' в настройках.');
+  }
   if (p.get('auth_required')) {
     history.replaceState({}, '', '/new');
     openAuthModal('Войдите, чтобы открыть «Мои резюме»');
