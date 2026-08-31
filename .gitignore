@@ -30,6 +30,10 @@ mutants/
 # Отчёты тестов (junit-xml из behave и pytest в CI)
 reports/
 
+# Мусор от браузерных прогонов (/smoke-prod): дампы страниц и консоли прода.
+# Репозиторий публичный — такие выгрузки в нём не нужны ни на минуту.
+.playwright-mcp/
+
 # OS
 .DS_Store
 Thumbs.db

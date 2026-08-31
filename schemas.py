@@ -34,6 +34,17 @@ _COMMENT_MAX  = 500
 _DATE_MAX     = 64
 _EVENT_MAX    = 50
 _STATUS_MAX   = 20
+# Промокод: дней Pro либо генераций в пачке (PromoCreateReq), и число
+# активаций. Потолок — защита от опечатки в админке: 10 лет Pro (столько же
+# генераций в пачке) и 100 000 активаций перекрывают любую акцию.
+_PROMO_VALUE_MAX = 3650
+_PROMO_USES_MAX  = 100_000
+# Дней Pro / генераций в пачке, которые дев-стенд выдаёт себе сам (DevGrantReq).
+# Верхняя граница здесь только от опечатки в служебной форме.
+_DEV_VALUE_MAX = 10_000
+
+# Виды промокодов, которые умеет выдавать админка и разбирать активация.
+PROMO_KINDS = frozenset({"pro_days", "gen_pack", "unlimited"})
 
 # Анонимный inline-профиль (AnonymousPreviewReq.profile) типизированной
 # модели не имеет — см. её докстринг. Единственный способ ограничить размер —
@@ -164,9 +175,44 @@ class PromoActivateReq(BaseModel):
     code: str = Field(..., max_length=_CODE_MAX)
 
 
+class DevLoginReq(EmailReq):
+    """Вход на дев-стенде: аккаунт заводится по почте, как при magic-ссылке,
+    только без самой ссылки. Отдельный класс, а не EmailReq на месте вызова, —
+    чтобы служебная ручка не выглядела в коде как обычная почтовая форма."""
+
+
+class DevGrantReq(BaseModel):
+    """Что выдать текущему аккаунту на дев-стенде.
+
+    Набор значений plan проверяет main.py — так же, как kind у промокода:
+    перечень живёт рядом с обработкой, а не в двух местах сразу.
+    """
+    plan:  str = Field(..., max_length=_KIND_MAX)
+    # Дней Pro либо генераций в пачке; None — значение по умолчанию из config.
+    value: Optional[int] = Field(None, ge=0, le=_DEV_VALUE_MAX)
+
+
 class PromoCreateReq(BaseModel):
+    # value и max_uses раньше были голыми int. Отрицательный gen_pack уводил
+    # paid_left в минус (а `free_left + paid_left` в _deduct — вместе с ним:
+    # аккаунт переставал генерировать вовсе), а pro_days с числом больше
+    # ~999999999 ронял активацию в OverflowError уже ПОСЛЕ того, как
+    # использование кода засчитано, — код сгорал впустую.
     kind:       str = Field(..., max_length=_KIND_MAX)  # "pro_days" | "gen_pack" | "unlimited"
-    value:      int
-    max_uses:   int
+    value:      int = Field(..., ge=0, le=_PROMO_VALUE_MAX)
+    max_uses:   int = Field(..., ge=1, le=_PROMO_USES_MAX)
     expires_at: Optional[str] = Field(None, max_length=_DATE_MAX)
     comment:    str = Field("", max_length=_COMMENT_MAX)
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        # Тот же список стоит CHECK-ограничением в схеме promo_codes, но
+        # ограничение ловит опечатку («pro_dyas») уже в sqlite — то есть
+        # необработанным IntegrityError и 500-й в ответ. Здесь она становится
+        # понятной 422 и не доходит до базы. Ограничение при этом остаётся
+        # вторым рубежом: на базе, созданной до его появления, CREATE TABLE
+        # IF NOT EXISTS его не добавит (см. CLAUDE.md про миграции).
+        if v not in PROMO_KINDS:
+            raise ValueError(f"kind должен быть одним из: {', '.join(sorted(PROMO_KINDS))}")
+        return v

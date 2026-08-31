@@ -5,6 +5,7 @@
 платежа Робокассы в вебхуке, срок жизни magic-ссылки.
 """
 import hashlib
+import json
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -149,6 +150,38 @@ def test_robokassa_signature_is_md5_of_colon_joined_parts():
 
 def test_robokassa_signature_order_matters():
     assert main._robokassa_signature("a", "b") != main._robokassa_signature("b", "a")
+# Receipt уходит в подпись Password #1 и в поле формы одной и той же строкой,
+# поэтому важен каждый параметр сериализации: сумма позиции, кодировка
+# кириллицы, разделители JSON и набор символов, которые quote() не трогает.
+# Через /api/pay это не проверить — там цена ровная и без спецсимволов.
+def test_robokassa_receipt_rounds_sum_to_kopecks():
+    """Сумма позиции — рубли с копейками. Округление до целого разошлось бы
+    с OutSum, а лишние знаки Робокасса не принимает."""
+    from urllib.parse import unquote
+
+    item = json.loads(unquote(main._robokassa_receipt("Pro", "399.567")))["items"][0]
+    assert item["sum"] == 399.57
+
+
+def test_robokassa_receipt_keeps_cyrillic_literal():
+    r"""ensure_ascii=False обязателен: с \uXXXX-экранированием чек становится
+    нечитаемым в кабинете, а строка подписи — другой."""
+    from urllib.parse import unquote
+
+    raw = unquote(main._robokassa_receipt("Доступ Pro", "399.00"))
+    assert "Доступ Pro" in raw
+    assert "\\u04" not in raw
+
+
+def test_robokassa_receipt_json_has_no_padding_spaces():
+    """Разделители без пробелов: сериализация «как получится» дала бы другую
+    строку под подписью при том же содержимом."""
+    from urllib.parse import unquote
+
+    raw = unquote(main._robokassa_receipt("Pro", "399.00"))
+    assert '", "' not in raw
+    assert '": "' not in raw
+    assert '"items":[{' in raw
 
 
 def test_strip_xml_ns_allows_lookup_by_local_name():
@@ -794,3 +827,109 @@ async def test_fetch_job_client_is_configured_defensively(monkeypatch):
     assert captured["follow_redirects"] is False
     assert captured["timeout"] == 15
     assert captured["headers"]["User-Agent"].startswith("Mozilla/")
+
+
+# ── Анонимное превью: ссылку качаем только тем, у кого остались попытки ──────
+# /api/fetch-job закрыт сессией, чтобы сервер не работал открытым загрузчиком
+# чужих страниц. Но ту же загрузку делает и публичная /api/generate-preview по
+# полю job_url — и делала её ДО проверки анонимного лимита. Значит исчерпавший
+# квоту (или сразу пришедший с исчерпанным адресом) всё равно гонял сервер по
+# любым URL: сколько угодно раз, только с оглядкой на @rate.
+def _preview_with_url(client, url="https://example.com/vacancy"):
+    return client.post(
+        "/api/generate-preview",
+        json={"kind": "match", "profile": {"name": "A"}, "job_url": url},
+        headers={"X-Real-IP": "203.0.113.77"},
+    )
+
+
+async def test_preview_does_not_fetch_url_when_anon_limit_spent(client, monkeypatch):
+    """Лимит исчерпан — до сети дело не доходит, ответ 429."""
+    main.init_db()
+
+    def handler(request):                      # pragma: no cover — не должен вызваться
+        raise AssertionError("загрузка вакансии не должна была уйти в сеть")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    monkeypatch.setattr(main, "ANON_IP_LIMIT", 0)
+
+    r = await _preview_with_url(client)
+    assert r.status_code == 429
+    # Форма отказа — часть контракта с фронтом: он показывает по ней окно
+    # «попытки закончились» и подставляет число из limit.
+    assert r.json() == {"error": "anon_limit", "limit": main.ANON_LIMIT}
+    assert "anon_id" in r.cookies
+
+
+async def test_preview_fetches_url_while_limit_remains(client, monkeypatch):
+    """Обратная сторона той же проверки: обычному анониму загрузка доступна."""
+    main.init_db()
+    seen = {"n": 0}
+
+    def handler(request):
+        seen["n"] += 1
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content="<p>Ищем QA-инженера в команду сопровождения продукта</p>".encode(),
+        )
+
+    async def fake_ai(prompt):
+        return '{"name":"x"}'
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
+    monkeypatch.setattr(main, "call_ai", fake_ai)
+
+    r = await _preview_with_url(client)
+    assert r.status_code == 200
+    assert seen["n"] == 1
+
+
+# ── Вебхук Робокассы без Password#2 ──────────────────────────────────────────
+async def test_webhook_rejected_when_password2_missing(client, monkeypatch):
+    """Пустой Password#2 — подпись считается от пустой строки и подделывается
+    кем угодно. Уведомление обязано отклоняться, а не проверяться таким ключом."""
+    main.init_db()
+    monkeypatch.setattr(main, "ROBOKASSA_PASSWORD2", "")
+    uid = _add_user("pay-noconf@test.com")
+    _add_payment(uid, "901")
+
+    def fail(*a, **k):                         # pragma: no cover — не должен вызваться
+        raise AssertionError("OpStateExt не должен вызываться")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", fail)
+    r = await client.post("/api/pay/webhook", data=_webhook_form("901", password2=""))
+
+    assert r.status_code == 503
+    assert not r.text.startswith("OK")
+    with main.get_db() as db:
+        assert db.execute("SELECT is_pro FROM users WHERE id=?", (uid,)).fetchone()["is_pro"] == 0
+
+
+# ── Magic-link: токен не попадает в лог боевого контура ──────────────────────
+async def test_magic_link_not_logged_on_prod(monkeypatch, caplog):
+    """Без SMTP на боевом контуре письма нет — но и токена в логе быть не должно.
+
+    app.log лежит на том же volume, что и БД: напечатанный токен — это готовый
+    ключ от чужого аккаунта в файле, который читают при разборе инцидентов.
+    """
+    monkeypatch.setattr(main, "SMTP_USER", "")
+    monkeypatch.setattr(main, "APP_URL", "https://xn--e1aedprev8fe.xn--p1ai")
+    with caplog.at_level("INFO"):
+        err = await main._send_magic_email("victim@test.com", "secret-token-value")
+
+    # Причина возвращается вызывающему — ручка ответит 500, а не «ok».
+    assert err == "SMTP не настроен"
+    assert "secret-token-value" not in caplog.text
+
+
+async def test_magic_link_printed_in_dev(monkeypatch, caplog):
+    """Локально и на стенде (APP_URL без https) ссылка по-прежнему в stdout —
+    иначе войти без SMTP нечем."""
+    monkeypatch.setattr(main, "SMTP_USER", "")
+    monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
+    with caplog.at_level("INFO"):
+        err = await main._send_magic_email("dev@test.com", "dev-token-value")
+
+    assert err is None
+    assert "dev-token-value" in caplog.text

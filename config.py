@@ -52,6 +52,78 @@ for _h in _log_handlers:
 logging.basicConfig(level=LOG_LEVEL, handlers=_log_handlers)
 log = logging.getLogger("resuming")
 
+
+# ── Чтение переменных окружения ─────────────────────────────────────────────
+# Настройка, которую нельзя ни задать, ни проверить, — хуже отсутствующей:
+# оператор считает, что выкрутил её, а поведение прежнее. Оба разбора ниже
+# существуют ради этого, поэтому оба шумят в лог, когда значение непонятно.
+
+_YES = {"1", "true", "yes", "on"}
+_NO = {"0", "false", "no", "off"}
+
+
+def flag(raw: str, default: bool, name: str) -> bool:
+    """Булева переменная окружения. Пусто — значение по умолчанию.
+
+    Раньше каждый флаг разбирался по-своему: DEV_MODE понимал `true`/`yes`/`on`,
+    RATE_LIMIT_ENABLED — обратный список `0/false/no/off`, а ROBOKASSA_TEST_MODE
+    и OAUTH_LOGIN_ENABLED сравнивались строго с `"1"`. Из-за этого
+    `ROBOKASSA_TEST_MODE=true` молча означало боевой режим и настоящие
+    списания, а `OAUTH_LOGIN_ENABLED=on` — скрытые кнопки входа при настроенных
+    ключах. Словарь «да» и «нет» теперь один на все флаги.
+
+    Значение вне обоих словарей — почти всегда опечатка. Падать из-за неё на
+    старте нельзя (приложение обслуживает не только эту настройку), молча
+    трактовать как «нет» — тоже: именно так теряются включённые, казалось бы,
+    режимы. Поэтому предупреждение и значение по умолчанию.
+
+    `name` обязателен: предупреждение без имени переменной не помогает найти
+    строку в .env, а искать её больше негде.
+    """
+    value = raw.strip().lower()
+    if not value:
+        return default
+    if value in _YES:
+        return True
+    if value in _NO:
+        return False
+    log.warning(
+        "%s=«%s» — не да и не нет, использую %s. Понятные значения: %s / %s",
+        name, raw, "1" if default else "0",
+        "/".join(sorted(_YES)), "/".join(sorted(_NO)),
+    )
+    return default
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    """flag() поверх os.getenv — чтобы имя переменной попадало в предупреждение."""
+    return flag(os.getenv(name, ""), default, name)
+
+
+def env_int(name: str, default: int) -> int:
+    """Целочисленная переменная окружения.
+
+    Голый `int(os.getenv(...))` на опечатке роняет импорт с
+    `invalid literal for int()` — в трассировке видно значение, но не имя
+    переменной, а их здесь десяток. Сообщение ниже называет переменную, чтобы
+    диагноз читался из первой строки лога контейнера.
+
+    Хвост после «#» отбрасывается: строки вида `AI_CONCURRENCY=2  # столько-то`
+    жили в .env.example, разошлись оттуда по рабочим .env, и не всякий
+    разборщик .env такой хвост отрезает. Для числа это заведомо комментарий, а
+    цена ошибки — контейнер, который не поднимается из-за подписи к значению.
+    """
+    raw = os.getenv(name, "").partition("#")[0]
+    if not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"{name}=«{raw}» — ожидалось целое число (по умолчанию {default})"
+        ) from None
+
+
 # ── Внешние сервисы ─────────────────────────────────────────────────────────
 OLLAMA_URL           = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL                = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
@@ -61,7 +133,7 @@ AI_API_KEY           = os.getenv("AI_API_KEY", "")
 ROBOKASSA_LOGIN      = os.getenv("ROBOKASSA_LOGIN", "")
 ROBOKASSA_PASSWORD1  = os.getenv("ROBOKASSA_PASSWORD1", "")
 ROBOKASSA_PASSWORD2  = os.getenv("ROBOKASSA_PASSWORD2", "")
-ROBOKASSA_TEST_MODE  = os.getenv("ROBOKASSA_TEST_MODE", "0") == "1"
+ROBOKASSA_TEST_MODE  = env_flag("ROBOKASSA_TEST_MODE")
 
 # Публичные реквизиты продавца. Они показываются в подвале и юридических
 # документах, поэтому держим один источник правды вместо копий по шаблонам.
@@ -96,7 +168,7 @@ APP_URL              = _idna_url(_raw_app_url)
 if APP_URL != _raw_app_url:
     log.info("APP_URL нормализован в punycode: %s -> %s", _raw_app_url, APP_URL)
 SMTP_HOST            = os.getenv("SMTP_HOST", "smtp.yandex.ru")
-SMTP_PORT            = int(os.getenv("SMTP_PORT", "465"))
+SMTP_PORT            = env_int("SMTP_PORT", 465)
 SMTP_USER            = os.getenv("SMTP_USER", "")
 SMTP_PASS            = os.getenv("SMTP_PASS", "")
 SMTP_FROM            = os.getenv("SMTP_FROM", SMTP_USER)
@@ -108,7 +180,7 @@ MAILRU_CLIENT_SECRET = os.getenv("MAILRU_CLIENT_SECRET", "")
 # Общий рубильник кнопок входа через Яндекс/VK/Mail.ru — по умолчанию выключены
 # (нестабильны, требуют присмотра). Client ID/secret можно оставить настроенными
 # и включить кнопки без смены конфигурации провайдера: OAUTH_LOGIN_ENABLED=1.
-OAUTH_LOGIN_ENABLED  = os.getenv("OAUTH_LOGIN_ENABLED", "0") == "1"
+OAUTH_LOGIN_ENABLED  = env_flag("OAUTH_LOGIN_ENABLED")
 # ── Какие способы входа реально включены ────────────────────────────────────
 # Считаем это здесь, в одном месте, а не тремя одинаковыми выражениями в main:
 # кнопка в шаблоне и проверка в самой ручке обязаны решать одинаково, иначе
@@ -209,7 +281,7 @@ ANON_LIMIT_CONST = 2
 # новый anon_id с нулём попыток. Порог заметно выше «домашнего», чтобы
 # несколько человек за одним NAT не блокировали друг друга; при злоупотреблении
 # ужимается переменной окружения без выкатки кода.
-ANON_IP_LIMIT_CONST = int(os.getenv("ANON_IP_LIMIT", "10"))
+ANON_IP_LIMIT_CONST = env_int("ANON_IP_LIMIT", 10)
 ANON_IP_WINDOW_HOURS = 24
 # Окно счётчика по cookie равно сроку жизни самой cookie.
 ANON_COOKIE_WINDOW_HOURS = 7 * 24
@@ -225,17 +297,23 @@ PACK_PRICE       = PRO_PRICE
 # установок не меняется молча. После восстановления базы владелец обязан
 # вручную поднять оффсет выше максимального номера, реально использованного
 # в кабинете Робокассы (сам факт восстановления оффсет не поднимает).
-INV_ID_OFFSET    = int(os.getenv("INV_ID_OFFSET", "0"))
+INV_ID_OFFSET    = env_int("INV_ID_OFFSET", 0)
 SESSION_DAYS     = 30
 MAGIC_MINUTES    = 15
-AI_CONCURRENCY   = 2   # max одновременных вызовов Ollama
+# Max одновременных вызовов Ollama. Переменная окружения читается по-честному:
+# до этого константа была зашита числом, хотя AI_CONCURRENCY значилась
+# настройкой и в CLAUDE.md, и в обоих .env.example — включая
+# deploy/.env.staging.example, где стенду выставлен AI_CONCURRENCY=1, чтобы
+# слабая машина не держала два запроса к модели разом. Стенд всё это время
+# работал на двух.
+AI_CONCURRENCY   = env_int("AI_CONCURRENCY", 2)
 # Потолок токенов ответа модели (top-level max_tokens, см. call_ai). Держит
 # счёт даже если промпт-инъекцией модель заставят генерировать что-то длинное
 # не по формату — при внешнем провайдере (DeepSeek) это ещё и реальные деньги.
 # 4096 — с запасом на длинное резюме (несколько мест работы, подробные
 # bullet-points), но по-прежнему на порядки меньше, чем ничем не
 # ограниченный ответ.
-AI_MAX_TOKENS    = int(os.getenv("AI_MAX_TOKENS", "4096"))
+AI_MAX_TOKENS    = env_int("AI_MAX_TOKENS", 4096)
 
 # Pro — не безлимит, а реальная квота: столько AI-генераций входит в тариф за
 # PRO_FAIR_USE_DAYS дней (продажная величина, показывается на /pricing, в
@@ -244,21 +322,21 @@ AI_MAX_TOKENS    = int(os.getenv("AI_MAX_TOKENS", "4096"))
 # заодно закрывает и старую задачу антиабьюза: без него скомпрометированный
 # или написанный ботом аккаунт мог бы жать AI_CONCURRENCY-слот до предельной
 # скорости лимитера. Настраивается без выкатки кода — см. .env.example.
-PRO_FAIR_USE_LIMIT = int(os.getenv("PRO_FAIR_USE_LIMIT", "100"))
-PRO_FAIR_USE_DAYS  = int(os.getenv("PRO_FAIR_USE_DAYS", "30"))
+PRO_FAIR_USE_LIMIT = env_int("PRO_FAIR_USE_LIMIT", 100)
+PRO_FAIR_USE_DAYS  = env_int("PRO_FAIR_USE_DAYS", 30)
 
 # ── Обслуживание БД ─────────────────────────────────────────────────────────
 # Протухшие сессии/токены и старые анонимные счётчики иначе растут бесконечно.
-CLEANUP_INTERVAL_SEC = int(os.getenv("CLEANUP_INTERVAL_SEC", "3600"))
-ANON_USAGE_TTL_DAYS  = int(os.getenv("ANON_USAGE_TTL_DAYS", "30"))
-EVENTS_TTL_DAYS      = int(os.getenv("EVENTS_TTL_DAYS", "180"))
+CLEANUP_INTERVAL_SEC = env_int("CLEANUP_INTERVAL_SEC", 3600)
+ANON_USAGE_TTL_DAYS  = env_int("ANON_USAGE_TTL_DAYS", 30)
+EVENTS_TTL_DAYS      = env_int("EVENTS_TTL_DAYS", 180)
 
 # ── Безопасность ────────────────────────────────────────────────────────────
 # Режим Content-Security-Policy: enforce | report | off.
 # `report` и `off` — аварийные вентили: если сторонний скрипт (Метрика,
 # html2pdf) начнёт блокироваться, прод чинится переменной
 # окружения, без выкатки кода.
-RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+RATE_LIMIT_ENABLED = env_flag("RATE_LIMIT_ENABLED", True)
 
 CSP_MODE = os.getenv("CSP_MODE", "enforce").strip().lower()
 if CSP_MODE not in {"enforce", "report", "off"}:
@@ -281,3 +359,38 @@ if not SECRET_KEY:
         )
     SECRET_KEY = "dev-insecure-" + os.urandom(16).hex()
     log.warning("SECRET_KEY не задан — сгенерирован временный ключ (только для разработки)")
+
+# ── Дев-режим ───────────────────────────────────────────────────────────────
+def _dev_mode_enabled(raw: str, is_prod: bool) -> bool:
+    """Открывать ли служебный контур дев-стенда — страницу /dev и /api/dev/*.
+
+    Это вход по любой почте без письма и выдача себе тарифа без оплаты, то есть
+    обход авторизации и биллинга целиком. Поэтому решений здесь два, а не одно:
+    переменная и характер самого контура. Боевой обязан игнорировать
+    переменную, даже если её принесёт случайно скопированный .env, — цена
+    ошибки «любой желающий заходит любым аккаунтом» несопоставима с удобством.
+
+    Признак боевого контура — https в APP_URL: дев-стенд ходит по localhost
+    через SSH-туннель и https у него не бывает. Падать на старте при этом
+    нельзя, опечатка в конфиге не должна ронять сайт, — гасим флаг и кричим.
+
+    Вынесено в функцию ради теста: проверять это глазами в логе — ровно тот
+    случай, когда однажды не посмотришь.
+    """
+    if not flag(raw, False, "DEV_MODE"):
+        return False
+    if is_prod:
+        log.critical(
+            "DEV_MODE=1 при боевом APP_URL (%s) — флаг проигнорирован, /dev и "
+            "/api/dev/* остаются выключенными. Уберите DEV_MODE из .env этого контура.",
+            APP_URL,
+        )
+        return False
+    log.warning(
+        "DEV_MODE включён: /dev и /api/dev/* пускают без пароля — "
+        "этот контур не должен смотреть наружу"
+    )
+    return True
+
+
+DEV_MODE = _dev_mode_enabled(os.getenv("DEV_MODE", "0"), _IS_PROD)
