@@ -652,3 +652,28 @@ def test_fresh_db_api_tokens_has_expiry_column(db):
     """Новая база создаётся сразу с итоговой схемой — колонка есть без миграции."""
     columns = {row["name"] for row in db.execute("PRAGMA table_info(api_tokens)").fetchall()}
     assert "expires_at" in columns
+
+
+def test_init_db_on_pre_migration_6_base_starts(tmp_path, monkeypatch):
+    """init_db() на рабочей базе не должен падать на индексе будущей колонки.
+
+    Регрессия прода: индексы создавались тем же скриптом, что и таблицы, то
+    есть ДО миграций, и `idx_api_tokens_expires` обращался к `expires_at`,
+    которую добавляет только шаг 6. На свежей базе колонка есть сразу, поэтому
+    все тесты шагов (они зовут migrate() напрямую) проходили, а приложение на
+    проде не стартовало вовсе: `no such column: expires_at` в lifespan.
+    """
+    conn = _pre_migration_6_db(tmp_path, monkeypatch)
+    conn.close()
+
+    db_module.init_db()
+
+    conn = db_module.connect()
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(api_tokens)").fetchall()}
+    assert "expires_at" in columns
+    indexes = {row["name"] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index'"
+    ).fetchall()}
+    assert "idx_api_tokens_expires" in indexes
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+    conn.close()
