@@ -39,6 +39,19 @@ def after_scenario(context, scenario) -> None:
     if client is not None:
         context.run(client.aclose())
 
+    # Шаги сценариев злоупотребления подменяют глобалы main (заглушка модели,
+    # анонимный предел). БД у прогона одна на все сценарии, поэтому подмену
+    # снимаем здесь: иначе следующий сценарий получал бы чужой предел и
+    # «модель», о которых в его тексте ничего не сказано.
+    import main
+
+    if getattr(context, "real_call_ai", None) is not None:
+        main.call_ai = context.real_call_ai
+        context.real_call_ai = None
+    if getattr(context, "real_anon_ip_limit", None) is not None:
+        main.ANON_IP_LIMIT = context.real_anon_ip_limit
+        context.real_anon_ip_limit = None
+
 
 def after_all(context) -> None:
     context.loop.close()

@@ -18,7 +18,7 @@ import db as db_module
 
 _EXPECTED_COLUMNS = {
     "anon_usage": ["anon_id", "created", "uses"],
-    "api_tokens": ["created_at", "token", "user_id"],
+    "api_tokens": ["created_at", "expires_at", "token", "user_id"],
     "magic_tokens": ["created", "email", "expires_at", "token", "used"],
     "oauth_identities": ["created", "email_at_link", "provider", "provider_uid", "user_id"],
     "payments": ["amount", "created", "id", "idem_key", "pay_id", "product", "status", "user_id"],
@@ -30,12 +30,13 @@ _EXPECTED_COLUMNS = {
                 "resume_data", "status", "updated", "user_id"],
     "sessions": ["created", "expires_at", "id", "user_id"],
     "usage_events": ["anon_id", "created", "event", "id", "meta", "user_id"],
-    "users": ["created", "display_name", "email", "free_left", "id", "is_pro",
-              "paid_left", "pro_expires_at"],
+    "users": ["ai_consent_at", "ai_consent_rev", "created", "display_name", "email",
+              "free_left", "id", "is_pro", "paid_left", "pro_expires_at"],
 }
 
 _EXPECTED_INDEXES = [
     "idx_anon_created",
+    "idx_api_tokens_expires",
     "idx_api_tokens_user_id",
     "idx_events_created",
     "idx_events_event_created",
@@ -43,6 +44,7 @@ _EXPECTED_INDEXES = [
     "idx_magic_expires",
     "idx_oauth_identities_user",
     "idx_payments_pay_id",
+    "idx_payments_status_created",
     "idx_payments_user_id",
     "idx_resumes_user_id",
     "idx_sessions_expires",

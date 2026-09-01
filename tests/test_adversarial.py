@@ -11,6 +11,7 @@ import json
 
 import pytest
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
 
 import main
 from main import _as_resume_dict, _fail_stuck_generations, _parse_ai, _same_amount
@@ -73,6 +74,15 @@ async def _login(client, email):
         db.commit()
     await client.get(f"/auth/email/verify?token=tok-{email}", follow_redirects=False)
     with main.get_db() as db:
+        # Согласие на передачу данных AI-провайдеру живой пользователь
+        # подтверждает в модалке перед первой генерацией. Тесты ниже проверяют
+        # не его, а поведение самой генерации, поэтому ставим отметку сразу —
+        # иначе каждый из них упирался бы в 403 consent_required.
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
+            (main.AI_CONSENT_REV, email),
+        )
+        db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
 
 
@@ -299,8 +309,9 @@ def test_fail_stuck_generations_marks_only_generating(db):
 # целиком, работая через MCP вместо сайта, и статистика его не видела.
 
 async def test_mcp_adapt_resume_counts_toward_pro_quota(db, monkeypatch):
-    db.execute("INSERT INTO users (email, is_pro, pro_expires_at)"
-               " VALUES ('mcp-quota@test.com', 1, datetime('now','+30 days'))")
+    db.execute("INSERT INTO users (email, is_pro, pro_expires_at, ai_consent_at, ai_consent_rev)"
+               " VALUES ('mcp-quota@test.com', 1, datetime('now','+30 days'), datetime('now'), ?)",
+               (main.AI_CONSENT_REV,))
     uid = db.execute("SELECT id FROM users WHERE email='mcp-quota@test.com'").fetchone()["id"]
     db.execute("INSERT INTO profiles (user_id, data) VALUES (?,?)",
                (uid, json.dumps({"name": "Тест", "skills": "Python"}, ensure_ascii=False)))
@@ -309,7 +320,8 @@ async def test_mcp_adapt_resume_counts_toward_pro_quota(db, monkeypatch):
     async def fake_call_ai(_prompt):
         return json.dumps({"name": "Тест", "target_role": "Developer"})
 
-    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: {"id": uid})
+    monkeypatch.setattr(main, "_mcp_user", lambda _ctx: dict(
+        db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
     monkeypatch.setattr(main, "call_ai", fake_call_ai)
     monkeypatch.setattr(main, "PRO_FAIR_USE_LIMIT", 1)
 
@@ -356,3 +368,79 @@ async def test_resumes_are_ordered_by_real_update_time(client):
     ids = [r["id"] for r in (await client.get("/api/resumes")).json()["resumes"]]
     assert ids[0] == old, f"ожидали сверху только что обновлённое {old}, получили {ids}"
     assert fresh_id in ids
+
+
+# ── Анонимная попытка не должна сгорать на неожиданной ошибке ────────────────
+# generate_preview возвращал списание только на HTTPException, тогда как
+# остальные ручки генерации ловят Exception. Любой сбой, не обёрнутый в
+# HTTPException (обрыв соединения, ошибка драйвера), съедал попытку.
+
+async def test_preview_refunds_attempt_on_unexpected_ai_error(client, monkeypatch):
+    main.init_db()
+
+    async def boom(_prompt):
+        raise RuntimeError("сеть отвалилась")
+
+    monkeypatch.setattr(main, "call_ai", boom)
+    transport = ASGITransport(app=main.app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.post(
+            "/api/generate-preview",
+            json={"kind": "general", "profile": {"name": "A"}, "target_role": "QA",
+                  "consent": True},
+        )
+    assert r.status_code == 500
+
+    with main.get_db() as db:
+        used = db.execute("SELECT COALESCE(SUM(uses),0) s FROM anon_usage").fetchone()["s"]
+    assert used == 0, "попытка должна вернуться: виноват не посетитель"
+
+
+# ── Предел размера пользовательского JSON ───────────────────────────────────
+# Тело запроса ничем не ограничено: мегабайтное резюме легло бы в базу, а
+# потом приезжало бы в каждом списке и в каждом промпте к модели.
+
+async def test_save_resume_json_rejects_oversized_payload(client):
+    await _login(client, "huge-resume@test.com")
+    payload = {"target_role": "Dev", "about": "я" * (main.RESUME_JSON_MAX + 1)}
+
+    r = await client.post("/api/resumes/save", json={"resume_data": payload})
+
+    assert r.status_code == 413
+    with main.get_db() as db:
+        assert db.execute("SELECT COUNT(*) FROM resumes").fetchone()[0] == 0
+
+
+async def test_profile_rejects_oversized_payload(client):
+    """У профиля свои пределы полей в схеме (422), у резюме их нет — там
+    держит _json_for_db (413). Важно, что мегабайт не ложится в базу ни там,
+    ни там; конкретный код отказа зависит от того, кто отказал первым."""
+    await _login(client, "huge-profile@test.com")
+
+    r = await client.post("/api/profile", json={"name": "A", "about": "я" * main.RESUME_JSON_MAX})
+
+    assert r.status_code in (413, 422), r.status_code
+    with main.get_db() as db:
+        assert db.execute("SELECT COUNT(*) FROM profiles").fetchone()[0] == 0
+
+
+async def test_save_resume_json_accepts_ordinary_payload(client):
+    """Предел не должен мешать длинному, но живому резюме."""
+    await _login(client, "long-resume@test.com")
+    payload = {"target_role": "Dev", "about": "опыт " * 2000}
+
+    r = await client.post("/api/resumes/save", json={"resume_data": payload})
+
+    assert r.status_code == 200
+
+
+def test_json_for_db_accepts_payload_exactly_at_the_limit():
+    """Предел — «больше нельзя», а не «столько нельзя»: ровно RESUME_JSON_MAX
+    байт должно проходить, иначе граница молча съезжает на байт."""
+    filler = main.RESUME_JSON_MAX - len(json.dumps({"a": ""}, ensure_ascii=False))
+    exact = {"a": "x" * filler}
+    assert len(main._json_for_db(exact).encode("utf-8")) == main.RESUME_JSON_MAX
+
+    with pytest.raises(HTTPException) as exc:
+        main._json_for_db({"a": "x" * (filler + 1)})
+    assert exc.value.status_code == 413

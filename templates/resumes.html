@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260830">
+<link rel="stylesheet" href="/static/app.css?v=20260831">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
@@ -346,7 +346,7 @@ function boardView(){
   return `<div class="board">${STATUS_ORDER.map(k => {
     const st = STATUS[k];
     const col = items.filter(v => v.status === k);
-    return `<div class="col">
+    return `<div class="col" data-status="${k}">
       <div class="col__head">
         <span class="col__dot" style="--st:${st.c};--st-bg:${st.bg}"></span>
         <span class="col__label">${st.label}</span>
@@ -362,7 +362,11 @@ function bcard(v){
   const foot = (v.salary || v.location)
     ? `<div class="bcard__foot"><span class="bcard__salary">${esc(v.salary || '')}</span><span class="bcard__loc">${esc(v.location || '')}</span></div>` : '';
   const pending = generationClass(v, 'bcard');
-  return `<button class="bcard${pending}" onclick="openResume(${v.id})">
+  // Пока резюме генерится или упало, статуса у него по сути нет — тащить нечего.
+  const drag = v.generation_status ? '' :
+    ` onpointerdown="cardDown(event, ${v.id})" onpointermove="cardMove(event)"` +
+    ` onpointerup="cardUp(event)" onpointercancel="cardCancel(event)"`;
+  return `<button class="bcard${pending}" onclick="openResume(${v.id})"${drag}>
     <div class="bcard__top">
       <div class="avatar-co" style="--co:${coColor(v.company_name)}">${esc(coInitial(v.company_name))}</div>
       <span class="bcard__co">${esc(v.company_name || 'Без компании')}</span>
@@ -373,6 +377,122 @@ function bcard(v){
     ${foot}
   </button>`;
 }
+
+// ── Board: перетаскивание карточек между колонками ───────────────────────
+// Колонки доски — это статусы, поэтому перенос карточки = смена статуса.
+// Сделано на pointer events, а не на HTML5 drag-and-drop: у нативного DnD
+// капризное поведение на <button> и он полностью мимо тачскрина, а карточка —
+// это button (по ней ещё и кликают, чтобы открыть резюме).
+let drag = null;          // { id, el, ghost, x0, y0, pointerId, active }
+let suppressClick = false; // отделяет «перетащил» от «кликнул»
+
+const DRAG_THRESHOLD = 6;  // px — ниже этого считаем, что человек просто кликнул
+
+function cardDown(e, id) {
+  if (e.button) return;                       // только основная кнопка мыши
+  // После переноса карточка успевает перерисоваться, и «съедать» уже нечего —
+  // сбрасываем флаг на следующем касании, иначе он проглотит честный клик.
+  suppressClick = false;
+  drag = { id, el: e.currentTarget, pointerId: e.pointerId,
+           x0: e.clientX, y0: e.clientY, active: false, ghost: null };
+  // Захват пойнтера: дальше pointermove/up прилетают на карточку, даже если
+  // курсор ушёл на соседнюю колонку.
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+}
+
+function cardMove(e) {
+  if (!drag || drag.el !== e.currentTarget) return;
+  if (!drag.active) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < DRAG_THRESHOLD) return;
+    startDrag();
+  }
+  e.preventDefault();
+  positionGhost(e.clientX, e.clientY);
+  highlightColumn(columnAt(e.clientX, e.clientY));
+}
+
+function cardUp(e) {
+  if (!drag || drag.el !== e.currentTarget) return;
+  const d = drag;
+  const col = d.active ? columnAt(e.clientX, e.clientY) : null;
+  endDrag();
+  if (!d.active) return;                      // это был клик — откроется резюме
+  suppressClick = true;                       // а вот клик после переноса гасим
+  if (col && col.dataset.status) moveResume(d.id, col.dataset.status);
+}
+
+function cardCancel(e) {
+  if (!drag || drag.el !== e.currentTarget) return;
+  endDrag();
+}
+
+function startDrag() {
+  drag.active = true;
+  const r = drag.el.getBoundingClientRect();
+  drag.dx = drag.x0 - r.left;
+  drag.dy = drag.y0 - r.top;
+  const ghost = drag.el.cloneNode(true);
+  ghost.className = drag.el.className + ' bcard--ghost';
+  ghost.style.width = r.width + 'px';
+  document.body.appendChild(ghost);
+  drag.ghost = ghost;
+  drag.el.classList.add('bcard--dragging');
+  document.body.classList.add('is-dragging');
+  positionGhost(drag.x0, drag.y0);
+}
+
+function endDrag() {
+  if (drag.ghost) drag.ghost.remove();
+  drag.el.classList.remove('bcard--dragging');
+  try { drag.el.releasePointerCapture(drag.pointerId); } catch (_) {}
+  document.body.classList.remove('is-dragging');
+  highlightColumn(null);
+  drag = null;
+}
+
+function positionGhost(x, y) {
+  if (!drag.ghost) return;
+  drag.ghost.style.left = (x - drag.dx) + 'px';
+  drag.ghost.style.top  = (y - drag.dy) + 'px';
+}
+
+function columnAt(x, y) {
+  // Двойник карточки не должен перехватывать поиск — у него pointer-events:none.
+  return document.elementFromPoint(x, y)?.closest('.col') || null;
+}
+
+function highlightColumn(col) {
+  document.querySelectorAll('.col--over').forEach(c => {
+    if (c !== col) c.classList.remove('col--over');
+  });
+  if (col) col.classList.add('col--over');
+}
+
+async function moveResume(id, status) {
+  const r = resumes.find(x => x.id === id);
+  if (!r || r.status === status) return;
+  const prev = r.status;
+  r.status = status;                       // оптимистично: карточка едет сразу
+  renderStats(); renderChips(); renderContent();
+  try {
+    const res = await fetch(`/api/resumes/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      // Только статус: resume_data и company_name не трогаем, иначе перенос
+      // карточки переписывал бы содержимое резюме и его компанию.
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error('Ошибка сервера');
+    r.updated = new Date().toISOString();
+    renderContent();
+    toast(`Статус: ${STATUS[status].label}`, 'ok');
+  } catch (err) {
+    r.status = prev;
+    renderStats(); renderChips(); renderContent();
+    toast('Не удалось изменить статус: ' + err.message, 'err');
+  }
+}
+
 
 // ── Explorer ─────────────────────────────────────────────────────────────
 function explorerView(){
@@ -444,6 +564,9 @@ function noMatchHtml(){
   return `<div class="lib-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить поиск или фильтр.</p></div>`;
 }
 function openResume(id){
+  // После перетаскивания браузер всё равно шлёт click по карточке — иначе
+  // перенос карточки открывал бы редактор.
+  if (suppressClick) { suppressClick = false; return; }
   const r = resumes.find(x => x.id === id);
   if (r?.generation_status === 'generating') {
     toast('Резюме ещё генерируется. Можно продолжать работать с доской.', '');

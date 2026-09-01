@@ -149,6 +149,9 @@ def test_cleanup_removes_expired_and_keeps_live(db):
         INSERT INTO anon_usage (anon_id, uses, created)
              VALUES ('ancient', 2, datetime('now','-400 days')),
                     ('recent',  1, datetime('now','-1 day'));
+        INSERT INTO usage_events (event, created)
+             VALUES ('generate', datetime('now','-400 days')),
+                    ('generate', datetime('now','-1 day'));
     """)
     db.commit()
 
@@ -157,6 +160,12 @@ def test_cleanup_removes_expired_and_keeps_live(db):
     assert removed["sessions"] == 1
     assert removed["magic_tokens"] == 2
     assert removed["anon_usage"] == 1
+    # Счётчик по журналу событий проверяем так же, как остальные: он едет в
+    # логи уборки, и «ничего не удалено» там не должно быть неотличимо от
+    # «удалили и не посчитали».
+    assert removed["usage_events"] == 1
+    events = db.execute("SELECT COUNT(*) c FROM usage_events").fetchone()["c"]
+    assert events == 1
 
     alive = {r[0] for r in db.execute("SELECT id FROM sessions").fetchall()}
     assert alive == {"live"}
@@ -164,6 +173,42 @@ def test_cleanup_removes_expired_and_keeps_live(db):
     assert tokens == {"fresh"}
     anon = {r[0] for r in db.execute("SELECT anon_id FROM anon_usage").fetchall()}
     assert anon == {"recent"}
+
+
+def test_cleanup_removes_expired_api_tokens(db):
+    """Бессрочный MCP-токен отзывался только перевыпуском: брошенная
+    интеграция навсегда оставалась рабочим ключом к профилю и генерации."""
+    db.executescript("""
+        INSERT INTO api_tokens (token, user_id, expires_at)
+             VALUES ('stale', 1, datetime('now','-1 day')),
+                    ('live',  1, datetime('now','+30 days'));
+    """)
+    db.commit()
+
+    removed = main.cleanup_expired()
+
+    assert removed["api_tokens"] == 1
+    tokens = {r[0] for r in db.execute("SELECT token FROM api_tokens").fetchall()}
+    assert tokens == {"live"}
+
+
+def test_cleanup_removes_stale_pending_payments_but_keeps_history(db):
+    """Строка платежа заводится на каждый клик по кнопке оплаты. Мусор из
+    неоплаченных удаляем, финансовую историю — никогда."""
+    db.executescript("""
+        INSERT INTO payments (user_id, idem_key, status, created)
+             VALUES (1, 'abandoned', 'pending',  datetime('now','-3 days')),
+                    (1, 'just-now',  'pending',  datetime('now')),
+                    (1, 'paid-old',  'succeeded',datetime('now','-400 days')),
+                    (1, 'back-old',  'refunded', datetime('now','-400 days'));
+    """)
+    db.commit()
+
+    removed = main.cleanup_expired()
+
+    assert removed["payments"] == 1
+    keys = {r[0] for r in db.execute("SELECT idem_key FROM payments").fetchall()}
+    assert keys == {"just-now", "paid-old", "back-old"}
 
 
 def test_cleanup_keeps_recently_used_token(db):

@@ -157,6 +157,11 @@ class AnonymousPreviewReq(BaseModel):
     job_url:     str = Field("", max_length=_URL_MAX)
     target_role: str = Field("", max_length=_TARGET_MAX)
     hint:        str = Field("", max_length=_HINT_MAX)
+    # Согласие на передачу данных AI-провайдеру. Аккаунта, где его можно было
+    # бы хранить, у анонима нет, поэтому подтверждение едет в самом запросе.
+    # По умолчанию False: старый клиент из кеша браузера получит отказ, а не
+    # молча отправит данные наружу без подтверждения.
+    consent:     bool = False
 
     @field_validator("profile")
     @classmethod
@@ -172,6 +177,15 @@ class TrackReq(BaseModel):
 
 
 class PromoActivateReq(BaseModel):
+    code: str = Field(..., max_length=_CODE_MAX)
+
+
+class PromoDeactivateReq(BaseModel):
+    """Тело /api/admin/promo/deactivate.
+
+    Раньше ручка принимала голый dict и звала `body.get("code","").strip()` —
+    числовой `code` давал AttributeError и 500 вместо внятного 422.
+    """
     code: str = Field(..., max_length=_CODE_MAX)
 
 

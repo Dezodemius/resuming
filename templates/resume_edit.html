@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260830">
+<link rel="stylesheet" href="/static/app.css?v=20260831">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
@@ -275,6 +275,8 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
 
 {% include '_app_footer.html' %}
 
+{% include "_consent_modal.html" %}
+
 <!-- AI improvement sheet -->
 <div class="ed-ai-sheet" id="ai-sheet">
   <div class="ed-ai-backdrop" onclick="closeAI()"></div>
@@ -333,7 +335,9 @@ let isDirty = false;
 let aiTarget = null;    // { kind, expIdx }
 let _currentStatus = 'draft';
 let _matchScore = null;
-let _companyName = '';
+// Полное резюме, каким его отдал сервер. Нужно при сохранении: форма
+// покрывает не все поля (см. collectResume).
+let _loadedResume = {};
 
 // ── Boot ───────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
@@ -363,10 +367,10 @@ async function loadResume() {
 function fillForm(d) {
   const r = d.resume_data || {};
   const c = r.contact || {};
+  _loadedResume = r;
 
   // Header / breadcrumbs
   const company = d.company_name || '';
-  _companyName = company;
   const role    = r.target_role  || '';
   syncHeaderCompany(company, c.city || '');
   syncHeaderRole(role);
@@ -427,7 +431,17 @@ function pluralMest(n) {
 
 // ── Collect form → resume JSON ─────────────────────────────────────────
 function collectResume() {
+  // Форма редактора покрывает не всё резюме: ats_match, salary, location,
+  // ats_keywords приходят от модели и полей ввода не имеют. Их надо вернуть
+  // из загруженного резюме, иначе любое сохранение — включая смену статуса —
+  // стирало бы их, и карточка в библиотеке теряла ATS, зарплату и город.
+  // Маркеры генерации сюда не тянем: резюме уже готово и редактируется.
+  const kept = { ..._loadedResume };
+  delete kept.generation_status;
+  delete kept.generation_error;
+  delete kept.generation_company;
   return {
+    ...kept,
     name:        gv('f-name'),
     contact: {
       phone:    gv('f-phone'),
@@ -695,7 +709,10 @@ async function saveResume() {
     const res = await fetch(`/api/resumes/${RESUME_ID}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ resume_data, company_name: _companyName, status })
+      // company_name не шлём: в редакторе компанию не меняют, а лишнее поле в
+      // теле означало бы, что любой сбой загрузки карточки перепишет компанию
+      // и резюме уедет из своей группы в библиотеке.
+      body: JSON.stringify({ resume_data, status })
     });
     if (!res.ok) throw new Error('Ошибка сервера');
     isDirty = false;
@@ -859,6 +876,7 @@ async function aiImprove(kind) {
       body: JSON.stringify({ kind, text, context })
     });
     const d = await res.json();
+    if (await consentGate(res, d)) return;
     if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind };
     showAISheet(kind === 'summary' ? 'Профессиональный профиль' : 'Навыки', d.improved);
@@ -881,6 +899,7 @@ async function aiImproveBullets(expIdx) {
       body: JSON.stringify({ kind:'bullets', text, context:`${role} в ${company}` })
     });
     const d = await res.json();
+    if (await consentGate(res, d)) return;
     if (!res.ok) throw new Error(aiErrorText(res, d));
     aiTarget = { kind:'bullets', expIdx };
     showAISheet(`Достижения · ${role || 'опыт'}`, d.improved);
@@ -891,6 +910,13 @@ async function aiImproveBullets(expIdx) {
 // Улучшение текста списывает генерацию, как и обычная адаптация: на исчерпании
 // квоты бэкенд отвечает 402 {"error":"no_uses"} — без поля detail, поэтому
 // разбираем ответ отдельно, иначе пользователь видел «Ошибка AI: undefined».
+async function consentGate(res, body) {
+  if (!AiConsent.refused(res, body)) return false;
+  AiConsent.reset();
+  if (await AiConsent.ensure()) toast('Согласие сохранено — нажмите кнопку ещё раз', 'ok');
+  return true;
+}
+
 function aiErrorText(res, body) {
   if (res.status === 402 && body && body.error === 'no_uses') {
     return 'Закончились генерации — оформите Pro на странице тарифов';

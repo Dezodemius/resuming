@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260830">
+<link rel="stylesheet" href="/static/app.css?v=20260831">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
@@ -291,6 +291,7 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
         <div class="field"><label>Навыки (через запятую)</label><textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой…"></textarea></div>
         <div class="field"><label>Языки</label><input id="p-langs" value="Русский — родной"></div>
       </section>
+      <p style="font-size:11px;color:var(--text-3);line-height:1.55;margin:0 0 10px">Имя, контакты и опыт из профиля обрабатываются, чтобы собрать резюме, и для этого передаются AI-провайдеру DeepSeek на территории КНР. Цели обработки, сроки хранения и ваши права — в <a href="/privacy" target="_blank">политике конфиденциальности</a>.</p>
       <button class="btn-build" type="button" onclick="saveProfile()">Сохранить профиль</button>
     </div>
   </div>
@@ -384,6 +385,7 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
         <button onclick="requestMagicLink()" type="button">Войти</button>
       </div>
       <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;text-align:center">Без пароля — пришлём ссылку на почту</p>
+      <p style="font-size:10.5px;color:var(--text-3);line-height:1.5;margin:10px 0 0;text-align:center">Продолжая вход любым способом, вы принимаете <a href="/offer" target="_blank">публичную оферту</a> и даёте согласие на обработку персональных данных на условиях <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>
     </div>
     <div class="magic-sent" id="magic-sent">
       <div class="icon">📬</div>
@@ -391,6 +393,8 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
     </div>
   </div>
 </div>
+
+{% include "_consent_modal.html" %}
 
 <!-- ── Payment modal ── -->
 <div class="modal-wrap" id="modal-pay">
@@ -562,6 +566,16 @@ function updateStatusBar(t, pro) {
   document.getElementById('status-n').textContent = pro ? (PRO_FAIR_USE_LIMIT + ' / ' + PRO_FAIR_USE_DAYS + ' дн.') : t;
 }
 
+// ── Consent ───────────────────────────────────────────────────────
+// Модалка и её логика — общие (static/consent.js): согласие одно и то же на
+// генератор и редактор. Здесь только связка с генерацией.
+async function handleConsentRefusal() {
+  // Сервер отказал вопреки нашей отметке: другой браузер, сброшенная отметка
+  // или новая редакция текста. Забываем своё представление и спрашиваем заново.
+  AiConsent.reset();
+  if (await AiConsent.ensure()) toast('Согласие сохранено — нажмите кнопку ещё раз', 'ok');
+}
+
 // ── Auth modal ────────────────────────────────────────────────────
 function openAuthModal(sub) {
   document.getElementById('modal-auth').classList.add('on');
@@ -727,6 +741,7 @@ async function doMatch() {
   if (job.length < 30 && !jobUrl) {
     toast('Вставьте текст вакансии (минимум 30 символов) или ссылку на неё', 'err'); return;
   }
+  if (!await AiConsent.ensure()) return;
   appLog('match', 'старт', {текст: job.length + ' симв.', ссылка: jobUrl || '—', авторизован: !!currentUser});
 
   setLoader(true, jobUrl && job.length < 30 ? 'Загружаю вакансию по ссылке и адаптирую…' : 'Анализирую вакансию и подбираю опыт…');
@@ -741,6 +756,10 @@ async function doMatch() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ job_text:job, company:v('job-company'), job_url:v('job-url'), extra_hint:v('m-hint') })
       });
+      if (res.status === 403) {
+        setLoader(false); document.getElementById('btn-match').disabled=false;
+        await handleConsentRefusal(); return;
+      }
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
         const err = (await res.json()).error || 'no_uses';
@@ -760,7 +779,7 @@ async function doMatch() {
       // Анонимный → только генерируем, не сохраняем
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint') })
+        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint'), consent:true })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
@@ -785,6 +804,7 @@ async function doMatch() {
 // ── General ───────────────────────────────────────────────────────
 async function doGeneralResume() {
   if (!hasProfile) { toast('Сначала заполните профиль', 'err'); switchTab('profile'); return; }
+  if (!await AiConsent.ensure()) return;
   appLog('general', 'старт', {должность: v('g-role') || '—', авторизован: !!currentUser});
   setLoader(true, 'Создаю универсальное резюме…');
   document.getElementById('btn-general').disabled = true;
@@ -797,6 +817,10 @@ async function doGeneralResume() {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ target_role:v('g-role'), hint:v('g-hint') })
       });
+      if (res.status === 403) {
+        setLoader(false); document.getElementById('btn-general').disabled=false;
+        await handleConsentRefusal(); return;
+      }
       if (res.status === 402) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
         const err = (await res.json()).error || 'no_uses';
@@ -813,7 +837,7 @@ async function doGeneralResume() {
     } else {
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint') })
+        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint'), consent:true })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
