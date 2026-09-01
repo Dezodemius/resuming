@@ -180,6 +180,15 @@ class PromoActivateReq(BaseModel):
     code: str = Field(..., max_length=_CODE_MAX)
 
 
+class PromoDeactivateReq(BaseModel):
+    """Тело /api/admin/promo/deactivate.
+
+    Раньше ручка принимала голый dict и звала `body.get("code","").strip()` —
+    числовой `code` давал AttributeError и 500 вместо внятного 422.
+    """
+    code: str = Field(..., max_length=_CODE_MAX)
+
+
 class DevLoginReq(EmailReq):
     """Вход на дев-стенде: аккаунт заводится по почте, как при magic-ссылке,
     только без самой ссылки. Отдельный класс, а не EmailReq на месте вызова, —

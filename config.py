@@ -338,6 +338,13 @@ PRO_FAIR_USE_DAYS  = env_int("PRO_FAIR_USE_DAYS", 30)
 CLEANUP_INTERVAL_SEC = env_int("CLEANUP_INTERVAL_SEC", 3600)
 ANON_USAGE_TTL_DAYS  = env_int("ANON_USAGE_TTL_DAYS", 30)
 EVENTS_TTL_DAYS      = env_int("EVENTS_TTL_DAYS", 180)
+# Срок жизни MCP-токена. Бессрочный ключ отзывается только перевыпуском —
+# то есть у брошенной интеграции он остаётся рабочим навсегда.
+MCP_TOKEN_DAYS       = env_int("MCP_TOKEN_DAYS", 90)
+# Строка платежа заводится на каждый клик по кнопке оплаты, и неоплаченные
+# копятся мусором, занимая номера InvId. Оплаченные и возвращённые не трогаем
+# никогда — это финансовая история.
+PENDING_PAYMENT_TTL_HOURS = env_int("PENDING_PAYMENT_TTL_HOURS", 24)
 
 # ── Безопасность ────────────────────────────────────────────────────────────
 # Режим Content-Security-Policy: enforce | report | off.

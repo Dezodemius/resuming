@@ -302,7 +302,7 @@ def test_pick_survivor_ignores_account_without_expiry_date():
 
 
 def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
-    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2–5).
+    """База, уже прошедшая шаг 1, должна получить ровно недостающие шаги (2–6).
 
     Если условие версии съедет и шаг 1 выполнится повторно, он пересоберёт
     users по своему списку колонок и вернёт колонки Telegram обратно.
@@ -315,7 +315,7 @@ def test_migrate_applies_only_missing_steps(tmp_path, monkeypatch):
     conn.execute("PRAGMA user_version = 1")
     conn.commit()
 
-    assert db_module.migrate(conn) == 4, "должны примениться только шаги 2–5, не шаг 1 повторно"
+    assert db_module.migrate(conn) == 5, "должны примениться только шаги 2–6, не шаг 1 повторно"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     assert not (columns & {"telegram_id", "tg_name", "tg_photo"})
     assert db_module.migrate(conn) == 0, "повторный прогон ничего не делает"
@@ -360,7 +360,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
     )
     conn.commit()
 
-    assert db_module.migrate(conn) == 3, "должны примениться шаги 3, 4 и 5"
+    assert db_module.migrate(conn) == 4, "должны примениться шаги 3, 4, 5 и 6"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(payments)").fetchall()}
     assert {"amount", "product"} <= columns
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
@@ -376,7 +376,7 @@ def test_migration_3_adds_amount_and_product_columns(tmp_path, monkeypatch):
 
 def test_migration_3_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_3_db(tmp_path, monkeypatch)
-    assert db_module.migrate(conn) == 3
+    assert db_module.migrate(conn) == 4
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
 
@@ -448,7 +448,7 @@ def test_fresh_db_has_oauth_identities_table(db):
 def test_migration_4_creates_oauth_identities_table(tmp_path, monkeypatch):
     conn = _pre_migration_4_db(tmp_path, monkeypatch)
 
-    assert db_module.migrate(conn) == 2, "должны примениться шаги 4 и 5"
+    assert db_module.migrate(conn) == 3, "должны примениться шаги 4, 5 и 6"
     tables = {row["name"] for row in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()}
@@ -479,7 +479,7 @@ def test_migration_4_table_enforces_one_user_per_provider_identity(tmp_path, mon
 
 def test_migration_4_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_4_db(tmp_path, monkeypatch)
-    assert db_module.migrate(conn) == 2
+    assert db_module.migrate(conn) == 3
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
 
@@ -520,7 +520,7 @@ def test_migration_5_adds_consent_columns(tmp_path, monkeypatch):
     conn.execute("INSERT INTO users (id, email) VALUES (1, 'ivan@ya.ru')")
     conn.commit()
 
-    assert db_module.migrate(conn) == 1, "должен примениться только шаг 5"
+    assert db_module.migrate(conn) == 2, "должны примениться шаги 5 и 6"
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
     assert {"ai_consent_at", "ai_consent_rev"} <= columns
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
@@ -535,7 +535,7 @@ def test_migration_5_adds_consent_columns(tmp_path, monkeypatch):
 
 def test_migration_5_is_idempotent(tmp_path, monkeypatch):
     conn = _pre_migration_5_db(tmp_path, monkeypatch)
-    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == 2
     assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
     conn.close()
 
@@ -557,3 +557,98 @@ def test_fresh_db_users_has_consent_columns(db):
     """Новая база создаётся сразу с итоговой схемой — колонки есть без миграции."""
     columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
     assert {"ai_consent_at", "ai_consent_rev"} <= columns
+
+
+# ── Шаг 6: срок жизни MCP-токена ─────────────────────────────────────────────
+_PRE_6_API_TOKENS = """
+    CREATE TABLE api_tokens (
+        token      TEXT PRIMARY KEY,
+        user_id    INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+    );
+"""
+
+
+def _pre_migration_6_db(tmp_path, monkeypatch):
+    """База на SCHEMA_VERSION=5: api_tokens ещё без срока жизни."""
+    import config
+
+    path = str(tmp_path / "pre-migration-6.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    main.init_db()
+    conn = db_module.connect()
+    conn.executescript("DROP TABLE api_tokens;" + _PRE_6_API_TOKENS + "PRAGMA user_version = 5;")
+    conn.commit()
+    return conn
+
+
+def test_migration_6_adds_expiry_and_backfills_from_created_at(tmp_path, monkeypatch):
+    conn = _pre_migration_6_db(tmp_path, monkeypatch)
+    # Токен, выданный давно: 90 дней от его даты выдачи уже прошли, значит
+    # первая же уборка обязана его убрать — ради этого шаг и делается.
+    conn.execute("INSERT INTO api_tokens (token, user_id, created_at)"
+                 " VALUES ('old', 1, datetime('now','-200 days'))")
+    conn.execute("INSERT INTO api_tokens (token, user_id, created_at)"
+                 " VALUES ('recent', 1, datetime('now','-1 day'))")
+    conn.commit()
+
+    assert db_module.migrate(conn) == 1, "должен примениться только шаг 6"
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(api_tokens)").fetchall()}
+    assert "expires_at" in columns
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_module.SCHEMA_VERSION
+
+    expired = conn.execute(
+        "SELECT COUNT(*) c FROM api_tokens WHERE expires_at < datetime('now')"
+    ).fetchone()["c"]
+    assert expired == 1, "просрочен должен быть ровно старый токен"
+    alive = conn.execute(
+        "SELECT token FROM api_tokens WHERE expires_at > datetime('now')"
+    ).fetchone()["token"]
+    assert alive == "recent"
+    conn.close()
+
+
+def test_migration_6_gives_expiry_to_token_without_created_at(tmp_path, monkeypatch):
+    """NULL в created_at не должен означать «токен вечный»."""
+    conn = _pre_migration_6_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO api_tokens (token, user_id, created_at) VALUES ('nodate', 1, NULL)")
+    conn.commit()
+
+    db_module.migrate(conn)
+
+    row = conn.execute("SELECT expires_at FROM api_tokens WHERE token='nodate'").fetchone()
+    assert row["expires_at"] is not None
+    assert conn.execute(
+        "SELECT COUNT(*) c FROM api_tokens WHERE token='nodate'"
+        " AND expires_at > datetime('now')"
+    ).fetchone()["c"] == 1
+    conn.close()
+
+
+def test_migration_6_is_idempotent(tmp_path, monkeypatch):
+    conn = _pre_migration_6_db(tmp_path, monkeypatch)
+    assert db_module.migrate(conn) == 1
+    assert db_module.migrate(conn) == 0, "повторный прогон не должен ничего делать"
+    conn.close()
+
+
+def test_migration_6_guard_short_circuits_on_new_schema(tmp_path, monkeypatch):
+    """Прямой вызов шага на уже мигрированной базе не трогает готовые сроки."""
+    conn = _pre_migration_6_db(tmp_path, monkeypatch)
+    conn.execute("INSERT INTO api_tokens (token, user_id, created_at)"
+                 " VALUES ('t', 1, datetime('now','-200 days'))")
+    conn.commit()
+    db_module.migrate(conn)
+    before = conn.execute("SELECT expires_at FROM api_tokens WHERE token='t'").fetchone()[0]
+
+    db_module._migration_6_api_token_expiry(conn)
+
+    after = conn.execute("SELECT expires_at FROM api_tokens WHERE token='t'").fetchone()[0]
+    assert before == after
+    conn.close()
+
+
+def test_fresh_db_api_tokens_has_expiry_column(db):
+    """Новая база создаётся сразу с итоговой схемой — колонка есть без миграции."""
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(api_tokens)").fetchall()}
+    assert "expires_at" in columns

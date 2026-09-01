@@ -120,7 +120,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS api_tokens (
                 token      TEXT PRIMARY KEY,
                 user_id    INTEGER NOT NULL,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (datetime('now')),
+                -- Срок жизни: бессрочный MCP-токен переживает и смену
+                -- устройства, и потерю интереса к интеграции, а отозвать его
+                -- можно только перевыпуском. Протухшие удаляет cleanup_expired.
+                expires_at TEXT
             );
 
             -- Привязка OAuth-аккаунта (Яндекс/VK/Mail.ru) к пользователю по
@@ -147,6 +151,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
             CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at);
+            -- Уборка pending-платежей идёт по паре (статус, дата создания)
+            CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created);
 
             -- Промокоды для маркетинга и тестирования
             CREATE TABLE IF NOT EXISTS promo_codes (
@@ -206,7 +213,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -232,6 +239,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 5:
         _migration_5_ai_consent(db)
         db.execute("PRAGMA user_version = 5")
+        applied += 1
+    if version < 6:
+        _migration_6_api_token_expiry(db)
+        db.execute("PRAGMA user_version = 6")
         applied += 1
     if applied:
         db.commit()
@@ -459,3 +470,33 @@ def _migration_5_ai_consent(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE users ADD COLUMN ai_consent_at TEXT")
     if "ai_consent_rev" not in columns:
         db.execute("ALTER TABLE users ADD COLUMN ai_consent_rev TEXT")
+
+
+def _migration_6_api_token_expiry(db: sqlite3.Connection) -> None:
+    """Срок жизни MCP-токена и индексы под уборку.
+
+    До этого шага токен был бессрочным: выданный однажды ключ работал и через
+    год после того, как человек перестал заходить, а отзыва по времени не
+    было — только перевыпуск. Колонка добавляется ALTER TABLE, существующим
+    токенам срок отсчитывается от даты выдачи: часть из них протухнет на
+    первой же уборке, и это ровно то поведение, ради которого шаг и делается.
+
+    Токен, выданный до появления колонки, мог не иметь created_at (DEFAULT
+    появился вместе с таблицей, но чужая база — не гарантия): такому ставим
+    срок от текущего момента, чтобы NULL не означал «вечный».
+    """
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(api_tokens)").fetchall()}
+    if "expires_at" not in columns:
+        db.execute("ALTER TABLE api_tokens ADD COLUMN expires_at TEXT")
+        db.execute(
+            "UPDATE api_tokens"
+            # 90 дней — то же значение, что и в config.MCP_TOKEN_DAYS на момент
+            # шага, но записанное числом: миграция обязана давать один и тот же
+            # результат и через год, когда настройку поменяют.
+            " SET expires_at = datetime(COALESCE(created_at, datetime('now')), '+90 days')"
+            " WHERE expires_at IS NULL"
+        )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at)")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created)"
+    )

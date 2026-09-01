@@ -56,6 +56,7 @@ from config import (  # noqa: E402
     SECRET_KEY,
     ADMIN_EMAILS, ADMIN_IPS, METRIKA_ID,
     CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
+    MCP_TOKEN_DAYS, PENDING_PAYMENT_TTL_HOURS,
     RATE_LIMIT_ENABLED, PAID_PACK, DEV_MODE,
 )
 
@@ -134,8 +135,9 @@ def cleanup_expired() -> dict[str, int]:
     """Удалить протухшие сессии, токены и старые служебные записи.
 
     Без этого таблицы растут бесконечно: sessions и magic_tokens пополняются
-    на каждый вход, anon_usage — на каждого анонимного посетителя. Возвращает
-    число удалённых строк по таблицам (для логов и тестов).
+    на каждый вход, anon_usage — на каждого анонимного посетителя, а
+    payments — на каждый клик по кнопке оплаты. Возвращает число удалённых
+    строк по таблицам (для логов и тестов).
     """
     removed: dict[str, int] = {}
     with get_db() as db:
@@ -157,6 +159,20 @@ def cleanup_expired() -> dict[str, int]:
         ).rowcount
         removed["usage_events"] = db.execute(
             f"DELETE FROM usage_events WHERE created < datetime('now','-{EVENTS_TTL_DAYS} days')"
+        ).rowcount
+        # MCP-токен с истёкшим сроком уже не пускает (_mcp_user сверяет срок),
+        # но строку с рабочим на вид ключом держать в базе незачем.
+        removed["api_tokens"] = db.execute(
+            "DELETE FROM api_tokens WHERE expires_at IS NOT NULL"
+            " AND expires_at < datetime('now')"
+        ).rowcount
+        # Неоплаченные счета: строка заводится на каждый клик по кнопке
+        # оплаты, а платит человек с одной из них. Остальные — мусор, который
+        # копится навсегда и занимает номера InvId. Успешные и возвращённые
+        # остаются: это финансовая история.
+        removed["payments"] = db.execute(
+            "DELETE FROM payments WHERE status='pending'"
+            f" AND created < datetime('now','-{PENDING_PAYMENT_TTL_HOURS} hours')"
         ).rowcount
         db.commit()
     return removed
@@ -667,7 +683,7 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
 from schemas import (  # noqa: E402
     EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
-    PromoActivateReq, PromoCreateReq, TrackReq,
+    PromoActivateReq, PromoCreateReq, PromoDeactivateReq, TrackReq,
     DevLoginReq, DevGrantReq,
     # Потолок значения промокода — один и тот же для схемы новых кодов и для
     # подстраховки при активации уже заведённых (см. promo_activate).
@@ -816,8 +832,11 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
             else _general_prompt(req.profile, req.target_role, req.hint)
         )
         raw = await call_ai(prompt)
-    except HTTPException:
+    except Exception:
         # Модель недоступна/упала — не вина посетителя, попытки возвращаем.
+        # Ловим Exception, а не HTTPException: неожиданная ошибка (обрыв сети,
+        # сбой драйвера) точно так же не вина посетителя, а раньше съедала
+        # попытку. Остальные ручки генерации уже ловят здесь Exception.
         with get_db() as db:
             _anon_refund(db, anon_id)
             _anon_refund(db, ip_key)
@@ -827,7 +846,7 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 
     try:
         resume = _parse_ai(raw)
-    except HTTPException:
+    except Exception:
         with get_db() as db:
             if _looks_like_honest_json_attempt(raw):
                 _anon_refund(db, anon_id)
@@ -1736,6 +1755,13 @@ def _as_resume_dict(data: object) -> dict:
     raise ValueError("ожидался JSON-объект резюме")
 
 
+# Резюме и профиль — это анкета человека: полсотни килобайт хватает с
+# большим запасом даже на длинный опыт. Предел нужен потому, что тело
+# запроса ничем не ограничено: один PUT с мегабайтным JSON лёг бы в базу,
+# а потом приезжал бы в каждом списке резюме и в каждом промпте к модели.
+RESUME_JSON_MAX = 256 * 1024
+
+
 def _json_for_db(data: object) -> str:
     """Сериализация пользовательских данных для записи в БД.
 
@@ -1745,9 +1771,12 @@ def _json_for_db(data: object) -> str:
     Отказываем на записи, а не на чтении.
     """
     try:
-        return json.dumps(data, ensure_ascii=False, allow_nan=False)
+        payload = json.dumps(data, ensure_ascii=False, allow_nan=False)
     except ValueError:
         raise HTTPException(400, "Некорректные числовые значения в данных")
+    if len(payload.encode("utf-8")) > RESUME_JSON_MAX:
+        raise HTTPException(413, "Данные слишком большие")
+    return payload
 
 
 def _parse_ai(raw: str) -> dict:
@@ -2930,11 +2959,11 @@ async def admin_list_promo(request: Request):
     return {"codes": [dict(r) for r in rows]}
 
 @app.post("/api/admin/promo/deactivate")
-async def admin_deactivate_promo(body: dict, request: Request):
+async def admin_deactivate_promo(body: PromoDeactivateReq, request: Request):
     user = await get_current_user(request)
     _require_admin(request, user)
 
-    code = body.get("code", "").strip().upper()
+    code = body.code.strip().upper()
     with get_db() as db:
         db.execute("UPDATE promo_codes SET active=0 WHERE code=?", (code,))
         db.commit()
@@ -3060,12 +3089,16 @@ def _mcp_user(ctx: Context) -> dict:
     if scheme.lower() != "bearer" or not token:
         raise ValueError(f"Нет токена авторизации. {MCP_TOKEN_HINT}")
     with get_db() as db:
+        # Срок сверяем здесь, а не полагаемся на уборку: между истечением и
+        # ближайшим проходом _cleanup_loop проходит до часа, и всё это время
+        # протухший токен продолжал бы пускать.
         row = db.execute(
-            "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token=?",
+            "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id"
+            " WHERE t.token=? AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))",
             (token,)
         ).fetchone()
     if not row:
-        raise ValueError(f"Токен недействителен. {MCP_TOKEN_HINT}")
+        raise ValueError(f"Токен недействителен или истёк. {MCP_TOKEN_HINT}")
     return dict(row)
 
 @mcp_server.tool()
@@ -3157,17 +3190,28 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
 @rate("10/minute")
 async def create_mcp_token(request: Request):
     """Выдаёт API-токен для MCP-доступа. Один активный токен на пользователя:
-    старые токены удаляются. Токен показывается только один раз."""
+    старые токены удаляются. Токен показывается только один раз и живёт
+    MCP_TOKEN_DAYS дней — брошенная интеграция перестаёт быть рабочим ключом
+    сама, без действий пользователя."""
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
     token = str(uuid.uuid4())
     with get_db() as db:
         db.execute("DELETE FROM api_tokens WHERE user_id=?", (user["id"],))
-        db.execute("INSERT INTO api_tokens (token, user_id) VALUES (?,?)", (token, user["id"]))
+        # Срок считает сама SQLite — по той же причине, что и у сессий: формат
+        # хранения обязан совпадать с форматом сравнения в datetime('now').
+        db.execute(
+            "INSERT INTO api_tokens (token, user_id, expires_at)"
+            " VALUES (?,?,datetime('now',?))",
+            (token, user["id"], f"+{MCP_TOKEN_DAYS} days"),
+        )
+        expires_at = db.execute(
+            "SELECT expires_at FROM api_tokens WHERE token=?", (token,)
+        ).fetchone()["expires_at"]
         db.commit()
-    log.info("mcp-token: issued for user=%s", user["id"])
-    return {"token": token}
+    log.info("mcp-token: issued for user=%s until=%s", user["id"], expires_at)
+    return {"token": token, "expires_at": expires_at}
 
 class _McpMountOr404:
     """MCP смонтирован на «/», поэтому ему достаются вообще все URL, которые не
