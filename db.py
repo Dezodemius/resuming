@@ -139,22 +139,6 @@ def init_db():
                 PRIMARY KEY (provider, provider_uid)
             );
 
-            -- Индексы под частые выборки по владельцу (иначе full scan при росте)
-            CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
-            CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
-            CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
-            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
-            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
-
-            -- Очистка протухшего идёт по expires_at — без индекса это full scan
-            CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
-            CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
-            CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
-            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at);
-            -- Уборка pending-платежей идёт по паре (статус, дата создания)
-            CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created);
-
             -- Промокоды для маркетинга и тестирования
             CREATE TABLE IF NOT EXISTS promo_codes (
                 code       TEXT PRIMARY KEY,
@@ -186,15 +170,40 @@ def init_db():
                 meta    TEXT,
                 created TEXT DEFAULT (datetime('now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
-            CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
-            CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
         """)
         if fresh:
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             db.commit()
         else:
             migrate(db)
+
+        # Индексы создаются ПОСЛЕ миграций, а не вместе с таблицами. Индекс
+        # ссылается на колонку, и на рабочей базе этой колонки может ещё не
+        # быть — её добавляет шаг миграции. Пока индексы жили в одном скрипте с
+        # таблицами, `idx_api_tokens_expires` падал на проде с
+        # `no such column: expires_at` до того, как шаг 6 успевал отработать, и
+        # приложение не стартовало вовсе.
+        db.executescript("""
+            -- Индексы под частые выборки по владельцу (иначе full scan при росте)
+            CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+
+            -- Очистка протухшего идёт по expires_at — без индекса это full scan
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at);
+            -- Уборка pending-платежей идёт по паре (статус, дата создания)
+            CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created);
+
+            CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
+            CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
+            CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
+        """)
 
 
 # ── Миграции ────────────────────────────────────────────────────────────────
