@@ -20,7 +20,7 @@
 <p>После успешной оплаты электронный чек направляется на email, указанный на платёжной странице. История платежей и текущий срок доступа Pro видны в <a href="/settings">настройках</a>.</p>
 
 <h2>Если доступ Pro не появился</h2>
-<p>Деньги списаны, а Pro не включился в течение 10 минут — напишите на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>, укажите email аккаунта и номер платежа из чека. Разберёмся вручную. Условия возврата — в разделе 10 <a href="/offer">оферты</a>.</p>
+{% if seller.email %}<p>Деньги списаны, а Pro не включился в течение 10 минут — напишите на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>, укажите email аккаунта и номер платежа из чека. Разберёмся вручную. Условия возврата — в разделе 10 <a href="/offer">оферты</a>.</p>{% endif %}
 
 <style>
 .pay-state{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 24px;margin-bottom:32px;text-align:center}

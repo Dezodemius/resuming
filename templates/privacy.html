@@ -10,7 +10,7 @@
 
 <h2>1. Общие положения</h2>
 <p>Настоящая политика конфиденциальности (далее — «Политика») определяет порядок обработки персональных данных пользователей сервиса Резюмирую.рф, расположенного по адресу <strong>резюмирую.рф</strong> (далее — «Сервис»).</p>
-<p>Оператором персональных данных является {{ seller.name }} (самозанятый, ИНН: {{ seller.inn }}, г. {{ seller.city }}), далее — «Оператор».</p>
+<p>Оператором персональных данных{% if seller.name %} является {{ seller.name }}{% endif %}{% if seller.status %}{% if seller.name %} ({{ seller.status }}{% else %} является {{ seller.status }}{% endif %}{% if seller.inn %}, ИНН: {{ seller.inn }}{% endif %}{% if seller.city %}, г. {{ seller.city }}{% endif %}{% if seller.name %}){% endif %}{% endif %}, далее — «Оператор».</p>
 <p>Используя Сервис или регистрируясь в нём, вы соглашаетесь с условиями настоящей Политики. Если вы не согласны с какими-либо положениями, пожалуйста, прекратите использование Сервиса.</p>
 <p>Настоящая Политика разработана в соответствии с требованиями Федерального закона от 27.07.2006 № 152-ФЗ «О персональных данных».</p>
 
@@ -66,7 +66,7 @@
   <li><strong>Отозвать согласие</strong> на обработку данных. Отзыв не влияет на законность обработки до его отзыва.</li>
   <li><strong>Обжаловать действия</strong> Оператора в Роскомнадзор (rkn.gov.ru).</li>
 </ul>
-<p>Для реализации указанных прав направьте запрос на адрес <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>. Срок ответа — 30 дней с момента получения запроса.</p>
+{% if seller.email %}<p>Для реализации указанных прав направьте запрос на адрес <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>. Срок ответа — 30 дней с момента получения запроса.</p>{% endif %}
 
 <h2>7. Файлы cookie</h2>
 <p>Сервис использует следующие типы файлов cookie:</p>
@@ -88,21 +88,22 @@
 </ul>
 
 <h2>9. Обработка данных несовершеннолетних</h2>
-<p>Сервис не предназначен для лиц младше 18 лет. Оператор не собирает намеренно персональные данные несовершеннолетних. Если вам стало известно, что несовершеннолетний предоставил свои данные, просим сообщить об этом по адресу <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>.</p>
+{% if seller.email %}<p>Сервис не предназначен для лиц младше 18 лет. Оператор не собирает намеренно персональные данные несовершеннолетних. Если вам стало известно, что несовершеннолетний предоставил свои данные, просим сообщить об этом по адресу <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>.</p>{% endif %}
 
 <h2>10. Изменение политики</h2>
 <p>Оператор вправе в одностороннем порядке вносить изменения в настоящую Политику. Новая редакция вступает в силу с момента публикации на сайте. Текущая редакция всегда доступна по адресу <strong>резюмирую.рф/privacy</strong>. Продолжение использования Сервиса после изменения Политики означает согласие с новой редакцией.</p>
 
 <h2>11. Контактная информация</h2>
-<div class="requisites">
-  <p><strong>Оператор персональных данных:</strong> {{ seller.name }}</p>
-  <p><strong>Статус:</strong> {{ seller.status }}</p>
-  <p><strong>ИНН:</strong> {{ seller.inn }}</p>
-  <p><strong>Город:</strong> {{ seller.city }}</p>
-  <p><strong>Телефон:</strong> <a href="tel:{{ seller.phone_href }}">{{ seller.phone }}</a></p>
-  <p><strong>Email:</strong> <a href="mailto:{{ seller.email }}">{{ seller.email }}</a></p>
-  <p><strong>Сайт:</strong> <a href="https://{{ seller.site }}">{{ seller.site }}</a></p>
+{% if seller.name or seller.status or seller.inn or seller.city or seller.phone or seller.email or seller.site %}<div class="requisites">
+  {% if seller.name %}<p><strong>Оператор персональных данных:</strong> {{ seller.name }}</p>{% endif %}
+  {% if seller.status %}<p><strong>Статус:</strong> {{ seller.status }}</p>{% endif %}
+  {% if seller.inn %}<p><strong>ИНН:</strong> {{ seller.inn }}</p>{% endif %}
+  {% if seller.city %}<p><strong>Город:</strong> {{ seller.city }}</p>{% endif %}
+  {% if seller.phone %}<p><strong>Телефон:</strong> <a href="tel:{{ seller.phone_href or seller.phone }}">{{ seller.phone }}</a></p>{% endif %}
+  {% if seller.email %}<p><strong>Email:</strong> <a href="mailto:{{ seller.email }}">{{ seller.email }}</a></p>{% endif %}
+  {% if seller.site %}<p><strong>Сайт:</strong> <a href="https://{{ seller.site }}">{{ seller.site }}</a></p>{% endif %}
   <p style="margin-top:.75rem;color:#64748B;font-size:12px">По вопросам обработки персональных данных обращайтесь в Федеральную службу по надзору в сфере связи, информационных технологий и массовых коммуникаций (Роскомнадзор): <a href="https://rkn.gov.ru" style="color:#64748B">rkn.gov.ru</a></p>
 </div>
+{% endif %}
 
 {% endblock %}

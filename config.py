@@ -135,16 +135,19 @@ ROBOKASSA_PASSWORD1  = os.getenv("ROBOKASSA_PASSWORD1", "")
 ROBOKASSA_PASSWORD2  = os.getenv("ROBOKASSA_PASSWORD2", "")
 ROBOKASSA_TEST_MODE  = env_flag("ROBOKASSA_TEST_MODE")
 
-# Публичные реквизиты продавца. Они показываются в подвале и юридических
-# документах, поэтому держим один источник правды вместо копий по шаблонам.
-SELLER_NAME          = "Гладков Егор Сергеевич"
-SELLER_STATUS        = "Самозанятый"
-SELLER_INN           = "183118105776"
-SELLER_CITY          = "Ижевск"
-SELLER_PHONE         = "+7 982 794-54-34"
-SELLER_PHONE_HREF    = "+79827945434"
-SELLER_EMAIL         = "gladkovyegor@gmail.com"
-SELLER_SITE          = "резюмирую.рф"
+# Публичные реквизиты продавца. Значения живут в локальном .env (он не
+# отслеживается Git) и намеренно пусты по умолчанию: приложение не должно
+# публиковать персональные данные, если оператор их не настроил.
+SELLER_NAME          = os.getenv("SELLER_NAME", "").strip()
+SELLER_STATUS        = os.getenv("SELLER_STATUS", "").strip()
+SELLER_INN           = os.getenv("SELLER_INN", "").strip()
+SELLER_CITY          = os.getenv("SELLER_CITY", "").strip()
+SELLER_PHONE         = os.getenv("SELLER_PHONE", "").strip()
+SELLER_PHONE_HREF    = os.getenv("SELLER_PHONE_HREF", "").strip() or "".join(
+    char for char in SELLER_PHONE if char.isdigit() or char == "+"
+)
+SELLER_EMAIL         = os.getenv("SELLER_EMAIL", "").strip()
+SELLER_SITE          = os.getenv("SELLER_SITE", "").strip()
 
 # Редакция согласия на обработку персональных данных и трансграничную передачу
 # их AI-провайдеру. Совпадает с датой редакции политики: генерация уносит имя,

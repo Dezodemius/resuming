@@ -8,18 +8,20 @@
 
 {% block content %}
 
-<p>Если у вас возникли вопросы, технические проблемы с оплатой или активацией доступа Pro — напишите нам на email, и мы ответим в течение 1 рабочего дня.</p>
+{% if seller.email %}<p>Если у вас возникли вопросы, технические проблемы с оплатой или активацией доступа Pro — напишите нам на email, и мы ответим в течение 1 рабочего дня.</p>{% endif %}
 
+{% if seller.name or seller.status or seller.inn or seller.city or seller.phone or seller.email or seller.site %}
 <h2>Реквизиты</h2>
 <div class="requisites">
-  <p><strong>ФИО:</strong> {{ seller.name }}</p>
-  <p><strong>Статус:</strong> {{ seller.status }}</p>
-  <p><strong>ИНН:</strong> {{ seller.inn }}</p>
-  <p><strong>Город:</strong> {{ seller.city }}</p>
-  <p><strong>Телефон:</strong> <a href="tel:{{ seller.phone_href }}">{{ seller.phone }}</a></p>
-  <p><strong>Email:</strong> <a href="mailto:{{ seller.email }}">{{ seller.email }}</a></p>
-  <p><strong>Сайт:</strong> <a href="https://{{ seller.site }}">{{ seller.site }}</a></p>
+  {% if seller.name %}<p><strong>ФИО:</strong> {{ seller.name }}</p>{% endif %}
+  {% if seller.status %}<p><strong>Статус:</strong> {{ seller.status }}</p>{% endif %}
+  {% if seller.inn %}<p><strong>ИНН:</strong> {{ seller.inn }}</p>{% endif %}
+  {% if seller.city %}<p><strong>Город:</strong> {{ seller.city }}</p>{% endif %}
+  {% if seller.phone %}<p><strong>Телефон:</strong> <a href="tel:{{ seller.phone_href or seller.phone }}">{{ seller.phone }}</a></p>{% endif %}
+  {% if seller.email %}<p><strong>Email:</strong> <a href="mailto:{{ seller.email }}">{{ seller.email }}</a></p>{% endif %}
+  {% if seller.site %}<p><strong>Сайт:</strong> <a href="https://{{ seller.site }}">{{ seller.site }}</a></p>{% endif %}
 </div>
+{% endif %}
 
 <h2>Юридические документы</h2>
 <p>Пользуясь Сервисом или оплачивая доступ Pro, вы соглашаетесь с условиями следующих документов:</p>
@@ -30,8 +32,8 @@
 </ul>
 
 <h2>Часто задаваемые вопросы</h2>
-<p><strong>Доступ Pro не активировался после оплаты.</strong> Напишите на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>, укажите email аккаунта и приложите скриншот или номер транзакции. Решим в течение нескольких часов.</p>
-<p><strong>Хочу удалить аккаунт и данные.</strong> Отправьте запрос на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a> с темой «Удаление аккаунта». Данные будут удалены в течение 30 дней.</p>
+{% if seller.email %}<p><strong>Доступ Pro не активировался после оплаты.</strong> Напишите на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>, укажите email аккаунта и приложите скриншот или номер транзакции. Решим в течение нескольких часов.</p>
+<p><strong>Хочу удалить аккаунт и данные.</strong> Отправьте запрос на <a href="mailto:{{ seller.email }}">{{ seller.email }}</a> с темой «Удаление аккаунта». Данные будут удалены в течение 30 дней.</p>{% endif %}
 <p><strong>Вопрос о возврате средств.</strong> Ознакомьтесь с разделом 10 <a href="/offer">публичной оферты</a>. Отказаться от договора можно в любой момент — напишите нам, и мы вернём деньги за вычетом фактически понесённых расходов.</p>
 
 {% endblock %}

@@ -43,16 +43,24 @@ async def test_offer_page_shows_tariff_numbers(client):
 
 @pytest.mark.parametrize("path", ["/", "/pricing", "/offer", "/contacts", "/privacy"])
 async def test_public_sales_pages_show_seller_details(client, path):
-    """Реквизиты самозанятого видны до покупки на каждой продающей странице."""
+    """Настроенные реквизиты видны до покупки, пустые значения не печатаются."""
     import config
 
     r = await client.get(path)
     assert r.status_code == 200
-    assert config.SELLER_NAME in r.text
-    assert config.SELLER_INN in r.text
-    assert config.SELLER_CITY in r.text
-    assert config.SELLER_PHONE in r.text
-    assert config.SELLER_EMAIL in r.text
+    for value in (
+        config.SELLER_NAME,
+        config.SELLER_INN,
+        config.SELLER_CITY,
+        config.SELLER_PHONE,
+        config.SELLER_EMAIL,
+    ):
+        if value:
+            assert value in r.text
+    if not config.SELLER_EMAIL:
+        assert "mailto:" not in r.text
+    if not config.SELLER_PHONE:
+        assert "tel:" not in r.text
 
 
 async def test_payment_copy_matches_one_time_access(client):
