@@ -12,7 +12,7 @@
   :root { color-scheme: dark; }
   body { margin:0; padding:32px 20px; background:#12151b; color:#e6e9ef;
          font:15px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
-  .wrap { max-width:760px; margin:0 auto; }
+  .wrap { max-width:760px; min-width:0; margin:0 auto; }
   h1 { font-size:20px; margin:0 0 4px; letter-spacing:.04em; }
   h2 { font-size:14px; text-transform:uppercase; letter-spacing:.08em;
        color:#8b93a5; margin:28px 0 10px; font-weight:600; }
@@ -20,14 +20,15 @@
           padding:10px 14px; border-radius:6px; margin:12px 0 4px; font-size:13px; }
   .card { background:#191d26; border:1px solid #2a3040; border-radius:8px; padding:16px; }
   input { background:#0d1015; border:1px solid #2a3040; color:#e6e9ef;
-          padding:8px 10px; border-radius:6px; font:inherit; min-width:260px; }
+          padding:8px 10px; border-radius:6px; font:inherit; min-width:0; width:min(100%,360px); box-sizing:border-box; }
   button { background:#2a3345; border:1px solid #3a4560; color:#e6e9ef;
            padding:8px 14px; border-radius:6px; font:inherit; cursor:pointer; margin:4px 6px 4px 0; }
   button:hover { background:#35415a; }
   button.go { background:#1f6f4a; border-color:#2b8f61; }
   button.go:hover { background:#26855a; }
   #state { white-space:pre-wrap; background:#0d1015; border:1px solid #2a3040;
-           border-radius:6px; padding:12px; min-height:22px; font-size:13px; margin-top:12px; }
+           border-radius:6px; padding:12px; min-height:22px; max-width:100%; box-sizing:border-box;
+           overflow-wrap:anywhere; word-break:break-word; font-size:13px; margin-top:12px; }
   a { color:#7fb2ff; }
   .hint { color:#8b93a5; font-size:13px; margin:6px 0 0; }
 </style>
