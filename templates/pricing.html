@@ -5,9 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Тарифы — Резюмирую.рф</title>
 <meta name="description" content="Бесплатный тариф и Pro за {{ pro_price|int }} ₽ на {{ pro_days }} дней. Оплата через Робокассу, без автопродления.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -16,7 +13,6 @@
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
 <link rel="stylesheet" href="/static/landing.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <style>
 .pay-info{
   max-width:840px;margin:44px auto 0;padding:26px 28px;border-radius:20px;
@@ -167,7 +163,7 @@
     const light = document.documentElement.getAttribute('data-theme') === 'light';
     if (light) document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', 'light');
-    try { localStorage.setItem('theme', light ? 'dark' : 'light'); } catch (e) {}
+    if (window.SiteConsent) window.SiteConsent.preferenceSet('theme', light ? 'dark' : 'light');
     sync();
   });
   sync();
@@ -175,6 +171,7 @@
 
 {% if metrika_id %}window.metrikaId = {{ metrika_id }};{% endif %}
 function track(event) {
+  if (!window.SiteConsent || !window.SiteConsent.allows('analytics')) return;
   try { if (window.ym && window.metrikaId) ym(window.metrikaId, 'reachGoal', event); } catch (e) {}
   try {
     fetch('/api/track', {
@@ -184,6 +181,9 @@ function track(event) {
   } catch (e) {}
 }
 track('pricing_view');
+window.addEventListener('siteconsentchange', (event) => {
+  if (event.detail && event.detail.choice === 'analytics') track('pricing_view');
+});
 
 window.addEventListener('pageshow', function () {
   document.getElementById('loader').classList.remove('on');

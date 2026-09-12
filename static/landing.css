@@ -272,6 +272,7 @@
 .lp-sticky .btn-primary{width:100%;justify-content:center;height:50px}
 @media(min-width:820px){.lp-sticky{display:none!important}}
 
+/* Keep the mobile rules after the desktop declarations they override. */
 @media(max-width:560px){
   .lp-sec{padding:58px 0}
   .lp-hero{padding:44px 0 18px}

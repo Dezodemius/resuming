@@ -43,16 +43,24 @@ async def test_offer_page_shows_tariff_numbers(client):
 
 @pytest.mark.parametrize("path", ["/", "/pricing", "/offer", "/contacts", "/privacy"])
 async def test_public_sales_pages_show_seller_details(client, path):
-    """Реквизиты самозанятого видны до покупки на каждой продающей странице."""
+    """Настроенные реквизиты видны до покупки, пустые значения не печатаются."""
     import config
 
     r = await client.get(path)
     assert r.status_code == 200
-    assert config.SELLER_NAME in r.text
-    assert config.SELLER_INN in r.text
-    assert config.SELLER_CITY in r.text
-    assert config.SELLER_PHONE in r.text
-    assert config.SELLER_EMAIL in r.text
+    for value in (
+        config.SELLER_NAME,
+        config.SELLER_INN,
+        config.SELLER_CITY,
+        config.SELLER_PHONE,
+        config.SELLER_EMAIL,
+    ):
+        if value:
+            assert value in r.text
+    if not config.SELLER_EMAIL:
+        assert "mailto:" not in r.text
+    if not config.SELLER_PHONE:
+        assert "tel:" not in r.text
 
 
 async def test_payment_copy_matches_one_time_access(client):
@@ -72,9 +80,10 @@ async def test_privacy_page_matches_actual_data_locations(client):
     хранения у внешнего AI-провайдера."""
     r = await client.get("/privacy")
     assert r.status_code == 200
-    assert "на территории Российской Федерации" in r.text
-    assert "DeepSeek" in r.text
-    assert "территории КНР" in r.text
+    assert "в инфраструктуре Оператора" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "api.deepseek.com" not in r.text
+    assert "территории КНР" not in r.text
     assert "Германия / Финляндия" not in r.text
     assert "без сохранения на стороне провайдера" not in r.text
 
@@ -84,9 +93,12 @@ async def test_new_page_notifies_about_personal_data_at_collection_points(client
     профиля, а не только ссылкой на политику в подвале."""
     r = await client.get("/new")
     assert r.status_code == 200
-    assert "Продолжая вход любым способом" in r.text
-    assert "согласие на обработку персональных данных" in r.text
-    assert "передаются AI-провайдеру DeepSeek на территории КНР" in r.text
+    assert 'id="terms-accepted"' in r.text
+    assert "Я принимаю" in r.text
+    assert 'href="/terms"' in r.text
+    assert "Политикой обработки персональных данных" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "Продолжая вход любым способом" not in r.text
 
 
 async def test_billing_returns_amount_of_actual_payment(client):
@@ -210,8 +222,9 @@ async def _login(client, email):
         # не его, а поведение самой генерации, поэтому ставим отметку сразу —
         # иначе каждый из них упирался бы в 403 consent_required.
         db.execute(
-            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
-            (main.AI_CONSENT_REV, email),
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE email=?",
+            (main.AI_CONSENT_REV, main.AI_CONSENT_HASH, email),
         )
         db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]

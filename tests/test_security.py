@@ -838,7 +838,9 @@ async def test_fetch_job_client_is_configured_defensively(monkeypatch):
 def _preview_with_url(client, url="https://example.com/vacancy"):
     return client.post(
         "/api/generate-preview",
-        json={"kind": "match", "profile": {"name": "A"}, "job_url": url, "consent": True},
+        json={"kind": "match", "profile": {"name": "A"}, "job_url": url,
+              "consent": True, "consent_rev": main.AI_CONSENT_REV,
+              "consent_hash": main.AI_CONSENT_HASH},
         headers={"X-Real-IP": "203.0.113.77"},
     )
 

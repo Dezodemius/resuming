@@ -57,9 +57,9 @@ async def test_mcp_endpoint_without_auth_is_not_5xx(client):
 
 async def test_mcp_adapt_resume_refunds_generation_when_resume_limit_hit(db, monkeypatch):
     db.execute(
-        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev)"
-        " VALUES (?,?,?,datetime('now'),?)",
-        ("mcp-limit@test.com", 0, 1, main.AI_CONSENT_REV),
+        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev, "
+        "ai_consent_hash) VALUES (?,?,?,datetime('now'),?,?)",
+        ("mcp-limit@test.com", 0, 1, main.AI_CONSENT_REV, main.AI_CONSENT_HASH),
     )
     uid = db.execute(
         "SELECT id FROM users WHERE email=?", ("mcp-limit@test.com",)
@@ -103,9 +103,10 @@ def _mcp_user_with_profile(db, email: str, **balance) -> int:
     # Согласие на передачу данных провайдеру человек даёт на сайте; тесты ниже
     # проверяют не его, а поведение самого инструмента.
     db.execute(
-        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev)"
-        " VALUES (?,?,?,datetime('now'),?)",
-        (email, balance.get("free_left", 3), balance.get("paid_left", 0), main.AI_CONSENT_REV),
+        "INSERT INTO users (email, free_left, paid_left, ai_consent_at, ai_consent_rev, "
+        "ai_consent_hash) VALUES (?,?,?,datetime('now'),?,?)",
+        (email, balance.get("free_left", 3), balance.get("paid_left", 0),
+         main.AI_CONSENT_REV, main.AI_CONSENT_HASH),
     )
     uid = db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
     profile = {
@@ -181,7 +182,10 @@ async def test_mcp_adapt_resume_pro_fair_use_cap(db, monkeypatch):
 async def test_mcp_adapt_resume_without_consent_does_not_reach_the_model(db, monkeypatch):
     """Согласие на передачу данных провайдеру нельзя обойти токеном MCP."""
     uid = _mcp_user_with_profile(db, "mcp-noconsent@test.com", free_left=3)
-    db.execute("UPDATE users SET ai_consent_at=NULL, ai_consent_rev=NULL WHERE id=?", (uid,))
+    db.execute(
+        "UPDATE users SET ai_consent_at=NULL, ai_consent_rev=NULL, ai_consent_hash=NULL "
+        "WHERE id=?", (uid,)
+    )
     db.commit()
     called = {"n": 0}
 
