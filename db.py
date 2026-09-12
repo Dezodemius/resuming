@@ -60,6 +60,10 @@ def init_db():
                 pro_expires_at TEXT,
                 ai_consent_at  TEXT,
                 ai_consent_rev TEXT,
+                ai_consent_hash TEXT,
+                terms_accepted_at TEXT,
+                terms_rev      TEXT,
+                terms_hash     TEXT,
                 created      TEXT DEFAULT (datetime('now'))
             );
 
@@ -75,6 +79,9 @@ def init_db():
                 email      TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 used       INTEGER DEFAULT 0,
+                terms_accepted INTEGER NOT NULL DEFAULT 0,
+                terms_rev      TEXT,
+                terms_hash     TEXT,
                 created    TEXT DEFAULT (datetime('now'))
             );
 
@@ -120,7 +127,11 @@ def init_db():
             CREATE TABLE IF NOT EXISTS api_tokens (
                 token      TEXT PRIMARY KEY,
                 user_id    INTEGER NOT NULL,
-                created_at TEXT DEFAULT (datetime('now'))
+                created_at TEXT DEFAULT (datetime('now')),
+                -- Срок жизни: бессрочный MCP-токен переживает и смену
+                -- устройства, и потерю интереса к интеграции, а отозвать его
+                -- можно только перевыпуском. Протухшие удаляет cleanup_expired.
+                expires_at TEXT
             );
 
             -- Привязка OAuth-аккаунта (Яндекс/VK/Mail.ru) к пользователю по
@@ -134,19 +145,6 @@ def init_db():
                 created       TEXT DEFAULT (datetime('now')),
                 PRIMARY KEY (provider, provider_uid)
             );
-
-            -- Индексы под частые выборки по владельцу (иначе full scan при росте)
-            CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
-            CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
-            CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
-            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
-            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
-
-            -- Очистка протухшего идёт по expires_at — без индекса это full scan
-            CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
-            CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
-            CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
 
             -- Промокоды для маркетинга и тестирования
             CREATE TABLE IF NOT EXISTS promo_codes (
@@ -179,15 +177,80 @@ def init_db():
                 meta    TEXT,
                 created TEXT DEFAULT (datetime('now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
-            CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
-            CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
+
+            -- Неизменяемое доказательство юридически значимых действий.
+            -- metadata намеренно хранит только безопасный технический
+            -- контекст, а не тело формы, IP, User-Agent или prompt.
+            CREATE TABLE IF NOT EXISTS legal_events (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                purpose        TEXT NOT NULL,
+                document_rev   TEXT NOT NULL,
+                document_hash  TEXT NOT NULL,
+                action         TEXT NOT NULL,
+                occurred_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                user_id        INTEGER,
+                correlation_id TEXT,
+                metadata       TEXT
+            );
+
+            -- Приложение может только добавлять юридические события. Это не
+            -- заменяет защищённые резервные копии/внешний аудит, но исключает
+            -- случайное изменение истории обычным SQL приложения.
+            CREATE TRIGGER IF NOT EXISTS legal_events_no_update
+            BEFORE UPDATE ON legal_events
+            BEGIN
+                SELECT RAISE(ABORT, 'legal_events is append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS legal_events_no_delete
+            BEFORE DELETE ON legal_events
+            BEGIN
+                SELECT RAISE(ABORT, 'legal_events is append-only');
+            END;
+
+            -- Prompt остаётся в локальной БД только во время внешнего вызова;
+            -- finally удаляет запись, TTL спасает при падении процесса.
+            CREATE TABLE IF NOT EXISTS ai_prompt_buffer (
+                id         TEXT PRIMARY KEY,
+                prompt     TEXT NOT NULL,
+                created    TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         if fresh:
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             db.commit()
         else:
             migrate(db)
+
+        # Индексы создаются ПОСЛЕ миграций, а не вместе с таблицами. Индекс
+        # ссылается на колонку, и на рабочей базе этой колонки может ещё не
+        # быть — её добавляет шаг миграции. Пока индексы жили в одном скрипте с
+        # таблицами, `idx_api_tokens_expires` падал на проде с
+        # `no such column: expires_at` до того, как шаг 6 успевал отработать, и
+        # приложение не стартовало вовсе.
+        db.executescript("""
+            -- Индексы под частые выборки по владельцу (иначе full scan при росте)
+            CREATE INDEX IF NOT EXISTS idx_resumes_user_id   ON resumes(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id  ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_user_id  ON payments(user_id);
+            CREATE INDEX IF NOT EXISTS idx_payments_pay_id   ON payments(pay_id);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+            CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+
+            -- Очистка протухшего идёт по expires_at — без индекса это full scan
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_magic_expires     ON magic_tokens(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_anon_created      ON anon_usage(created);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at);
+            -- Уборка pending-платежей идёт по паре (статус, дата создания)
+            CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created);
+
+            CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
+            CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
+            CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
+            CREATE INDEX IF NOT EXISTS idx_legal_events_user_created ON legal_events(user_id, occurred_at);
+            CREATE INDEX IF NOT EXISTS idx_legal_events_correlation ON legal_events(correlation_id);
+            CREATE INDEX IF NOT EXISTS idx_ai_prompt_buffer_created ON ai_prompt_buffer(created);
+        """)
 
 
 # ── Миграции ────────────────────────────────────────────────────────────────
@@ -206,7 +269,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -232,6 +295,18 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 5:
         _migration_5_ai_consent(db)
         db.execute("PRAGMA user_version = 5")
+        applied += 1
+    if version < 6:
+        _migration_6_api_token_expiry(db)
+        db.execute("PRAGMA user_version = 6")
+        applied += 1
+    if version < 7:
+        _migration_7_privacy_legal_events(db)
+        db.execute("PRAGMA user_version = 7")
+        applied += 1
+    if version < 8:
+        _migration_8_ai_consent_hash_and_legal_guards(db)
+        db.execute("PRAGMA user_version = 8")
         applied += 1
     if applied:
         db.commit()
@@ -459,3 +534,106 @@ def _migration_5_ai_consent(db: sqlite3.Connection) -> None:
         db.execute("ALTER TABLE users ADD COLUMN ai_consent_at TEXT")
     if "ai_consent_rev" not in columns:
         db.execute("ALTER TABLE users ADD COLUMN ai_consent_rev TEXT")
+
+
+def _migration_6_api_token_expiry(db: sqlite3.Connection) -> None:
+    """Срок жизни MCP-токена и индексы под уборку.
+
+    До этого шага токен был бессрочным: выданный однажды ключ работал и через
+    год после того, как человек перестал заходить, а отзыва по времени не
+    было — только перевыпуск. Колонка добавляется ALTER TABLE, существующим
+    токенам срок отсчитывается от даты выдачи: часть из них протухнет на
+    первой же уборке, и это ровно то поведение, ради которого шаг и делается.
+
+    Токен, выданный до появления колонки, мог не иметь created_at (DEFAULT
+    появился вместе с таблицей, но чужая база — не гарантия): такому ставим
+    срок от текущего момента, чтобы NULL не означал «вечный».
+    """
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(api_tokens)").fetchall()}
+    if "expires_at" not in columns:
+        db.execute("ALTER TABLE api_tokens ADD COLUMN expires_at TEXT")
+        db.execute(
+            "UPDATE api_tokens"
+            # 90 дней — то же значение, что и в config.MCP_TOKEN_DAYS на момент
+            # шага, но записанное числом: миграция обязана давать один и тот же
+            # результат и через год, когда настройку поменяют.
+            " SET expires_at = datetime(COALESCE(created_at, datetime('now')), '+90 days')"
+            " WHERE expires_at IS NULL"
+        )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at)")
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created)"
+    )
+
+
+def _migration_7_privacy_legal_events(db: sqlite3.Connection) -> None:
+    """Доказательства условий/cookie/AI и короткий буфер внешнего prompt.
+
+    Старые сессии и выданные ранее magic-ссылки продолжают работать: новые
+    колонки nullable там, где история физически не могла содержать отметку.
+    Новые email-запросы всегда записывают terms_accepted=1 до отправки ссылки.
+    """
+    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    for column in ("ai_consent_hash", "terms_accepted_at", "terms_rev", "terms_hash"):
+        if column not in user_columns:
+            db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+
+    token_columns = {row["name"] for row in db.execute("PRAGMA table_info(magic_tokens)").fetchall()}
+    if "terms_accepted" not in token_columns:
+        # NULL distinguishes old, already-issued tokens from a new request that
+        # expressly declined terms (which is rejected before insertion).
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_accepted INTEGER")
+    if "terms_rev" not in token_columns:
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_rev TEXT")
+    if "terms_hash" not in token_columns:
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_hash TEXT")
+
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS legal_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            purpose        TEXT NOT NULL,
+            document_rev   TEXT NOT NULL,
+            document_hash  TEXT NOT NULL,
+            action         TEXT NOT NULL,
+            occurred_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id        INTEGER,
+            correlation_id TEXT,
+            metadata       TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ai_prompt_buffer (
+            id      TEXT PRIMARY KEY,
+            prompt  TEXT NOT NULL,
+            created TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_legal_events_user_created
+            ON legal_events(user_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_legal_events_correlation
+            ON legal_events(correlation_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_prompt_buffer_created
+            ON ai_prompt_buffer(created);
+    """)
+
+
+def _migration_8_ai_consent_hash_and_legal_guards(db: sqlite3.Connection) -> None:
+    """Инвалидирует AI-согласие при смене текста и защищает legal-журнал.
+
+    Отдельный шаг нужен даже несмотря на добавление колонки в migration 7:
+    ранняя v7 могла быть запущена во время разработки до появления проверки
+    hash. NULL у прежних записей безопасно заставляет запросить согласие снова.
+    """
+    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "ai_consent_hash" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN ai_consent_hash TEXT")
+
+    db.executescript("""
+        CREATE TRIGGER IF NOT EXISTS legal_events_no_update
+        BEFORE UPDATE ON legal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'legal_events is append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS legal_events_no_delete
+        BEFORE DELETE ON legal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'legal_events is append-only');
+        END;
+    """)

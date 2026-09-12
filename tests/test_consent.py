@@ -57,6 +57,18 @@ _GENERATE_BODY = {
 }
 
 
+def _consent_body() -> dict:
+    return {"document_rev": main.AI_CONSENT_REV, "document_hash": main.AI_CONSENT_HASH}
+
+
+def _anonymous_consent() -> dict:
+    return {
+        "consent": True,
+        "consent_rev": main.AI_CONSENT_REV,
+        "consent_hash": main.AI_CONSENT_HASH,
+    }
+
+
 # ── Зарегистрированный пользователь ───────────────────────────────────────
 async def test_generation_without_consent_does_not_reach_the_model(client, monkeypatch):
     """Отказ до вызова модели: данные наружу не ушли, генерация не списана."""
@@ -68,7 +80,11 @@ async def test_generation_without_consent_does_not_reach_the_model(client, monke
 
     assert r.status_code == 403
     # Редакция в ответе — чтобы клиент знал, на что именно спрашивать согласие.
-    assert r.json() == {"error": "consent_required", "rev": main.AI_CONSENT_REV}
+    assert r.json() == {
+        "error": "consent_required",
+        "rev": main.AI_CONSENT_REV,
+        "hash": main.AI_CONSENT_HASH,
+    }
     assert calls["n"] == 0, "без согласия данные не должны уходить провайдеру"
     with main.get_db() as db:
         left = db.execute("SELECT free_left FROM users WHERE id=?", (uid,)).fetchone()
@@ -110,19 +126,20 @@ async def test_consent_unlocks_generation_and_is_recorded(client, monkeypatch):
 
     assert (await client.get("/api/me")).json()["ai_consent"] is False
 
-    ok = await client.post("/api/consent")
+    ok = await client.post("/api/consent", json=_consent_body())
     assert ok.status_code == 200
     assert ok.json()["rev"] == main.AI_CONSENT_REV
 
     with main.get_db() as db:
         row = db.execute(
-            "SELECT ai_consent_at, ai_consent_rev FROM users WHERE id=?", (uid,)
+            "SELECT ai_consent_at, ai_consent_rev, ai_consent_hash FROM users WHERE id=?", (uid,)
         ).fetchone()
         logged = db.execute(
             "SELECT COUNT(*) FROM usage_events WHERE event='ai_consent' AND user_id=?", (uid,)
         ).fetchone()[0]
     assert row["ai_consent_at"], "момент подтверждения обязан сохраниться"
     assert row["ai_consent_rev"] == main.AI_CONSENT_REV
+    assert row["ai_consent_hash"] == main.AI_CONSENT_HASH
     assert logged == 1, "подтверждение должно оставаться в журнале"
 
     assert (await client.get("/api/me")).json()["ai_consent"] is True
@@ -155,9 +172,26 @@ async def test_consent_to_previous_revision_does_not_count(client, monkeypatch):
     assert calls["n"] == 0
 
 
+async def test_consent_to_previous_document_hash_does_not_count(client, monkeypatch):
+    calls = {"n": 0}
+    _never_called(monkeypatch, calls)
+    uid = await _login(client, "oldhash@test.com")
+    with main.get_db() as db:
+        db.execute(
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE id=?",
+            (main.AI_CONSENT_REV, "0" * 64, uid),
+        )
+
+    response = await client.post("/api/generate", json=_GENERATE_BODY)
+
+    assert response.status_code == 403
+    assert calls["n"] == 0
+
+
 async def test_consent_requires_auth(client):
     main.init_db()
-    r = await client.post("/api/consent")
+    r = await client.post("/api/consent", json=_consent_body())
     assert r.status_code == 401
 
 
@@ -195,7 +229,7 @@ async def test_anonymous_consent_is_logged_with_revision(client, monkeypatch):
     r = await client.post(
         "/api/generate-preview",
         json={"kind": "general", "profile": {"name": "Иван"}, "target_role": "QA",
-              "consent": True},
+              **_anonymous_consent()},
         headers={"X-Real-IP": "203.0.113.10"},
     )
 
@@ -210,6 +244,50 @@ async def test_anonymous_consent_is_logged_with_revision(client, monkeypatch):
     assert json.loads(row["meta"])["rev"] == main.AI_CONSENT_REV
 
 
+async def test_provider_change_invalidates_previous_consent_and_keeps_snapshot(client, monkeypatch):
+    """Согласие привязано к получателю, а доказательство хранит его профиль."""
+    calls = {"n": 0}
+    _never_called(monkeypatch, calls)
+    uid = await _login(client, "provider-switch@test.com")
+
+    monkeypatch.setattr(main, "AI_PROVIDER_EXTERNAL", True)
+    monkeypatch.setattr(main, "AI_PROVIDER_ID", "provider-a")
+    monkeypatch.setattr(main, "AI_PROVIDER_NAME", "Provider A")
+    monkeypatch.setattr(main, "AI_PROVIDER_LEGAL_NAME", "Provider A LLC")
+    monkeypatch.setattr(main, "AI_PROVIDER_COUNTRY", "Россия")
+    monkeypatch.setattr(main, "AI_PROVIDER_ADDRESS", "Москва")
+    monkeypatch.setattr(main, "AI_PROVIDER_CONTACT", "legal@provider-a.example")
+    monkeypatch.setattr(main, "AI_PROVIDER_TERMS_URL", "https://provider-a.example/terms")
+    monkeypatch.setattr(main, "AI_PROVIDER_PRIVACY_URL", "https://provider-a.example/privacy")
+    monkeypatch.setattr(main, "AI_EXTERNAL_TRANSFER_CONFIRMED", True)
+
+    hash_a = main._current_ai_consent_hash()
+    accepted = await client.post(
+        "/api/consent",
+        json={"document_rev": main.AI_CONSENT_REV, "document_hash": hash_a},
+    )
+    assert accepted.status_code == 200
+
+    with main.get_db() as db:
+        event = db.execute(
+            "SELECT metadata FROM legal_events WHERE user_id=? ORDER BY id DESC LIMIT 1",
+            (uid,),
+        ).fetchone()
+    snapshot = json.loads(event["metadata"])["provider_snapshot"]
+    assert snapshot["provider_id"] == "provider-a"
+    assert snapshot["name"] == "Provider A LLC"
+    assert snapshot["country"] == "Россия"
+    assert snapshot["fingerprint"]
+
+    monkeypatch.setattr(main, "AI_PROVIDER_ID", "provider-b")
+    monkeypatch.setattr(main, "AI_PROVIDER_NAME", "Provider B")
+    monkeypatch.setattr(main, "AI_PROVIDER_LEGAL_NAME", "Provider B LLC")
+    assert main._current_ai_consent_hash() != hash_a
+    response = await client.post("/api/generate", json=_GENERATE_BODY)
+    assert response.status_code == 403
+    assert calls["n"] == 0
+
+
 # ── Разметка ──────────────────────────────────────────────────────────────
 async def test_consent_modal_is_present_where_generation_starts(client):
     """Согласие должно быть чем дать: модалка и её логика — на обеих страницах,
@@ -220,8 +298,9 @@ async def test_consent_modal_is_present_where_generation_starts(client):
     assert 'id="modal-consent"' in r.text
     assert 'id="consent-box"' in r.text
     assert "/static/consent.js" in r.text
-    assert "трансграничную передачу" in r.text
+    assert "Я даю согласие на обработку моих персональных данных" in r.text
     assert f'data-rev="{main.AI_CONSENT_REV}"' in r.text
+    assert f'data-hash="{main.AI_CONSENT_HASH}"' in r.text
 
 
 async def test_consent_text_is_shared_between_generator_and_editor(client):

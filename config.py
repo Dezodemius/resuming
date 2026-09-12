@@ -4,9 +4,12 @@
 а не дублировали чтение os.getenv. Импортируется первым — выполняет load_dotenv,
 создаёт каталог данных и настраивает логирование.
 """
+import hashlib
 import ipaddress
+import json
 import logging
 import os
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
@@ -127,7 +130,7 @@ def env_int(name: str, default: int) -> int:
 # ── Внешние сервисы ─────────────────────────────────────────────────────────
 OLLAMA_URL           = os.getenv("OLLAMA_URL", "http://localhost:11434")
 MODEL                = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
-# Bearer-токен для внешних OpenAI-совместимых провайдеров (DeepSeek и т.п.).
+# Bearer-токен для внешнего OpenAI-совместимого провайдера.
 # Пусто — заголовок Authorization не отправляется (локальная Ollama его не требует).
 AI_API_KEY           = os.getenv("AI_API_KEY", "")
 ROBOKASSA_LOGIN      = os.getenv("ROBOKASSA_LOGIN", "")
@@ -149,13 +152,98 @@ SELLER_PHONE_HREF    = os.getenv("SELLER_PHONE_HREF", "").strip() or "".join(
 SELLER_EMAIL         = os.getenv("SELLER_EMAIL", "").strip()
 SELLER_SITE          = os.getenv("SELLER_SITE", "").strip()
 
-# Редакция согласия на обработку персональных данных и трансграничную передачу
-# их AI-провайдеру. Совпадает с датой редакции политики: генерация уносит имя,
-# контакты и опыт за пределы РФ (ст. 12 152-ФЗ), а такое согласие обязано быть
-# отдельным и подтверждённым действием, а не выводом из «продолжая вход».
-# Меняется текст политики в части передачи — поднимаем дату, и согласие
-# спрашивается заново у всех.
-AI_CONSENT_REV = "2026-08-30"
+# Редакции юридических документов. Менять ревизию и текст синхронно: старая
+# отметка тогда перестаёт действовать, а append-only журнал сохраняет, с чем
+# именно пользователь согласился. Хеш — идентификатор редакции документа для
+# доказательства, а не подпись пользователя и не секрет.
+TERMS_REV = "2026-09-05"
+COOKIE_CONSENT_REV = "2026-09-05"
+
+# Редакция отдельного согласия на передачу данных конкретному внешнему
+# AI-провайдеру. Локальная модель Оператора работает по договорному основанию
+# и не использует это согласие. Смена юридически значимого профиля получателя
+# автоматически инвалидирует старое согласие через fingerprint.
+AI_CONSENT_REV = "2026-09-05"
+
+# Для внешнего провайдера эти сведения становятся частью отдельного согласия.
+# Пустые значения безопасны только для локальной/private-network модели;
+# внешний вызов с неполным профилем блокируется в main.py.
+AI_PROVIDER_ID = os.getenv("AI_PROVIDER_ID", "").strip()
+AI_PROVIDER_NAME = os.getenv("AI_PROVIDER_NAME", "").strip()
+AI_PROVIDER_LEGAL_NAME = os.getenv("AI_PROVIDER_LEGAL_NAME", "").strip() or AI_PROVIDER_NAME
+AI_PROVIDER_COUNTRY = os.getenv("AI_PROVIDER_COUNTRY", "").strip()
+AI_PROVIDER_ADDRESS = os.getenv("AI_PROVIDER_ADDRESS", "").strip()
+AI_PROVIDER_CONTACT = os.getenv("AI_PROVIDER_CONTACT", "").strip()
+AI_PROVIDER_TERMS_URL = os.getenv("AI_PROVIDER_TERMS_URL", "").strip()
+AI_PROVIDER_PRIVACY_URL = os.getenv("AI_PROVIDER_PRIVACY_URL", "").strip()
+AI_PROVIDER_EXTERNAL = env_flag("AI_PROVIDER_EXTERNAL")
+
+AI_PROVIDER_PROFILE = {
+    "provider_id": AI_PROVIDER_ID,
+    "display_name": AI_PROVIDER_NAME,
+    "legal_name": AI_PROVIDER_LEGAL_NAME,
+    "country": AI_PROVIDER_COUNTRY,
+    "address": AI_PROVIDER_ADDRESS,
+    "contact": AI_PROVIDER_CONTACT,
+    "terms_url": AI_PROVIDER_TERMS_URL,
+    "privacy_url": AI_PROVIDER_PRIVACY_URL,
+}
+AI_PROVIDER_FINGERPRINT = hashlib.sha256(
+    json.dumps(
+        AI_PROVIDER_PROFILE,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
+
+
+def _legal_document_hash(
+    document: str,
+    revision: str,
+    template_name: str,
+    *render_context: str,
+) -> str:
+    """SHA-256 фактического шаблона и значимых данных его рендера.
+
+    Одна только строка revision не доказывает содержание показанного текста:
+    шаблон могли изменить, забыв поднять редакцию. Поэтому идентификатор
+    меняется и от байтов документа, и от реквизитов, подставляемых Jinja.
+    """
+    try:
+        template = (Path(__file__).resolve().parent / "templates" / template_name).read_bytes()
+    except OSError:
+        # Fail-soft нужен только для инструментов, импортирующих config отдельно
+        # от приложения. В production-образе templates является обязательным.
+        template = b"template-unavailable"
+    payload = b"\0".join(
+        [document.encode("utf-8"), revision.encode("utf-8"), template]
+        + [value.encode("utf-8") for value in render_context]
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
+_OPERATOR_HASH_CONTEXT = (SELLER_NAME, SELLER_STATUS, SELLER_INN, SELLER_CITY, SELLER_EMAIL)
+TERMS_HASH = _legal_document_hash(
+    "terms", TERMS_REV, "terms.html", *_OPERATOR_HASH_CONTEXT
+)
+COOKIE_CONSENT_HASH = _legal_document_hash(
+    "cookie-consent", COOKIE_CONSENT_REV, "_site_consent.html"
+)
+AI_CONSENT_HASH = _legal_document_hash(
+    "ai-consent",
+    AI_CONSENT_REV,
+    "ai-consent.html",
+    *_OPERATOR_HASH_CONTEXT,
+    AI_PROVIDER_FINGERPRINT,
+    str(AI_PROVIDER_EXTERNAL),
+)
+
+# Внешняя передача отключена по умолчанию. Этот deployment-флаг подтверждает
+# операционную готовность, но не заменяет юридические и договорные процедуры.
+AI_EXTERNAL_TRANSFER_CONFIRMED = env_flag("AI_EXTERNAL_TRANSFER_CONFIRMED")
+# Незавершённые записи prompt-buffer после аварийного завершения процесса.
+AI_PROMPT_BUFFER_TTL_MINUTES = env_int("AI_PROMPT_BUFFER_TTL_MINUTES", 60)
 
 def _idna_url(url: str) -> str:
     """Хост URL в punycode (IDNA). Браузер, Origin-заголовок и OAuth-провайдеры
@@ -320,7 +408,7 @@ MAGIC_MINUTES    = 15
 AI_CONCURRENCY   = env_int("AI_CONCURRENCY", 2)
 # Потолок токенов ответа модели (top-level max_tokens, см. call_ai). Держит
 # счёт даже если промпт-инъекцией модель заставят генерировать что-то длинное
-# не по формату — при внешнем провайдере (DeepSeek) это ещё и реальные деньги.
+# не по формату — при внешнем провайдере это ещё и реальные деньги.
 # 4096 — с запасом на длинное резюме (несколько мест работы, подробные
 # bullet-points), но по-прежнему на порядки меньше, чем ничем не
 # ограниченный ответ.

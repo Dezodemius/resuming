@@ -80,9 +80,10 @@ async def test_privacy_page_matches_actual_data_locations(client):
     хранения у внешнего AI-провайдера."""
     r = await client.get("/privacy")
     assert r.status_code == 200
-    assert "на территории Российской Федерации" in r.text
-    assert "DeepSeek" in r.text
-    assert "территории КНР" in r.text
+    assert "в инфраструктуре Оператора" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "api.deepseek.com" not in r.text
+    assert "территории КНР" not in r.text
     assert "Германия / Финляндия" not in r.text
     assert "без сохранения на стороне провайдера" not in r.text
 
@@ -92,9 +93,12 @@ async def test_new_page_notifies_about_personal_data_at_collection_points(client
     профиля, а не только ссылкой на политику в подвале."""
     r = await client.get("/new")
     assert r.status_code == 200
-    assert "Продолжая вход любым способом" in r.text
-    assert "согласие на обработку персональных данных" in r.text
-    assert "передаются AI-провайдеру DeepSeek на территории КНР" in r.text
+    assert 'id="terms-accepted"' in r.text
+    assert "Я принимаю" in r.text
+    assert 'href="/terms"' in r.text
+    assert "Политикой обработки персональных данных" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "Продолжая вход любым способом" not in r.text
 
 
 async def test_billing_returns_amount_of_actual_payment(client):
@@ -218,8 +222,9 @@ async def _login(client, email):
         # не его, а поведение самой генерации, поэтому ставим отметку сразу —
         # иначе каждый из них упирался бы в 403 consent_required.
         db.execute(
-            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
-            (main.AI_CONSENT_REV, email),
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE email=?",
+            (main.AI_CONSENT_REV, main.AI_CONSENT_HASH, email),
         )
         db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]

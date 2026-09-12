@@ -11,6 +11,12 @@ import pytest
 import main
 
 
+@pytest.fixture(autouse=True)
+def _valid_terms_context_for_identity_linking_tests(monkeypatch):
+    """Эти тесты изолируют identity linking; terms-context покрыт отдельно."""
+    monkeypatch.setattr(main, "_oauth_terms_context", lambda *_args: {"action": "explicit"})
+
+
 def _mock_oauth_http(monkeypatch, responses):
     """Подменяет httpx.AsyncClient на конвейер из заготовленных JSON-ответов.
 
