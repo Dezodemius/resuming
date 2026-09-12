@@ -271,3 +271,12 @@
 .lp-sticky.on{display:block}
 .lp-sticky .btn-primary{width:100%;justify-content:center;height:50px}
 @media(min-width:820px){.lp-sticky{display:none!important}}
+
+@media(max-width:560px){
+  .lp-sec{padding:58px 0}
+  .lp-hero{padding:44px 0 18px}
+  .lp-badge-float{position:static;margin-top:12px;justify-content:center}
+  .lp-trust{grid-template-columns:1fr}
+  .lp-plan{padding:24px 20px}
+  .lp-final{padding:40px 20px;border-radius:20px}
+}

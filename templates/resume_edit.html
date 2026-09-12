@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v=2">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
-<link rel="stylesheet" href="/static/app.css?v=20260831">
+<link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
 <script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
@@ -806,7 +806,13 @@ function renderATSRing(match) {
 // ── Section navigation ────────────────────────────────────────────────
 function scrollToSection(id) {
   const el = document.getElementById(id);
-  if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+  if (!el) return;
+  const appbar = document.querySelector('.appbar');
+  const crumbs = document.querySelector('.crumbs');
+  const stack = (appbar?.getBoundingClientRect().height || 0)
+              + (crumbs?.getBoundingClientRect().height || 0) + 12;
+  const top = window.scrollY + el.getBoundingClientRect().top - stack;
+  window.scrollTo({top: Math.max(0, top), behavior:'smooth'});
 }
 
 // ── PDF ───────────────────────────────────────────────────────────────
