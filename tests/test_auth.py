@@ -58,7 +58,7 @@ async def test_yandex_start_redirects_to_yandex_domain(monkeypatch, client):
     monkeypatch.setattr(main, "YANDEX_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "YANDEX_CLIENT_ID", "test-yandex-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
-    r = await client.get("/auth/yandex", follow_redirects=False)
+    r = await client.get("/auth/yandex?terms=1", follow_redirects=False)
     assert r.status_code == 302
     assert "oauth.yandex.ru" in r.headers["location"]
     assert "client_id=test-yandex-id" in r.headers["location"]
@@ -85,7 +85,7 @@ async def test_vk_start_redirects_to_vk_domain(monkeypatch, client):
     monkeypatch.setattr(main, "VK_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
-    r = await client.get("/auth/vk", follow_redirects=False)
+    r = await client.get("/auth/vk?terms=1", follow_redirects=False)
     assert r.status_code == 302
     assert "id.vk.com" in r.headers["location"]
     assert "client_id=test-vk-id" in r.headers["location"]
@@ -96,7 +96,7 @@ async def test_vk_start_sets_state_cookie(monkeypatch, client):
     monkeypatch.setattr(main, "VK_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "VK_CLIENT_ID", "test-vk-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
-    r = await client.get("/auth/vk", follow_redirects=False)
+    r = await client.get("/auth/vk?terms=1", follow_redirects=False)
     assert "vk_state" in r.cookies
     assert "vk_verifier" in r.cookies
 
@@ -138,7 +138,7 @@ async def test_mailru_start_redirects_to_mailru_domain(monkeypatch, client):
     monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
-    r = await client.get("/auth/mailru", follow_redirects=False)
+    r = await client.get("/auth/mailru?terms=1", follow_redirects=False)
     assert r.status_code == 302
     assert "oauth.mail.ru" in r.headers["location"]
     assert "client_id=test-mr-id" in r.headers["location"]
@@ -149,7 +149,7 @@ async def test_mailru_start_sets_state_cookie(monkeypatch, client):
     monkeypatch.setattr(main, "MAILRU_LOGIN_ENABLED", True)
     monkeypatch.setattr(main, "MAILRU_CLIENT_ID", "test-mr-id")
     monkeypatch.setattr(main, "APP_URL", "http://localhost:8000")
-    r = await client.get("/auth/mailru", follow_redirects=False)
+    r = await client.get("/auth/mailru?terms=1", follow_redirects=False)
     assert "mr_state" in r.cookies
 
 

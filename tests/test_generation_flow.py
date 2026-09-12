@@ -33,8 +33,9 @@ async def _login(client, email):
         # не его, а поведение самой генерации, поэтому ставим отметку сразу —
         # иначе каждый из них упирался бы в 403 consent_required.
         db.execute(
-            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
-            (main.AI_CONSENT_REV, email),
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE email=?",
+            (main.AI_CONSENT_REV, main.AI_CONSENT_HASH, email),
         )
         db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]

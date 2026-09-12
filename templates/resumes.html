@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Мои резюме — Резюмирую.рф</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -14,7 +11,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/esc.js?v=20260824"></script>
@@ -144,7 +140,7 @@ let resumes = [];
 let generationPoll = null;
 let createSource = 'url';
 let state = {
-  view:   (localStorage.getItem('lib_view') || 'board'),
+  view:   (window.SiteConsent ? window.SiteConsent.preferenceGet('lib_view', 'board') : 'board'),
   filter: 'all',
   query:  '',
   selected: 0,
@@ -271,7 +267,7 @@ function setFilter(key){ state.filter = key; renderChips(); renderContent(); }
 
 // ── Views ────────────────────────────────────────────────────────────────
 function setView(view){
-  state.view = view; localStorage.setItem('lib_view', view);
+  state.view = view; if (window.SiteConsent) window.SiteConsent.preferenceSet('lib_view', view);
   syncViewButtons(); renderContent();
 }
 function syncViewButtons(){

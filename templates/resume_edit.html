@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Редактор резюме — Резюмирую.рф</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -14,12 +11,10 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
 const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 {% include '_metrika.html' %}
 </head>
@@ -591,11 +586,11 @@ function removeEntry(id) {
 
 // ── Skills helpers ─────────────────────────────────────────────────────
 function formatSkills(skills) {
-  return Object.entries(skills || {}).map(([cat, items]) => `${cat}: ${(items||[]).join(', ')}`).join('\n');
+  return Object.entries(skills || {}).map(([cat, items]) => `${cat}: ${(items||[]).join(', ')}`).join('\r\n');
 }
 function parseSkills(text) {
   const res = {};
-  (text || '').split('\n').forEach(line => {
+  (text || '').split('\r\n').forEach(line => {
     const colon = line.indexOf(':');
     if (colon < 0) return;
     const cat   = line.slice(0, colon).trim();
@@ -826,6 +821,7 @@ async function downloadPDF() {
   const name   = (resume.name || 'resume').replace(/\s+/g, '_');
   setLoader(true, 'Создание PDF…');
   try {
+    await App.loadHtml2Pdf();
     await new Promise(resolve => requestAnimationFrame(resolve));
     await html2pdf().set({
       margin:[10,10,10,10], filename:`${name}.pdf`,
@@ -895,7 +891,7 @@ async function aiImproveBullets(expIdx) {
                         .map(t => t.value.trim()).filter(Boolean);
   const role     = gv(`exp-role-${expIdx}`);
   const company  = gv(`exp-co-${expIdx}`);
-  const text     = bullets.join('\n');
+  const text     = bullets.join('\r\n');
   if (!text) { toast('Нет описания для улучшения', 'err'); return; }
 
   setLoader(true, 'ИИ улучшает описание…');
@@ -954,7 +950,7 @@ function applyAI() {
   } else if (aiTarget.kind === 'bullets') {
     const idx  = aiTarget.expIdx;
     const list = document.getElementById(`bullets-${idx}`);
-    const lines = text.split('\n')
+    const lines = text.split('\r\n')
       .map(l => l.replace(/^[•\-–]\s*/, '').trim())
       .filter(Boolean);
     list.innerHTML = lines.map((b, bi) => bulletRowHtml(b, idx, bi)).join('');

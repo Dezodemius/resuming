@@ -43,7 +43,13 @@ from config import (  # noqa: E402
     ROBOKASSA_LOGIN, ROBOKASSA_PASSWORD1, ROBOKASSA_PASSWORD2, ROBOKASSA_TEST_MODE,
     SELLER_NAME, SELLER_STATUS, SELLER_INN, SELLER_CITY,
     SELLER_PHONE, SELLER_PHONE_HREF, SELLER_EMAIL, SELLER_SITE,
-    AI_CONSENT_REV,
+    AI_CONSENT_REV, AI_CONSENT_HASH as AI_CONSENT_BASE_HASH,
+    TERMS_REV, TERMS_HASH, COOKIE_CONSENT_REV, COOKIE_CONSENT_HASH,
+    AI_PROVIDER_ID, AI_PROVIDER_NAME, AI_PROVIDER_LEGAL_NAME,
+    AI_PROVIDER_COUNTRY, AI_PROVIDER_ADDRESS, AI_PROVIDER_CONTACT,
+    AI_PROVIDER_TERMS_URL, AI_PROVIDER_PRIVACY_URL,
+    AI_PROVIDER_EXTERNAL,
+    AI_EXTERNAL_TRANSFER_CONFIRMED, AI_PROMPT_BUFFER_TTL_MINUTES,
     SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM,
     YANDEX_CLIENT_ID, YANDEX_CLIENT_SECRET,
     VK_CLIENT_ID,
@@ -56,6 +62,7 @@ from config import (  # noqa: E402
     SECRET_KEY,
     ADMIN_EMAILS, ADMIN_IPS, METRIKA_ID,
     CSP_MODE, CLEANUP_INTERVAL_SEC, ANON_USAGE_TTL_DAYS, EVENTS_TTL_DAYS,
+    MCP_TOKEN_DAYS, PENDING_PAYMENT_TTL_HOURS,
     RATE_LIMIT_ENABLED, PAID_PACK, DEV_MODE,
 )
 
@@ -68,6 +75,64 @@ def get_ai_sem() -> asyncio.Semaphore:
     if _ai_sem is None:
         _ai_sem = asyncio.Semaphore(AI_CONCURRENCY)
     return _ai_sem
+
+
+_SITE_CONSENT_COOKIE = "site_consent"
+_SITE_CONSENT_CHOICES = frozenset({"necessary", "analytics"})
+_SITE_CONSENT_MAX_AGE = 180 * 86400
+
+
+def _sign_site_consent(choice: str, consent_id: Optional[str] = None) -> str:
+    """Подписывает выбор и pseudonymous id доказательства analytics opt-in."""
+    marker = consent_id if consent_id else "-"
+    payload = f"{COOKIE_CONSENT_REV}.{COOKIE_CONSENT_HASH}.{choice}.{marker}"
+    signature = hmac.new(SECRET_KEY.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _parse_site_consent(request: Request) -> tuple[str, Optional[str]]:
+    """Возвращает проверенный выбор/id или unknown для старой/битой cookie."""
+    parts = request.cookies.get(_SITE_CONSENT_COOKIE, "").split(".")
+    if len(parts) != 5:
+        return "unknown", None
+    revision, document_hash, choice, marker, signature = parts
+    if (
+        revision != COOKIE_CONSENT_REV
+        or document_hash != COOKIE_CONSENT_HASH
+        or choice not in _SITE_CONSENT_CHOICES
+    ):
+        return "unknown", None
+    consent_id = None if marker == "-" else marker
+    if consent_id:
+        try:
+            uuid.UUID(consent_id)
+        except ValueError:
+            return "unknown", None
+    if choice == "analytics" and consent_id is None:
+        return "unknown", None
+    expected = _sign_site_consent(choice, consent_id).rsplit(".", 1)[1]
+    if not hmac.compare_digest(signature, expected):
+        return "unknown", None
+    return choice, consent_id
+
+
+def _site_consent_state(request: Request) -> str:
+    return _parse_site_consent(request)[0]
+
+
+def _set_site_consent_cookie(
+    response: Response,
+    choice: str,
+    consent_id: Optional[str] = None,
+) -> None:
+    response.set_cookie(
+        _SITE_CONSENT_COOKIE,
+        _sign_site_consent(choice, consent_id),
+        max_age=_SITE_CONSENT_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=APP_URL.startswith("https"),
+    )
 
 def _plan_context(request: Request) -> dict:
     """Цифры тарифа — в контекст каждого шаблона, а не в контекст каждой ручки.
@@ -83,7 +148,7 @@ def _plan_context(request: Request) -> dict:
     подменяют значения через monkeypatch(main, "PRO_FAIR_USE_LIMIT", …), и
     зашитый на импорте глобал такую подмену бы не увидел.
     """
-    return {
+    context = {
         "pro_price":          PRO_PRICE,
         "pro_days":           PRO_DAYS,
         "free_uses":          FREE_USES,
@@ -93,6 +158,18 @@ def _plan_context(request: Request) -> dict:
         "pro_fair_use_limit": PRO_FAIR_USE_LIMIT,
         "pro_fair_use_days":  PRO_FAIR_USE_DAYS,
     }
+    # Starlette всегда передаёт Request в настоящий template render. Вне HTTP
+    # (старые unit-тесты и утилиты) сохраняем прежний компактный контракт.
+    if request is not None:
+        context["site_consent_state"] = _site_consent_state(request)
+        context["site_consent_rev"] = COOKIE_CONSENT_REV
+        context["site_consent_hash"] = COOKIE_CONSENT_HASH
+        # Provider profile is deployment data, not a hard-coded legal string.
+        # Resolve it for every response so tests and controlled restarts cannot
+        # render one profile while the API validates another one.
+        context["ai_provider"] = _ai_provider_context()
+        context["ai_consent_hash"] = _current_ai_consent_hash()
+    return context
 
 
 tpl = Jinja2Templates(directory="templates", context_processors=[_plan_context])
@@ -100,6 +177,10 @@ tpl.env.globals["metrika_id"] = METRIKA_ID
 # Редакция согласия — в разметку модалки и в ключ отметки анонима в браузере:
 # поднялась редакция, и прежняя отметка перестаёт совпадать сама.
 tpl.env.globals["ai_consent_rev"] = AI_CONSENT_REV
+tpl.env.globals["site_consent_rev"] = COOKIE_CONSENT_REV
+tpl.env.globals["site_consent_hash"] = COOKIE_CONSENT_HASH
+tpl.env.globals["terms_rev"] = TERMS_REV
+tpl.env.globals["terms_hash"] = TERMS_HASH
 tpl.env.globals["current_year"] = datetime.now(timezone.utc).year
 tpl.env.globals["seller"] = {
     "name": SELLER_NAME,
@@ -134,8 +215,9 @@ def cleanup_expired() -> dict[str, int]:
     """Удалить протухшие сессии, токены и старые служебные записи.
 
     Без этого таблицы растут бесконечно: sessions и magic_tokens пополняются
-    на каждый вход, anon_usage — на каждого анонимного посетителя. Возвращает
-    число удалённых строк по таблицам (для логов и тестов).
+    на каждый вход, anon_usage — на каждого анонимного посетителя, а
+    payments — на каждый клик по кнопке оплаты. Возвращает число удалённых
+    строк по таблицам (для логов и тестов).
     """
     removed: dict[str, int] = {}
     with get_db() as db:
@@ -157,6 +239,26 @@ def cleanup_expired() -> dict[str, int]:
         ).rowcount
         removed["usage_events"] = db.execute(
             f"DELETE FROM usage_events WHERE created < datetime('now','-{EVENTS_TTL_DAYS} days')"
+        ).rowcount
+        # В нормальном случае prompt удаляется в finally сразу после внешнего
+        # вызова. Здесь остаются только записи после kill -9/падения процесса.
+        removed["ai_prompt_buffer"] = db.execute(
+            "DELETE FROM ai_prompt_buffer WHERE created < datetime('now', ?)",
+            (f"-{AI_PROMPT_BUFFER_TTL_MINUTES} minutes",),
+        ).rowcount
+        # MCP-токен с истёкшим сроком уже не пускает (_mcp_user сверяет срок),
+        # но строку с рабочим на вид ключом держать в базе незачем.
+        removed["api_tokens"] = db.execute(
+            "DELETE FROM api_tokens WHERE expires_at IS NOT NULL"
+            " AND expires_at < datetime('now')"
+        ).rowcount
+        # Неоплаченные счета: строка заводится на каждый клик по кнопке
+        # оплаты, а платит человек с одной из них. Остальные — мусор, который
+        # копится навсегда и занимает номера InvId. Успешные и возвращённые
+        # остаются: это финансовая история.
+        removed["payments"] = db.execute(
+            "DELETE FROM payments WHERE status='pending'"
+            f" AND created < datetime('now','-{PENDING_PAYMENT_TTL_HOURS} hours')"
         ).rowcount
         db.commit()
     return removed
@@ -290,8 +392,8 @@ def rate(limit: str):
     return decorator
 
 # ── Security headers ─────────────────────────────────────────────────────
-# Перечислены ровно те внешние источники, которые реально используются в
-# шаблонах: шрифты Google, html2pdf с cdnjs, Яндекс.Метрика.
+# Перечислены ровно те внешние источники, которые реально используются:
+# html2pdf с cdnjs после запроса экспорта и Яндекс.Метрика после opt-in.
 _CSP = "; ".join([
     "default-src 'self'",
     "base-uri 'self'",
@@ -303,8 +405,8 @@ _CSP = "; ".join([
     # 'unsafe-inline'; 'unsafe-eval' нужен сборщику PDF
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
     "https://cdnjs.cloudflare.com https://mc.yandex.ru",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' data: https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
     # Аватарки приходят с доменов VK/Яндекса/Mail.ru — перечислять
     # все хрупко, а картинка не исполняется: разрешаем любой https.
     "img-src 'self' data: blob: https:",
@@ -343,6 +445,13 @@ async def security_headers(request: Request, call_next):
         # Без includeSubDomains: поддомен ops.* обслуживается отдельно и не
         # должен зависеть от политики основного домена.
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    if response.headers.get("content-type", "").lower().startswith("text/html"):
+        # Разметка содержит проверенное состояние site_consent. Общий CDN/proxy
+        # не должен отдать вариант analytics посетителю без его cookie.
+        response.headers.setdefault("Cache-Control", "private, no-store")
+        vary = {item.strip() for item in response.headers.get("Vary", "").split(",") if item.strip()}
+        vary.add("Cookie")
+        response.headers["Vary"] = ", ".join(sorted(vary))
     return response
 
 # ── Обработчики ошибок ───────────────────────────────────────────────────
@@ -443,25 +552,46 @@ async def get_current_user(request: Request) -> Optional[dict]:
     return dict(row) if row else None
 
 
-# ── Согласие на передачу данных AI-провайдеру ─────────────────────────────
-# Генерация уносит имя, контакты и опыт внешнему провайдеру за пределы РФ
-# (ст. 12 152-ФЗ). Такое согласие обязано быть отдельным подтверждённым
-# действием, поэтому проверка стоит на сервере, а не только галочкой в форме:
-# запрос мимо интерфейса не должен уносить данные наружу.
+# ── Согласие на обработку данных AI-моделью ───────────────────────────────
+# Режим и профиль получателя вычисляются из deployment-конфигурации ниже.
+# Сервер проверяет не только наличие отметки, но и хеш именно показанного
+# документа: смена локальной модели на внешний сервис или смена получателя
+# автоматически требует нового подтверждения.
 def _has_ai_consent(user: dict) -> bool:
-    """Дал ли пользователь согласие на действующую редакцию условий передачи.
+    """Дал ли пользователь согласие на действующую редакцию AI-документа.
 
-    Сверяем не сам факт отметки, а её редакцию: изменится текст в части
-    передачи данных провайдеру — поднимется AI_CONSENT_REV, и прежнее согласие
-    перестанет засчитываться, потому что человек соглашался на другое.
+    Сверяем не сам факт отметки, а её редакцию и provider fingerprint.
     """
-    return bool(user.get("ai_consent_at")) and user.get("ai_consent_rev") == AI_CONSENT_REV
+    return bool(user.get("ai_consent_at")) and (
+        user.get("ai_consent_rev") == AI_CONSENT_REV
+        and user.get("ai_consent_hash") == _current_ai_consent_hash()
+    )
 
 
 def _consent_required() -> JSONResponse:
-    """Отказ до вызова модели: данные наружу не уходят, списания нет."""
+    """Отказ до вызова модели: данные провайдеру не уходят, списания нет."""
     return JSONResponse(status_code=403,
-                        content={"error": "consent_required", "rev": AI_CONSENT_REV})
+                        content={"error": "consent_required", "rev": AI_CONSENT_REV,
+                                 "hash": _current_ai_consent_hash()})
+
+
+def _ai_consent_snapshot() -> dict:
+    """Безопасный снимок профиля, который пользователь видел при согласии."""
+    provider = _ai_provider_context()
+    return {
+        "mode": provider["mode"],
+        "provider_id": provider["provider_id"],
+        "name": provider["name"],
+        "country": provider["country"],
+        "address": provider["address"],
+        "contact": provider["contact"],
+        "terms_url": provider["terms_url"],
+        "privacy_url": provider["privacy_url"],
+        "cross_border": provider["cross_border"],
+        "fingerprint": provider["fingerprint"],
+        "document_rev": AI_CONSENT_REV,
+        "document_hash": _current_ai_consent_hash(),
+    }
 
 
 def _normalize_email(email: str) -> str:
@@ -667,7 +797,8 @@ async def _send_magic_email(to_email: str, token: str) -> Optional[str]:
 from schemas import (  # noqa: E402
     EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
-    PromoActivateReq, PromoCreateReq, TrackReq,
+    PromoActivateReq, PromoCreateReq, PromoDeactivateReq, TrackReq, SiteConsentReq,
+    AiConsentReq,
     DevLoginReq, DevGrantReq,
     # Потолок значения промокода — один и тот же для схемы новых кодов и для
     # подстраховки при активации уже заведённых (см. promo_activate).
@@ -755,8 +886,16 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
     # у анонима нет, а данные уходят провайдеру ровно так же, как у
     # зарегистрированного. Проверяем первым делом — до cookie, лимитов и
     # загрузки вакансии по ссылке.
-    if not req.consent:
+    provider = _ai_provider_context()
+    consent_hash = _current_ai_consent_hash()
+    if (
+        not req.consent
+        or req.consent_rev != AI_CONSENT_REV
+        or not hmac.compare_digest(req.consent_hash, consent_hash)
+    ):
         return _consent_required()
+    if not provider["available"]:
+        raise HTTPException(503, "Внешняя AI-генерация временно недоступна.")
 
     # Читаем и верифицируем подписанный cookie
     signed  = request.cookies.get("anon_id", "")
@@ -781,6 +920,15 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         # users, куда её можно было бы записать. Строк выходит не больше, чем
         # анонимных генераций, и их подчищает та же уборка usage_events.
         log_event(db, "ai_consent", anon_id=anon_id, rev=AI_CONSENT_REV)
+        log_legal_event(
+            db,
+            purpose="ai_external_transfer" if provider["external"] else "ai_processing",
+            document_rev=AI_CONSENT_REV,
+            document_hash=consent_hash,
+            action="accepted",
+            correlation_id=anon_id,
+            metadata={"channel": "anonymous_preview", "provider_snapshot": _ai_consent_snapshot()},
+        )
 
     # Текст вакансии: строго вручную или по ссылке (до списания лимита)
     job_text = req.job_text.strip()
@@ -816,8 +964,11 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
             else _general_prompt(req.profile, req.target_role, req.hint)
         )
         raw = await call_ai(prompt)
-    except HTTPException:
+    except Exception:
         # Модель недоступна/упала — не вина посетителя, попытки возвращаем.
+        # Ловим Exception, а не HTTPException: неожиданная ошибка (обрыв сети,
+        # сбой драйвера) точно так же не вина посетителя, а раньше съедала
+        # попытку. Остальные ручки генерации уже ловят здесь Exception.
         with get_db() as db:
             _anon_refund(db, anon_id)
             _anon_refund(db, ip_key)
@@ -827,7 +978,7 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
 
     try:
         resume = _parse_ai(raw)
-    except HTTPException:
+    except Exception:
         with get_db() as db:
             if _looks_like_honest_json_attempt(raw):
                 _anon_refund(db, anon_id)
@@ -943,11 +1094,41 @@ _FUNNEL_EVENTS = {
 }
 
 
+@app.post("/api/site-consent")
+@rate("20/minute")
+async def set_site_consent(req: SiteConsentReq, request: Request):
+    """Сохраняет opt-in аналитики в signed first-party cookie на 180 дней."""
+    choice = req.choice
+    previous, previous_id = _parse_site_consent(request)
+    user = await get_current_user(request)
+    consent_id = str(uuid.uuid4()) if choice == "analytics" else None
+    if choice == "analytics" or (choice == "necessary" and previous == "analytics"):
+        with get_db() as db:
+            log_legal_event(
+                db,
+                purpose="cookie_analytics",
+                document_rev=COOKIE_CONSENT_REV,
+                document_hash=COOKIE_CONSENT_HASH,
+                action="accepted" if choice == "analytics" else "withdrawn",
+                user_id=user["id"] if user else None,
+                correlation_id=consent_id if choice == "analytics" else previous_id,
+                metadata={"choice": choice},
+            )
+    response = JSONResponse({"choice": choice, "rev": COOKIE_CONSENT_REV})
+    response.headers["Cache-Control"] = "no-store"
+    _set_site_consent_cookie(response, choice, consent_id)
+    return response
+
+
 @app.post("/api/track")
 @rate("60/minute")
 async def track_funnel(req: TrackReq, request: Request):
     """Серверный счётчик шагов воронки — чтобы конверсия считалась и без Метрики
     (её режут блокировщики). Событие вне белого списка молча игнорируем."""
+    # В отличие от необходимого anti-abuse anon_id, это маркетинговый счётчик:
+    # без явного analytics opt-in в БД ничего не записывается.
+    if _site_consent_state(request) != "analytics":
+        return {"ok": False}
     event = req.event.strip()
     if event not in _FUNNEL_EVENTS:
         return {"ok": False}
@@ -1105,6 +1286,16 @@ async def pricing_page(request: Request):
 async def offer_page(request: Request):
     return tpl.TemplateResponse(request, "offer.html")
 
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page(request: Request):
+    return tpl.TemplateResponse(request, "terms.html")
+
+
+@app.get("/ai-consent", response_class=HTMLResponse)
+async def ai_consent_page(request: Request):
+    return tpl.TemplateResponse(request, "ai-consent.html")
+
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_page(request: Request):
     return tpl.TemplateResponse(request, "privacy.html")
@@ -1143,6 +1334,8 @@ async def billing_info(request: Request):
 @app.post("/auth/email/request")
 @rate("5/minute")
 async def auth_email_request(req: EmailReq, request: Request):
+    if not req.terms_accepted:
+        raise HTTPException(400, "Примите Пользовательское соглашение")
     email = _normalize_email(req.email)
     token = str(uuid.uuid4())
     with get_db() as db:
@@ -1166,9 +1359,10 @@ async def auth_email_request(req: EmailReq, request: Request):
         # из-за текстового сравнения '...T...' > '... ...' токен фактически жил до
         # конца суток UTC, а не 15 минут — обход короткого окна одноразового входа.
         db.execute(
-            "INSERT OR REPLACE INTO magic_tokens (token, email, expires_at)"
-            " VALUES (?,?,datetime('now',?))",
-            (token, email, f"+{MAGIC_MINUTES} minutes")
+            "INSERT OR REPLACE INTO magic_tokens "
+            "(token, email, expires_at, terms_accepted, terms_rev, terms_hash) "
+            "VALUES (?,?,datetime('now',?),?,?,?)",
+            (token, email, f"+{MAGIC_MINUTES} minutes", 1, TERMS_REV, TERMS_HASH)
         )
         db.commit()
     err = await _send_magic_email(email, token)
@@ -1196,6 +1390,14 @@ async def auth_email_verify(token: str, response: Response):
         email = row["email"]
         db.execute("UPDATE magic_tokens SET used=1 WHERE token=?", (token,))
         u = _upsert_user_by_email(db, email)
+        if row["terms_accepted"] == 1:
+            _record_terms_acceptance(
+                db,
+                u["id"],
+                channel="email_magic_link",
+                document_rev=row["terms_rev"] or TERMS_REV,
+                document_hash=row["terms_hash"] or TERMS_HASH,
+            )
         sid = _create_session(db, u["id"])
         log_event(db, "login", user_id=u["id"], method="email")
         db.commit()
@@ -1204,10 +1406,106 @@ async def auth_email_verify(token: str, response: Response):
     return r
 
 # ── Yandex OAuth ──────────────────────────────────────────────────────────
+_OAUTH_TERMS_MAX_AGE = 600
+_OAUTH_STATE_COOKIES = {
+    "yandex": ("ya_state",),
+    "vk": ("vk_state", "vk_verifier"),
+    "mailru": ("mr_state",),
+}
+
+
+def _oauth_terms_cookie_name(provider: str) -> str:
+    return f"oauth_terms_{provider}"
+
+
+def _terms_are_current(user: Optional[dict]) -> bool:
+    return bool(
+        user
+        and user.get("terms_rev") == TERMS_REV
+        and user.get("terms_hash") == TERMS_HASH
+    )
+
+
+async def _oauth_terms_action(request: Request, terms: str) -> str:
+    """Возвращает источник основания: новое действие или текущая отметка."""
+    if terms == "1":
+        return "explicit"
+    if _terms_are_current(await get_current_user(request)):
+        return "existing"
+    raise HTTPException(400, "Примите Пользовательское соглашение")
+
+
+def _set_oauth_terms_cookie(
+    response: Response,
+    provider: str,
+    state: str,
+    action: str,
+) -> None:
+    """Короткоживущий signed контекст принятия условий для OAuth callback."""
+    payload = {
+        "provider": provider,
+        "state": state,
+        "rev": TERMS_REV,
+        "hash": TERMS_HASH,
+        "action": action,
+        "exp": int(time.time()) + _OAUTH_TERMS_MAX_AGE,
+    }
+    raw = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    signature = hmac.new(SECRET_KEY.encode("utf-8"), f"oauth-terms:{raw}".encode("ascii"), hashlib.sha256).hexdigest()
+    response.set_cookie(
+        _oauth_terms_cookie_name(provider),
+        f"{raw}.{signature}",
+        max_age=_OAUTH_TERMS_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=APP_URL.startswith("https"),
+    )
+
+
+def _oauth_terms_context(request: Request, provider: str, state: str) -> Optional[dict]:
+    value = request.cookies.get(_oauth_terms_cookie_name(provider), "")
+    raw, separator, signature = value.rpartition(".")
+    if not separator:
+        return None
+    expected = hmac.new(SECRET_KEY.encode("utf-8"), f"oauth-terms:{raw}".encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+        context = json.loads(decoded)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(context, dict):
+        return None
+    if (
+        context.get("provider") != provider
+        or context.get("state") != state
+        or context.get("rev") != TERMS_REV
+        or context.get("hash") != TERMS_HASH
+        or context.get("action") not in {"explicit", "existing"}
+        or not isinstance(context.get("exp"), int)
+        or context["exp"] < int(time.time())
+    ):
+        return None
+    return context
+
+
+def _oauth_failure(provider: str) -> RedirectResponse:
+    """Все callback-отказы чистят одноразовый контекст согласия."""
+    response = RedirectResponse(url=f"/new?auth_error={provider}", status_code=303)
+    response.delete_cookie(_oauth_terms_cookie_name(provider))
+    for cookie_name in _OAUTH_STATE_COOKIES.get(provider, ()):
+        response.delete_cookie(cookie_name)
+    return response
+
+
 @app.get("/auth/yandex")
-async def auth_yandex_start():
+async def auth_yandex_start(request: Request, terms: str = ""):
     if not YANDEX_LOGIN_ENABLED:
         raise HTTPException(503, "Вход через Яндекс не настроен")
+    terms_action = await _oauth_terms_action(request, terms)
     state = str(uuid.uuid4())
     params = urlencode({
         "response_type": "code",
@@ -1218,6 +1516,7 @@ async def auth_yandex_start():
     r = RedirectResponse(f"https://oauth.yandex.ru/authorize?{params}", status_code=302)
     r.set_cookie("ya_state", state, max_age=600, httponly=True, samesite="lax",
                  secure=APP_URL.startswith("https"))
+    _set_oauth_terms_cookie(r, "yandex", state, terms_action)
     log.info("auth/yandex: redirect to Yandex OAuth")
     return r
 
@@ -1225,10 +1524,14 @@ async def auth_yandex_start():
 async def auth_yandex_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/yandex callback error: %s", error or "no code")
-        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+        return _oauth_failure("yandex")
     if not state or state != request.cookies.get("ya_state"):
         log.warning("auth/yandex callback: state mismatch")
-        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+        return _oauth_failure("yandex")
+    terms_context = _oauth_terms_context(request, "yandex", state)
+    if not terms_context:
+        log.warning("auth/yandex callback: missing or invalid terms context")
+        return _oauth_failure("yandex")
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             tr = await http.post("https://oauth.yandex.ru/token", data={
@@ -1240,26 +1543,28 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/yandex: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+                return _oauth_failure("yandex")
             ir = await http.get("https://login.yandex.ru/info",
                                 params={"format": "json"},
                                 headers={"Authorization": f"OAuth {access}"})
             info = ir.json()
     except Exception:
         log.exception("auth/yandex: OAuth request failed")
-        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+        return _oauth_failure("yandex")
 
     email = info.get("default_email") or ""
     if not email:
         log.error("auth/yandex: no default_email in userinfo")
-        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+        return _oauth_failure("yandex")
     provider_uid = info.get("id") or ""
     if not provider_uid:
         log.error("auth/yandex: no id in userinfo")
-        return RedirectResponse(url="/new?auth_error=yandex", status_code=303)
+        return _oauth_failure("yandex")
 
     with get_db() as db:
         u, linked = _resolve_oauth_user(db, request, "yandex", provider_uid, email)
+        if terms_context["action"] == "explicit":
+            _record_terms_acceptance(db, u["id"], channel="oauth_yandex")
         name = info.get("real_name") or info.get("display_name")
         if name and u.get("display_name") in (None, "", email.split("@")[0]):
             db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
@@ -1270,14 +1575,16 @@ async def auth_yandex_callback(request: Request, code: str = "", state: str = ""
     log.info("auth/yandex: login ok user_id=%s linked=%s", u["id"], linked)
     r = RedirectResponse(url="/settings?linked=yandex" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("ya_state")
+    r.delete_cookie(_oauth_terms_cookie_name("yandex"))
     _set_session_cookie(r, sid)
     return r
 
 # ── VK ID OAuth (с PKCE) ──────────────────────────────────────────────────────
 @app.get("/auth/vk")
-async def auth_vk_start():
+async def auth_vk_start(request: Request, terms: str = ""):
     if not VK_LOGIN_ENABLED:
         raise HTTPException(503, "Вход через VK не настроен")
+    terms_action = await _oauth_terms_action(request, terms)
     state = str(uuid.uuid4())
     code_verifier = secrets.token_urlsafe(64)
     code_challenge = base64.urlsafe_b64encode(
@@ -1297,6 +1604,7 @@ async def auth_vk_start():
                  secure=APP_URL.startswith("https"))
     r.set_cookie("vk_verifier", code_verifier, max_age=600, httponly=True, samesite="lax",
                  secure=APP_URL.startswith("https"))
+    _set_oauth_terms_cookie(r, "vk", state, terms_action)
     log.info("auth/vk: redirect to VK OAuth")
     return r
 
@@ -1304,15 +1612,19 @@ async def auth_vk_start():
 async def auth_vk_callback(request: Request, code: str = "", state: str = "", device_id: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/vk callback error: %s", error or "no code")
-        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+        return _oauth_failure("vk")
     if not state or state != request.cookies.get("vk_state"):
         log.warning("auth/vk callback: state mismatch")
-        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+        return _oauth_failure("vk")
+    terms_context = _oauth_terms_context(request, "vk", state)
+    if not terms_context:
+        log.warning("auth/vk callback: missing or invalid terms context")
+        return _oauth_failure("vk")
     try:
         code_verifier = request.cookies.get("vk_verifier")
         if not code_verifier:
             log.error("auth/vk: missing code_verifier cookie")
-            return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+            return _oauth_failure("vk")
         async with httpx.AsyncClient(timeout=15) as http:
             # PKCE: code_verifier заменяет client_secret — «Защищённый ключ»
             # из кабинета VK ID в этом флоу не участвует.
@@ -1328,7 +1640,7 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/vk: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+                return _oauth_failure("vk")
             ir = await http.post("https://id.vk.com/oauth2/user_info", data={
                 "access_token": access,
                 "client_id":    VK_CLIENT_ID,
@@ -1336,20 +1648,22 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
             info = ir.json()
     except Exception:
         log.exception("auth/vk: OAuth request failed")
-        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+        return _oauth_failure("vk")
 
     user_data = info.get("user", {})
     email = user_data.get("email") or ""
     if not email:
         log.error("auth/vk: no email in userinfo")
-        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+        return _oauth_failure("vk")
     provider_uid = user_data.get("user_id") or ""
     if not provider_uid:
         log.error("auth/vk: no user_id in userinfo")
-        return RedirectResponse(url="/new?auth_error=vk", status_code=303)
+        return _oauth_failure("vk")
 
     with get_db() as db:
         u, linked = _resolve_oauth_user(db, request, "vk", provider_uid, email)
+        if terms_context["action"] == "explicit":
+            _record_terms_acceptance(db, u["id"], channel="oauth_vk")
         first_name = user_data.get("first_name") or ""
         last_name = user_data.get("last_name") or ""
         name = (first_name + " " + last_name).strip() if first_name or last_name else ""
@@ -1363,14 +1677,16 @@ async def auth_vk_callback(request: Request, code: str = "", state: str = "", de
     r = RedirectResponse(url="/settings?linked=vk" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("vk_state")
     r.delete_cookie("vk_verifier")
+    r.delete_cookie(_oauth_terms_cookie_name("vk"))
     _set_session_cookie(r, sid)
     return r
 
 # ── Mail.ru OAuth ─────────────────────────────────────────────────────────────
 @app.get("/auth/mailru")
-async def auth_mailru_start():
+async def auth_mailru_start(request: Request, terms: str = ""):
     if not MAILRU_LOGIN_ENABLED:
         raise HTTPException(503, "Вход через Mail.ru не настроен")
+    terms_action = await _oauth_terms_action(request, terms)
     state = str(uuid.uuid4())
     params = urlencode({
         "response_type": "code",
@@ -1382,6 +1698,7 @@ async def auth_mailru_start():
     r = RedirectResponse(f"https://oauth.mail.ru/login?{params}", status_code=302)
     r.set_cookie("mr_state", state, max_age=600, httponly=True, samesite="lax",
                  secure=APP_URL.startswith("https"))
+    _set_oauth_terms_cookie(r, "mailru", state, terms_action)
     log.info("auth/mailru: redirect to Mail.ru OAuth")
     return r
 
@@ -1389,10 +1706,14 @@ async def auth_mailru_start():
 async def auth_mailru_callback(request: Request, code: str = "", state: str = "", error: str = ""):
     if error or not code:
         log.warning("auth/mailru callback error: %s", error or "no code")
-        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+        return _oauth_failure("mailru")
     if not state or state != request.cookies.get("mr_state"):
         log.warning("auth/mailru callback: state mismatch")
-        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+        return _oauth_failure("mailru")
+    terms_context = _oauth_terms_context(request, "mailru", state)
+    if not terms_context:
+        log.warning("auth/mailru callback: missing or invalid terms context")
+        return _oauth_failure("mailru")
     try:
         async with httpx.AsyncClient(timeout=15) as http:
             tr = await http.post("https://oauth.mail.ru/token", data={
@@ -1405,25 +1726,27 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
             access = tr.json().get("access_token")
             if not access:
                 log.error("auth/mailru: token exchange failed: %s", tr.text[:300])
-                return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+                return _oauth_failure("mailru")
             ir = await http.get("https://oauth.mail.ru/userinfo",
                                 params={"access_token": access})
             info = ir.json()
     except Exception:
         log.exception("auth/mailru: OAuth request failed")
-        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+        return _oauth_failure("mailru")
 
     email = info.get("email") or ""
     if not email:
         log.error("auth/mailru: no email in userinfo")
-        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+        return _oauth_failure("mailru")
     provider_uid = info.get("id") or ""
     if not provider_uid:
         log.error("auth/mailru: no id in userinfo")
-        return RedirectResponse(url="/new?auth_error=mailru", status_code=303)
+        return _oauth_failure("mailru")
 
     with get_db() as db:
         u, linked = _resolve_oauth_user(db, request, "mailru", provider_uid, email)
+        if terms_context["action"] == "explicit":
+            _record_terms_acceptance(db, u["id"], channel="oauth_mailru")
         name = info.get("name") or info.get("nickname") or ""
         if name and u.get("display_name") in (None, "", email.split("@")[0]):
             db.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
@@ -1434,6 +1757,7 @@ async def auth_mailru_callback(request: Request, code: str = "", state: str = ""
     log.info("auth/mailru: login ok user_id=%s linked=%s", u["id"], linked)
     r = RedirectResponse(url="/settings?linked=mailru" if linked else "/new?login=success", status_code=303)
     r.delete_cookie("mr_state")
+    r.delete_cookie(_oauth_terms_cookie_name("mailru"))
     _set_session_cookie(r, sid)
     return r
 
@@ -1476,7 +1800,7 @@ async def me(request: Request):
 
 @app.post("/api/consent")
 @rate("20/minute")
-async def give_ai_consent(request: Request):
+async def give_ai_consent(req: AiConsentReq, request: Request):
     """Подтверждение согласия на передачу данных AI-провайдеру.
 
     Отдельная ручка, а не флаг в теле генерации: согласие должно храниться с
@@ -1485,13 +1809,32 @@ async def give_ai_consent(request: Request):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
+    provider = _ai_provider_context()
+    consent_hash = _current_ai_consent_hash()
+    if (
+        req.document_rev != AI_CONSENT_REV
+        or not hmac.compare_digest(req.document_hash, consent_hash)
+    ):
+        raise HTTPException(409, "Условия согласия изменились. Обновите страницу.")
+    if not provider["available"]:
+        raise HTTPException(503, "Внешняя AI-генерация временно недоступна.")
     with get_db() as db:
         db.execute(
-            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE id=?",
-            (AI_CONSENT_REV, user["id"]),
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE id=?",
+            (AI_CONSENT_REV, consent_hash, user["id"]),
         )
         log_event(db, "ai_consent", user_id=user["id"], rev=AI_CONSENT_REV)
-    return {"ok": True, "rev": AI_CONSENT_REV}
+        log_legal_event(
+            db,
+            purpose="ai_external_transfer" if provider["external"] else "ai_processing",
+            document_rev=AI_CONSENT_REV,
+            document_hash=consent_hash,
+            action="accepted",
+            user_id=user["id"],
+            metadata={"channel": "account", "provider_snapshot": _ai_consent_snapshot()},
+        )
+    return {"ok": True, "rev": AI_CONSENT_REV, "hash": consent_hash}
 
 # ── Usage / plan helpers ───────────────────────────────────────────────────
 def _is_pro(user_row) -> bool:
@@ -1562,6 +1905,66 @@ def log_event(db, event: str, user_id=None, anon_id=None, **meta):
     """Логирует событие в таблицу usage_events (логины, генерации, платежи и т.д.)."""
     db.execute("INSERT INTO usage_events (user_id, anon_id, event, meta) VALUES (?,?,?,?)",
                (user_id, anon_id, event, json.dumps(meta, ensure_ascii=False) if meta else None))
+
+
+def log_legal_event(
+    db,
+    *,
+    purpose: str,
+    document_rev: str,
+    document_hash: str,
+    action: str,
+    user_id: Optional[int] = None,
+    correlation_id: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> None:
+    """Добавляет доказательство юридически значимого действия.
+
+    Таблица append-only: приложение не обновляет и не удаляет такие строки.
+    В metadata разрешён только краткий безопасный служебный контекст; payload,
+    email, IP, User-Agent и prompt сюда не передаются.
+    """
+    safe_metadata = metadata or None
+    db.execute(
+        "INSERT INTO legal_events "
+        "(purpose, document_rev, document_hash, action, user_id, correlation_id, metadata) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (
+            purpose,
+            document_rev,
+            document_hash,
+            action,
+            user_id,
+            correlation_id or str(uuid.uuid4()),
+            json.dumps(safe_metadata, ensure_ascii=False, separators=(",", ":")) if safe_metadata else None,
+        ),
+    )
+
+
+def _record_terms_acceptance(
+    db,
+    user_id: int,
+    *,
+    channel: str,
+    correlation_id: Optional[str] = None,
+    document_rev: str = TERMS_REV,
+    document_hash: str = TERMS_HASH,
+) -> None:
+    """Фиксирует условия и быстрые поля, не заменяя ими append-only историю."""
+    db.execute(
+        "UPDATE users SET terms_accepted_at=datetime('now'), terms_rev=?, terms_hash=? WHERE id=?",
+        (document_rev, document_hash, user_id),
+    )
+    log_legal_event(
+        db,
+        purpose="user_terms",
+        document_rev=document_rev,
+        document_hash=document_hash,
+        action="accepted",
+        user_id=user_id,
+        correlation_id=correlation_id,
+        metadata={"channel": channel},
+    )
 
 # ── Anti-abuse: промпт-инъекции и уход от формата ───────────────────────────
 # Модель следует любой инструкции, вписанной в резюме/вакансию ("забудь про
@@ -1661,58 +2064,204 @@ def _flag_abuse(db, *, user: Optional[dict] = None,
     return "anon_limit"
 
 # ── AI call ────────────────────────────────────────────────────────────────
+def _is_local_or_private_ai_url(url: str) -> bool:
+    """Определяет, остаётся ли вызов модели в localhost/private сети.
+
+    Неудавшийся DNS-resolve трактуем как внешний адрес (fail closed), а имя с
+    несколькими адресами считается локальным только если локальны все они.
+    """
+    try:
+        host = urlparse(url).hostname
+        if not host:
+            return False
+        if host.lower() == "localhost":
+            return True
+        try:
+            addresses = {ipaddress.ip_address(host)}
+        except ValueError:
+            addresses = {
+                ipaddress.ip_address(item[4][0])
+                for item in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+            }
+        return bool(addresses) and all(
+            address.is_private or address.is_loopback or address.is_link_local
+            for address in addresses
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def _external_ai_transfer_enabled() -> bool:
+    return not _ai_transfer_is_external() or (
+        AI_EXTERNAL_TRANSFER_CONFIRMED
+        and bool(AI_PROVIDER_NAME)
+        and bool(AI_PROVIDER_COUNTRY)
+    )
+
+
+def _is_russian_country(value: str) -> bool:
+    normalized = " ".join((value or "").casefold().replace("ё", "е").split())
+    return normalized in {"россия", "российская федерация", "рф", "russia", "russian federation"}
+
+
+def _current_ai_provider_profile() -> dict:
+    """Канонический профиль текущего deployment для хеша и аудита."""
+    return {
+        "provider_id": AI_PROVIDER_ID,
+        "display_name": AI_PROVIDER_NAME,
+        "legal_name": AI_PROVIDER_LEGAL_NAME,
+        "country": AI_PROVIDER_COUNTRY,
+        "address": AI_PROVIDER_ADDRESS,
+        "contact": AI_PROVIDER_CONTACT,
+        "terms_url": AI_PROVIDER_TERMS_URL,
+        "privacy_url": AI_PROVIDER_PRIVACY_URL,
+    }
+
+
+def _current_ai_provider_fingerprint() -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _current_ai_provider_profile(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _ai_transfer_is_external() -> bool:
+    # Private IP/VPN описывает маршрут, а не юрисдикцию получателя. Оператор
+    # может явно пометить такой endpoint как внешний; публичный URL всегда
+    # считается внешним и не может быть ослаблен конфигурацией.
+    return AI_PROVIDER_EXTERNAL or not _is_local_or_private_ai_url(OLLAMA_URL)
+
+
+def _ai_provider_context() -> dict:
+    external = _ai_transfer_is_external()
+    configured = not external or (bool(AI_PROVIDER_NAME) and bool(AI_PROVIDER_COUNTRY))
+    return {
+        "mode": "external" if external else "operator_local",
+        "external": external,
+        "configured": configured,
+        "available": configured and _external_ai_transfer_enabled(),
+        "requires_consent": True,
+        "provider_id": AI_PROVIDER_ID if external else "operator-local",
+        "name": AI_PROVIDER_LEGAL_NAME if external else "локальная AI-модель Оператора",
+        "country": AI_PROVIDER_COUNTRY if external else "",
+        "address": AI_PROVIDER_ADDRESS if external else "",
+        "contact": AI_PROVIDER_CONTACT if external else "",
+        "terms_url": AI_PROVIDER_TERMS_URL if external else "",
+        "privacy_url": AI_PROVIDER_PRIVACY_URL if external else "",
+        "cross_border": external and not _is_russian_country(AI_PROVIDER_COUNTRY),
+        "fingerprint": _current_ai_provider_fingerprint(),
+    }
+
+
+def _current_ai_consent_hash() -> str:
+    """Hash документа с учётом режима и юридического профиля получателя."""
+    transfer_kind = "external" if _ai_transfer_is_external() else "operator-local"
+    payload = (
+        f"{AI_CONSENT_BASE_HASH}|transfer={transfer_kind}"
+        f"|provider={_current_ai_provider_fingerprint()}"
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+# Глобал вычисляется при старте процесса из deployment-конфигурации. Внешний
+# вызов ниже проверяет те же поля непосредственно перед передачей.
+AI_CONSENT_HASH = _current_ai_consent_hash()
+tpl.env.globals["ai_consent_hash"] = AI_CONSENT_HASH
+tpl.env.globals["ai_provider"] = _ai_provider_context()
+
+
+def _buffer_external_prompt(prompt: str) -> str:
+    buffer_id = str(uuid.uuid4())
+    with get_db() as db:
+        db.execute("INSERT INTO ai_prompt_buffer (id, prompt) VALUES (?,?)", (buffer_id, prompt))
+    return buffer_id
+
+
+def _delete_buffered_prompt(buffer_id: Optional[str]) -> None:
+    if not buffer_id:
+        return
+    try:
+        with get_db() as db:
+            db.execute("DELETE FROM ai_prompt_buffer WHERE id=?", (buffer_id,))
+    except Exception:
+        # Не маскируем результат модели/исходную ошибку. TTL cleanup завершит
+        # удаление при временной блокировке SQLite и оставит audit в логах.
+        log.exception("AI prompt buffer cleanup failed")
+
+
 async def call_ai(prompt: str) -> str:
     """
-    Вызов Ollama с:
+    Вызов настроенной OpenAI-совместимой AI-модели с:
     - Семафором AI_CONCURRENCY (не более N одновременных запросов)
     - Таймаутом 120 сек (connect 5 сек)
     - Безопасными сообщениями об ошибках (без деталей внутренностей)
     """
-    async with get_ai_sem():
-        t0 = time.monotonic()
-        log.info("AI call start: model=%s prompt_len=%d", MODEL, len(prompt))
-        try:
-            headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(120.0, connect=5.0)
-            ) as http:
-                r = await http.post(
-                    f"{OLLAMA_URL}/v1/chat/completions",
-                    headers=headers,
-                    json={
-                        "model": MODEL,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "stream": False,
-                        # Верхнеуровневые OpenAI-поля, а не "options": последнее —
-                        # диалект нативного /api/chat Ollama и на /v1/chat/completions
-                        # молча игнорируется (как и внешними провайдерами вроде
-                        # DeepSeek) — раньше ни температура, ни потолок токенов
-                        # реально не применялись.
-                        "temperature": 0.25,
-                        "max_tokens": AI_MAX_TOKENS,
-                    },
-                )
-                r.raise_for_status()
-                content = r.json()["choices"][0]["message"]["content"]
-                log.info("AI call ok: %.1f s, response_len=%d", time.monotonic() - t0, len(content))
-                return content
-        except httpx.ConnectError as e:
-            log.error("AI connect error (%s): %s", OLLAMA_URL, e)
-            raise HTTPException(503, "Сервис генерации недоступен. Проверьте Ollama.")
-        except httpx.TimeoutException:
-            log.error("AI timeout after %.1f s (model=%s)", time.monotonic() - t0, MODEL)
-            raise HTTPException(504, "Генерация заняла слишком долго. Попробуйте ещё раз.")
-        except httpx.HTTPStatusError as e:
-            body = e.response.text[:500]
-            log.error("AI HTTP %s after %.1f s: %s", e.response.status_code, time.monotonic() - t0, body)
-            if e.response.status_code == 500 and ("killed" in body or "terminated" in body):
-                # llama-server убит OOM-killer'ом: модели не хватает RAM на сервере
-                raise HTTPException(503, "Модель не смогла загрузиться: серверу не хватает памяти. "
-                                         "Сообщите администратору или попробуйте позже.")
-            raise HTTPException(502, f"Ошибка модели: {e.response.status_code}")
-        except Exception:
-            log.exception("AI call unexpected error after %.1f s", time.monotonic() - t0)
-            raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
+    external = _ai_transfer_is_external()
+    if external and not _external_ai_transfer_enabled():
+        log.error(
+            "AI external transfer blocked: confirmation=%s recipient=%s country=%s",
+            AI_EXTERNAL_TRANSFER_CONFIRMED,
+            bool(AI_PROVIDER_NAME),
+            bool(AI_PROVIDER_COUNTRY),
+        )
+        raise HTTPException(
+            503,
+            "Внешняя AI-генерация временно недоступна.",
+        )
+
+    buffer_id = _buffer_external_prompt(prompt) if external else None
+    try:
+        async with get_ai_sem():
+            t0 = time.monotonic()
+            log.info("AI call start: model=%s prompt_len=%d", MODEL, len(prompt))
+            try:
+                headers = {"Authorization": f"Bearer {AI_API_KEY}"} if AI_API_KEY else {}
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(120.0, connect=5.0)
+                ) as http:
+                    r = await http.post(
+                        f"{OLLAMA_URL}/v1/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": MODEL,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "stream": False,
+                            # Верхнеуровневые OpenAI-поля, а не "options": последнее —
+                            # диалект нативного /api/chat Ollama и на /v1/chat/completions
+                            # молча игнорируется внешними провайдерами — раньше ни
+                            # температура, ни потолок токенов
+                            # реально не применялись.
+                            "temperature": 0.25,
+                            "max_tokens": AI_MAX_TOKENS,
+                        },
+                    )
+                    r.raise_for_status()
+                    content = r.json()["choices"][0]["message"]["content"]
+                    log.info("AI call ok: %.1f s, response_len=%d", time.monotonic() - t0, len(content))
+                    return content
+            except httpx.ConnectError as e:
+                log.error("AI connect error (%s): %s", OLLAMA_URL, e)
+                raise HTTPException(503, "Сервис генерации недоступен. Проверьте Ollama.")
+            except httpx.TimeoutException:
+                log.error("AI timeout after %.1f s (model=%s)", time.monotonic() - t0, MODEL)
+                raise HTTPException(504, "Генерация заняла слишком долго. Попробуйте ещё раз.")
+            except httpx.HTTPStatusError as e:
+                body = e.response.text[:500]
+                log.error("AI HTTP %s after %.1f s: %s", e.response.status_code, time.monotonic() - t0, body)
+                if e.response.status_code == 500 and ("killed" in body or "terminated" in body):
+                    # llama-server убит OOM-killer'ом: модели не хватает RAM на сервере
+                    raise HTTPException(503, "Модель не смогла загрузиться: серверу не хватает памяти. "
+                                             "Сообщите администратору или попробуйте позже.")
+                raise HTTPException(502, f"Ошибка модели: {e.response.status_code}")
+            except Exception:
+                log.exception("AI call unexpected error after %.1f s", time.monotonic() - t0)
+                raise HTTPException(500, "Ошибка генерации. Попробуйте позже.")
+    finally:
+        _delete_buffered_prompt(buffer_id)
 
 def _reject_json_constant(value: str):
     """parse_constant для json.loads: NaN/Infinity в ответе модели — отказ.
@@ -1736,6 +2285,13 @@ def _as_resume_dict(data: object) -> dict:
     raise ValueError("ожидался JSON-объект резюме")
 
 
+# Резюме и профиль — это анкета человека: полсотни килобайт хватает с
+# большим запасом даже на длинный опыт. Предел нужен потому, что тело
+# запроса ничем не ограничено: один PUT с мегабайтным JSON лёг бы в базу,
+# а потом приезжал бы в каждом списке резюме и в каждом промпте к модели.
+RESUME_JSON_MAX = 256 * 1024
+
+
 def _json_for_db(data: object) -> str:
     """Сериализация пользовательских данных для записи в БД.
 
@@ -1745,9 +2301,12 @@ def _json_for_db(data: object) -> str:
     Отказываем на записи, а не на чтении.
     """
     try:
-        return json.dumps(data, ensure_ascii=False, allow_nan=False)
+        payload = json.dumps(data, ensure_ascii=False, allow_nan=False)
     except ValueError:
         raise HTTPException(400, "Некорректные числовые значения в данных")
+    if len(payload.encode("utf-8")) > RESUME_JSON_MAX:
+        raise HTTPException(413, "Данные слишком большие")
+    return payload
 
 
 def _parse_ai(raw: str) -> dict:
@@ -2930,11 +3489,11 @@ async def admin_list_promo(request: Request):
     return {"codes": [dict(r) for r in rows]}
 
 @app.post("/api/admin/promo/deactivate")
-async def admin_deactivate_promo(body: dict, request: Request):
+async def admin_deactivate_promo(body: PromoDeactivateReq, request: Request):
     user = await get_current_user(request)
     _require_admin(request, user)
 
-    code = body.get("code", "").strip().upper()
+    code = body.code.strip().upper()
     with get_db() as db:
         db.execute("UPDATE promo_codes SET active=0 WHERE code=?", (code,))
         db.commit()
@@ -3060,12 +3619,16 @@ def _mcp_user(ctx: Context) -> dict:
     if scheme.lower() != "bearer" or not token:
         raise ValueError(f"Нет токена авторизации. {MCP_TOKEN_HINT}")
     with get_db() as db:
+        # Срок сверяем здесь, а не полагаемся на уборку: между истечением и
+        # ближайшим проходом _cleanup_loop проходит до часа, и всё это время
+        # протухший токен продолжал бы пускать.
         row = db.execute(
-            "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.token=?",
+            "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id"
+            " WHERE t.token=? AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))",
             (token,)
         ).fetchone()
     if not row:
-        raise ValueError(f"Токен недействителен. {MCP_TOKEN_HINT}")
+        raise ValueError(f"Токен недействителен или истёк. {MCP_TOKEN_HINT}")
     return dict(row)
 
 @mcp_server.tool()
@@ -3157,17 +3720,28 @@ async def adapt_resume(vacancy_text: str, ctx: Context) -> dict:
 @rate("10/minute")
 async def create_mcp_token(request: Request):
     """Выдаёт API-токен для MCP-доступа. Один активный токен на пользователя:
-    старые токены удаляются. Токен показывается только один раз."""
+    старые токены удаляются. Токен показывается только один раз и живёт
+    MCP_TOKEN_DAYS дней — брошенная интеграция перестаёт быть рабочим ключом
+    сама, без действий пользователя."""
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Войдите в аккаунт")
     token = str(uuid.uuid4())
     with get_db() as db:
         db.execute("DELETE FROM api_tokens WHERE user_id=?", (user["id"],))
-        db.execute("INSERT INTO api_tokens (token, user_id) VALUES (?,?)", (token, user["id"]))
+        # Срок считает сама SQLite — по той же причине, что и у сессий: формат
+        # хранения обязан совпадать с форматом сравнения в datetime('now').
+        db.execute(
+            "INSERT INTO api_tokens (token, user_id, expires_at)"
+            " VALUES (?,?,datetime('now',?))",
+            (token, user["id"], f"+{MCP_TOKEN_DAYS} days"),
+        )
+        expires_at = db.execute(
+            "SELECT expires_at FROM api_tokens WHERE token=?", (token,)
+        ).fetchone()["expires_at"]
         db.commit()
-    log.info("mcp-token: issued for user=%s", user["id"])
-    return {"token": token}
+    log.info("mcp-token: issued for user=%s until=%s", user["id"], expires_at)
+    return {"token": token, "expires_at": expires_at}
 
 class _McpMountOr404:
     """MCP смонтирован на «/», поэтому ему достаются вообще все URL, которые не

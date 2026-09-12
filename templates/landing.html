@@ -12,9 +12,6 @@
 <meta property="og:image" content="/static/banner.png">
 <meta property="og:locale" content="ru_RU">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -23,7 +20,6 @@
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
 <link rel="stylesheet" href="/static/landing.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 {% include '_metrika.html' %}
 </head>
 <body>
@@ -419,9 +415,7 @@
       <details>
         <summary>Что происходит с моими данными?</summary>
         <div class="lp-faq__a">
-          Профиль и резюме хранятся в вашем аккаунте. Текст вакансии и профиля передаётся AI-провайдеру
-          только для генерации резюме и не используется ни для чего другого. Удалить резюме можно в любой момент.
-          Подробности — в <a href="/privacy">политике конфиденциальности</a>.
+          Профиль и резюме хранятся в вашем аккаунте. {% if not ai_provider.external %}AI-модель работает в инфраструктуре Оператора.{% elif ai_provider.configured %}Передача профиля и вакансии {{ ai_provider.name }} ({{ ai_provider.country }}) запрашивается отдельно непосредственно перед генерацией; условия получателя могут предусматривать собственное хранение и использование данных.{% else %}Внешняя AI-генерация заблокирована, пока не будут настроены получатель и страна обработки.{% endif %} Подробности — в <a href="/privacy">политике конфиденциальности</a> и <a href="/ai-consent">отдельном согласии</a>.
         </div>
       </details>
       <details>
@@ -502,7 +496,7 @@
     const light = document.documentElement.getAttribute('data-theme') === 'light';
     if (light) document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', 'light');
-    try { localStorage.setItem('theme', light ? 'dark' : 'light'); } catch (e) {}
+    if (window.SiteConsent) window.SiteConsent.preferenceSet('theme', light ? 'dark' : 'light');
     sync();
   });
   sync();
@@ -511,6 +505,7 @@
 // ── Воронка: шаги фиксируем и в Метрике, и на своём сервере ────────────
 const LP_TRACKED = new Set();
 function lpTrack(event, once) {
+  if (!window.SiteConsent || !window.SiteConsent.allows('analytics')) return;
   if (once) {
     if (LP_TRACKED.has(event)) return;
     LP_TRACKED.add(event);
@@ -533,6 +528,9 @@ document.addEventListener('click', (e) => {
 });
 
 lpTrack('landing_view', true);
+window.addEventListener('siteconsentchange', (event) => {
+  if (event.detail && event.detail.choice === 'analytics') lpTrack('landing_view', true);
+});
 
 // Долистал до тарифов — это отдельный шаг воронки
 const priceBlock = document.getElementById('pricing');

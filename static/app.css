@@ -404,6 +404,7 @@ body.is-dragging{user-select:none;cursor:grabbing}
 .btn-vk:hover{background:#1A85FF}
 .btn-mailru{background:#005FF9}
 .btn-mailru:hover{background:#1A6FFA}
+.btn-yandex[aria-disabled="true"],.btn-vk[aria-disabled="true"],.btn-mailru[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
 .ya-badge{background:#FC3F1D;color:#fff;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
 .vk-logo{width:22px;height:22px;flex:none}
 .mr-logo{width:20px;height:20px;flex:none}
@@ -411,6 +412,7 @@ body.is-dragging{user-select:none;cursor:grabbing}
 .auth-email input{flex:1;height:46px;padding:0 14px;border:1px solid var(--border);border-radius:11px;font-family:inherit;font-size:14px;color:var(--text);background:var(--surface-2);outline:none}
 .auth-email input:focus{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-tint)}
 .auth-email button{height:46px;padding:0 16px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:11px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}
+.auth-email button:disabled{opacity:.5;cursor:not-allowed}
 .magic-sent{display:none;text-align:center;padding:8px 0}
 .magic-sent .icon{font-size:36px;margin-bottom:8px}
 .magic-sent p{font-size:13px;color:var(--text-2);line-height:1.6}
@@ -915,6 +917,8 @@ body.is-dragging{user-select:none;cursor:grabbing}
 }
 
 /* ── Mobile overflow and touch fixes ───────────────────────────────────── */
+/* Keep product overlays above the optional cookie banner and make their
+   content reachable on short visual viewports (including mobile keyboards). */
 .modal-wrap{z-index:1100;overflow-y:auto;overscroll-behavior:contain}
 .modal{min-width:0;max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain}
 .ed-ai-sheet{z-index:1100}
@@ -925,10 +929,15 @@ body.is-dragging{user-select:none;cursor:grabbing}
 @media (max-width:760px){
   .greet > div{min-width:0;max-width:100%}
   .greet__h1,.greet__sub{overflow-wrap:anywhere}
+
+  /* The section list is an intentional local scroller; it must not widen the
+     document when the selected item has long metadata. */
   .ed-sections-list{min-width:0}
   .crumbs__inner,.crumbs__nav{min-width:0;max-width:100%}
   .crumb{min-width:0;overflow:hidden;text-overflow:ellipsis}
   .crumb--current{flex:1 1 auto;max-width:min(190px,calc(100vw - 120px))}
+
+  /* Fit ring, body, status and chevron in one row block on narrow screens. */
   .vrow{
     display:grid;
     grid-template-columns:40px minmax(0,1fr) 18px;
@@ -939,6 +948,9 @@ body.is-dragging{user-select:none;cursor:grabbing}
   .vrow__title{overflow-wrap:anywhere}
   .vrow .status{grid-column:2;grid-row:2;margin-left:0;justify-self:start}
   .vrow__chev{grid-column:3;grid-row:1 / span 2;align-self:center}
+
+  /* Prevent iOS focus zoom and give the smallest controls a touch-sized hit
+     area without changing their desktop density. */
   .gen-input,.gen-textarea,.auth-email input,
   .modal .field input,.modal .field textarea,
   .ed-field input,.ed-field textarea,.bullet-text,

@@ -19,9 +19,31 @@
   if (!modal) return;
 
   var REV = modal.dataset.rev || '';
+  var HASH = modal.dataset.hash || '';
   var ANON_KEY = 'ai_consent_rev';
   var box = document.getElementById('consent-box');
   var btn = document.getElementById('btn-consent');
+  if (!box || !btn) {
+    // Внешний получатель не описан в deployment-конфигурации. Сервер тоже
+    // fail-closed, но не показываем пользователю фиктивную галочку согласия.
+    Array.prototype.forEach.call(modal.querySelectorAll('[data-consent-close]'), function (el) {
+      el.addEventListener('click', function () { modal.classList.remove('on'); });
+    });
+    window.AiConsent = {
+      rev: REV,
+      hash: HASH,
+      ensure: async function () {
+        modal.classList.add('on');
+        if (window.toast) window.toast('Внешняя AI-генерация временно недоступна.', 'err');
+        return false;
+      },
+      reset: function () {},
+      refused: function (res, body) {
+        return res.status === 403 && body && body.error === 'consent_required';
+      },
+    };
+    return;
+  }
   var resolveWaiting = null;
   // null — ещё не спрашивали сервер; true/false — известное состояние.
   var known = null;
@@ -30,11 +52,13 @@
   function anonMark() {
     // У анонима аккаунта нет — отметка живёт в браузере. Приватный режим её
     // запрещает: тогда спросим ещё раз, а не пропустим молча.
-    try { return localStorage.getItem(ANON_KEY) === REV; } catch (e) { return false; }
+    if (!window.SiteConsent || !window.SiteConsent.allows('analytics')) return false;
+    try { return localStorage.getItem(ANON_KEY) === REV + '.' + HASH; } catch (e) { return false; }
   }
 
   function saveAnonMark() {
-    try { localStorage.setItem(ANON_KEY, REV); } catch (e) { /* приватный режим */ }
+    if (!window.SiteConsent || !window.SiteConsent.allows('analytics')) return;
+    try { localStorage.setItem(ANON_KEY, REV + '.' + HASH); } catch (e) { /* приватный режим */ }
   }
 
   // Состояние берём у сервера: он единственный знает и про редакцию, и про
@@ -79,7 +103,11 @@
 
     var res = null;
     try {
-      res = await fetch('/api/consent', { method: 'POST' });
+      res = await fetch('/api/consent', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({document_rev: REV, document_hash: HASH})
+      });
     } catch (e) { /* сеть — разбираем ниже вместе с ответом сервера */ }
 
     if (res && res.ok) {
@@ -100,6 +128,7 @@
 
   window.AiConsent = {
     rev: REV,
+    hash: HASH,
     ensure: async function () {
       if (await state()) return true;
       return open();

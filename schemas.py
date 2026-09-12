@@ -58,6 +58,9 @@ _PROFILE_MAX_DEPTH = 4
 
 class EmailReq(BaseModel):
     email: EmailStr
+    # Явное действие, а не текст около кнопки. Старый клиент по умолчанию
+    # получает 400 от /auth/email/request и не может начать регистрацию.
+    terms_accepted: bool = False
 
     @field_validator("email", mode="before")
     @classmethod
@@ -162,6 +165,8 @@ class AnonymousPreviewReq(BaseModel):
     # По умолчанию False: старый клиент из кеша браузера получит отказ, а не
     # молча отправит данные наружу без подтверждения.
     consent:     bool = False
+    consent_rev: str = Field("", max_length=32)
+    consent_hash: str = Field("", max_length=64)
 
     @field_validator("profile")
     @classmethod
@@ -176,7 +181,23 @@ class TrackReq(BaseModel):
     event: str = Field(..., max_length=_EVENT_MAX)
 
 
+class AiConsentReq(BaseModel):
+    """Точная редакция документа, которую пользователь видел в браузере."""
+    document_rev: str = Field(..., min_length=1, max_length=32)
+    document_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class SiteConsentReq(BaseModel):
+    """Единственная необязательная категория браузерного хранения сейчас."""
+    choice: str = Field(..., pattern="^(analytics|necessary)$")
+
+
 class PromoActivateReq(BaseModel):
+    code: str = Field(..., max_length=_CODE_MAX)
+
+
+class PromoDeactivateReq(BaseModel):
+    """Тело /api/admin/promo/deactivate с типизированным кодом."""
     code: str = Field(..., max_length=_CODE_MAX)
 
 

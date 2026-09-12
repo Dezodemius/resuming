@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Резюмирую.рф — резюме под каждую вакансию</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -14,12 +11,10 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
 const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/payment.js?v=20260830"></script>
@@ -298,7 +293,11 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
         <div class="field"><label>Навыки (через запятую)</label><textarea id="p-skills" placeholder="Python, SQL, Bitrix24, управление командой…"></textarea></div>
         <div class="field"><label>Языки</label><input id="p-langs" value="Русский — родной"></div>
       </section>
-      <p style="font-size:11px;color:var(--text-3);line-height:1.55;margin:0 0 10px">Имя, контакты и опыт из профиля обрабатываются, чтобы собрать резюме, и для этого передаются AI-провайдеру DeepSeek на территории КНР. Цели обработки, сроки хранения и ваши права — в <a href="/privacy" target="_blank">политике конфиденциальности</a>.</p>
+      <p style="font-size:11px;color:var(--text-3);line-height:1.55;margin:0 0 10px">Профиль обрабатывается, чтобы собрать резюме. {% if not ai_provider.external %}Для этой конфигурации AI-модель работает в инфраструктуре Оператора.{% elif ai_provider.configured %}Перед первой передачей {{ ai_provider.name }} ({{ ai_provider.country }}) сервис отдельно запросит согласие.{% else %}Внешняя AI-генерация сейчас заблокирована, потому что получатель и страна обработки не настроены.{% endif %} Подробности — в <a href="/privacy" target="_blank">политике конфиденциальности</a> и <a href="/ai-consent" target="_blank">отдельном согласии</a>.</p>
+      <label class="consent-check" style="margin:0 0 12px">
+        <input type="checkbox" id="resume-local-profile-opt-in">
+        <span>Сохранить профиль в этом браузере</span>
+      </label>
       <button class="btn-build" type="button" onclick="saveProfile()">Сохранить профиль</button>
     </div>
   </div>
@@ -367,20 +366,24 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
     <div id="auth-main">
       <h2>Войдите в аккаунт</h2>
       <p class="modal__sub" id="auth-sub">Чтобы сохранять резюме и использовать все функции</p>
+      <label class="consent-check" style="margin:12px 0">
+        <input type="checkbox" id="terms-accepted">
+        <span>Я принимаю <a href="/terms" target="_blank">Пользовательское соглашение</a> и ознакомился(-ась) с <a href="/privacy" target="_blank">Политикой обработки персональных данных</a>.</span>
+      </label>
       {% if yandex_enabled or vk_enabled or mailru_enabled %}
       <div class="oauth-buttons">
         {% if yandex_enabled %}
-        <a href="/auth/yandex" class="btn-yandex" onclick="appLog('auth','переход на Яндекс OAuth')">
+        <a href="/auth/yandex" class="btn-yandex" aria-disabled="true" tabindex="-1" onclick="startOAuth(event, this)">
           <span class="ya-badge">Я</span> Войти с Яндекс&nbsp;ID
         </a>
         {% endif %}
         {% if vk_enabled %}
-        <a href="/auth/vk" class="btn-vk" onclick="appLog('auth','переход на VK OAuth')">
+        <a href="/auth/vk" class="btn-vk" aria-disabled="true" tabindex="-1" onclick="startOAuth(event, this)">
           <svg class="vk-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-1.141-1.539-.629-.145-1.241-.205-1.809-.205-2.273 0-3.841.953-2.95 1.119 1.571.293 1.42 3.692 1.054 5.16-.638 2.556-3.036-2.024-4.035-4.305-.241-.548-.315-.974-1.175-.974H.912c-.492 0-.787.16-.787.516 0 .602 2.96 6.72 5.786 9.77 2.756 2.975 5.48 2.708 7.251 2.708z"/></svg> Войти с VK ID
         </a>
         {% endif %}
         {% if mailru_enabled %}
-        <a href="/auth/mailru" class="btn-mailru" onclick="appLog('auth','переход на Mail.ru OAuth')">
+        <a href="/auth/mailru" class="btn-mailru" aria-disabled="true" tabindex="-1" onclick="startOAuth(event, this)">
           <svg class="mr-logo" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.61 12c0 1.99-1.62 3.61-3.61 3.61-1.99 0-3.61-1.62-3.61-3.61 0-1.99 1.62-3.61 3.61-3.61 1.99 0 3.61 1.62 3.61 3.61M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12c2.39 0 4.68-.7 6.63-2.02l.033-.023-1.524-1.77-.026.017A9.228 9.228 0 0 1 12 21.23c-5.09 0-9.23-4.14-9.23-9.23S6.91 2.77 12 2.77s9.23 4.14 9.23 9.23c0 .66-.08 1.32-.23 1.96-.29 1.19-1.12 1.56-1.74 1.51-.628-.052-1.363-.5-1.368-1.596V12a5.888 5.888 0 0 0-5.888-5.888A5.888 5.888 0 0 0 6.112 12 5.888 5.888 0 0 0 12 17.888c1.62 0 3.135-.66 4.24-1.83.594 1.157 1.739 1.94 3.045 2.045 1.923.156 3.681-1.19 4.181-3.197.24-.965.353-1.94.353-2.906C24 5.37 18.63 0 12 0"/></svg> Войти через Mail.ru
         </a>
         {% endif %}
@@ -389,10 +392,9 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
       {% endif %}
       <div class="auth-email">
         <input type="email" id="auth-email" placeholder="email@example.com" autocomplete="email">
-        <button onclick="requestMagicLink()" type="button">Войти</button>
+        <button id="auth-email-submit" onclick="requestMagicLink()" type="button" disabled>Войти</button>
       </div>
       <p style="font-size:11px;color:var(--text-3);margin:8px 0 0;text-align:center">Без пароля — пришлём ссылку на почту</p>
-      <p style="font-size:10.5px;color:var(--text-3);line-height:1.5;margin:10px 0 0;text-align:center">Продолжая вход любым способом, вы принимаете <a href="/offer" target="_blank">публичную оферту</a> и даёте согласие на обработку персональных данных на условиях <a href="/privacy" target="_blank">политики конфиденциальности</a>.</p>
     </div>
     <div class="magic-sent" id="magic-sent">
       <div class="icon">📬</div>
@@ -437,6 +439,7 @@ const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
 // ── State ──────────────────────────────────────────────────────────
 let currentUser  = null;
 let hasProfile   = false;
+let anonymousProfile = null;
 let lastResume   = null;
 let lastResumeId = null;
 let lastTab      = 'match';
@@ -453,10 +456,20 @@ const HEADS = {
 window.addEventListener('DOMContentLoaded', async () => {
   appLog('boot', 'загрузка страницы');
   addExp(); addEdu();
+  const localProfileOptIn = document.getElementById('resume-local-profile-opt-in');
+  if (localProfileOptIn) {
+    localProfileOptIn.checked = localProfileStorageAllowed();
+    localProfileOptIn.addEventListener('change', function () {
+      if (!localProfileOptIn.checked) {
+        clearLocalProfile();
+        toast('Локальная копия профиля удалена. Поля на этой странице сохранены.', 'ok');
+      }
+    });
+  }
 
   // Анонимный профиль из localStorage — показываем сразу, до авторизации
   const localP = getLocalProfile();
-  if (localP) { hasProfile = true; fillProfileForm(localP); }
+  if (localP) { anonymousProfile = localP; hasProfile = true; fillProfileForm(localP); }
 
   await refreshSession();
 
@@ -589,18 +602,32 @@ function openAuthModal(sub) {
   document.getElementById('auth-main').style.display = '';
   document.getElementById('magic-sent').style.display = 'none';
   if (sub) document.getElementById('auth-sub').textContent = sub;
+  syncTermsGate();
 }
 function closeAuthModal() { document.getElementById('modal-auth').classList.remove('on'); }
+
+function syncTermsGate() {
+  const accepted = document.getElementById('terms-accepted').checked;
+  const emailSubmit = document.getElementById('auth-email-submit');
+  if (emailSubmit) emailSubmit.disabled = !accepted;
+  document.querySelectorAll('.oauth-buttons a').forEach((link) => {
+    link.setAttribute('aria-disabled', String(!accepted));
+    link.tabIndex = accepted ? 0 : -1;
+  });
+}
+
+document.getElementById('terms-accepted').addEventListener('change', syncTermsGate);
 
 async function requestMagicLink() {
   const email = v('auth-email');
   if (!email.includes('@')) { toast('Введите корректный email', 'err'); return; }
+  if (!document.getElementById('terms-accepted').checked) { toast('Примите Пользовательское соглашение перед входом', 'err'); return; }
   appLog('auth', 'запрос magic-ссылки', {email});
   setLoader(true, 'Отправляем ссылку...');
   try {
     const res = await fetch('/auth/email/request', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, terms_accepted: true })
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
     document.getElementById('auth-main').style.display = 'none';
@@ -608,6 +635,18 @@ async function requestMagicLink() {
     document.getElementById('magic-email-display').textContent = email;
   } catch(e) { toast('Ошибка: ' + e.message, 'err'); }
   finally { setLoader(false); }
+}
+
+function startOAuth(event, link) {
+  event.preventDefault();
+  if (!document.getElementById('terms-accepted').checked) {
+    toast('Примите Пользовательское соглашение перед входом', 'err');
+    return;
+  }
+  appLog('auth', 'переход на OAuth');
+  const url = new URL(link.href, location.origin);
+  url.searchParams.set('terms', '1');
+  location.assign(url.pathname + url.search);
 }
 
 async function doLogout() {
@@ -653,13 +692,44 @@ function toggleEmph(btn) {
   ta.value = parts.join('; ');
 }
 
-// ── LocalStorage profile helpers ──────────────────────────────────
+// ── Локальная копия профиля ───────────────────────────────────────
+const LOCAL_PROFILE_KEY = 'resume_profile';
+const LOCAL_PROFILE_MARKER_KEY = 'resume_profile_consent_rev';
+const LOCAL_PROFILE_CONSENT_REV = '2026-09-05';
+
+function localProfileStorageAllowed() {
+  try {
+    return localStorage.getItem(LOCAL_PROFILE_MARKER_KEY) === LOCAL_PROFILE_CONSENT_REV;
+  } catch (e) { return false; }
+}
+
+function clearLocalProfile() {
+  try {
+    localStorage.removeItem(LOCAL_PROFILE_KEY);
+    localStorage.removeItem(LOCAL_PROFILE_MARKER_KEY);
+  } catch (e) { /* private mode */ }
+}
+
+function currentAnonymousProfile() {
+  return anonymousProfile || getLocalProfile();
+}
+
 function getLocalProfile() {
-  try { return JSON.parse(localStorage.getItem('resume_profile') || 'null'); }
-  catch { return null; }
+  if (!localProfileStorageAllowed()) {
+    // Старые безусловные копии нельзя продолжать читать без отдельного выбора.
+    clearLocalProfile();
+    return null;
+  }
+  try { return JSON.parse(localStorage.getItem(LOCAL_PROFILE_KEY) || 'null'); }
+  catch (e) { clearLocalProfile(); return null; }
 }
 function saveLocalProfile(data) {
-  localStorage.setItem('resume_profile', JSON.stringify(data));
+  const optIn = document.getElementById('resume-local-profile-opt-in');
+  if (!optIn || !optIn.checked) return;
+  try {
+    localStorage.setItem(LOCAL_PROFILE_MARKER_KEY, LOCAL_PROFILE_CONSENT_REV);
+    localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(data));
+  } catch (e) { /* private mode */ }
 }
 
 // ── Profile ───────────────────────────────────────────────────────
@@ -672,8 +742,6 @@ async function saveProfile() {
   };
 
   appLog('profile', 'сохранение', {опыт: body.experience.length, образование: body.education.length});
-  // Всегда сохраняем локально (работает без аккаунта)
-  saveLocalProfile(body);
   hasProfile = true;
   refreshProfileWarnings();
 
@@ -686,8 +754,15 @@ async function saveProfile() {
         body: JSON.stringify(body)
       });
       if (!res.ok) throw new Error((await res.json()).detail);
+      clearLocalProfile();
     } catch(e) { appError('profile', 'синхронизация с сервером не удалась', e); toast('Ошибка синхронизации с сервером', 'err'); return; }
     finally { setLoader(false); }
+  } else {
+    // Без opt-in профиль остаётся только в памяти открытой страницы: его всё
+    // ещё можно использовать для текущей генерации, но нельзя восстановить
+    // после перезагрузки.
+    anonymousProfile = body;
+    saveLocalProfile(body);
   }
 
   appLog('profile', 'сохранён');
@@ -704,7 +779,7 @@ async function loadProfileData() {
     if (d.profile) {
       hasProfile = true;
       fillProfileForm(d.profile);
-      saveLocalProfile(d.profile);   // держим localStorage в синхронизации
+      clearLocalProfile();
     } else if (localP) {
       // Пользователь только зарегистрировался — синхронизируем локальный профиль в БД
       hasProfile = true;
@@ -712,17 +787,18 @@ async function loadProfileData() {
       await _syncLocalProfileToDB(localP);
     }
   } else {
-    if (localP) { hasProfile = true; fillProfileForm(localP); }
+    if (localP) { anonymousProfile = localP; hasProfile = true; fillProfileForm(localP); }
   }
   refreshProfileWarnings();
 }
 
 async function _syncLocalProfileToDB(profile) {
   try {
-    await fetch('/api/profile', {
+    const res = await fetch('/api/profile', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(profile)
     });
+    if (res.ok) clearLocalProfile();
   } catch(e) { console.warn('Profile sync failed:', e); }
 }
 
@@ -786,7 +862,7 @@ async function doMatch() {
       // Анонимный → только генерируем, не сохраняем
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'match', profile:getLocalProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint'), consent:true })
+        body: JSON.stringify({ kind:'match', profile:currentAnonymousProfile(), job_text:job, job_url:jobUrl, hint:v('m-hint'), consent:true, consent_rev:AiConsent.rev, consent_hash:AiConsent.hash })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-match').disabled=false;
@@ -844,7 +920,7 @@ async function doGeneralResume() {
     } else {
       const res = await fetch('/api/generate-preview', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind:'general', profile:getLocalProfile(), target_role:v('g-role'), hint:v('g-hint'), consent:true })
+        body: JSON.stringify({ kind:'general', profile:currentAnonymousProfile(), target_role:v('g-role'), hint:v('g-hint'), consent:true, consent_rev:AiConsent.rev, consent_hash:AiConsent.hash })
       });
       if (res.status === 429) {
         setLoader(false); document.getElementById('btn-general').disabled=false;
@@ -906,20 +982,26 @@ function downloadPDF() {
   if (!currentUser) { gateAction('pdf'); return; }
   downloadPDFDirect();
 }
-function downloadPDFDirect() {
+async function downloadPDFDirect() {
   const el   = document.getElementById('resume-paper');
   const name = (document.getElementById('r-name').textContent||'resume').replace(/\s+/g,'_');
   appLog('pdf', 'старт', {файл: name + '.pdf'});
   setLoader(true,'Создание PDF…');
-  html2pdf().set({
-    margin:[10,10,10,10], filename:`${name}.pdf`,
-    image:{type:'jpeg',quality:.98},
-    html2canvas:{scale:2,useCORS:true,logging:false},
-    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(el).save()
-    .then(()=>{appLog('pdf','готово')})
-    .catch(e=>{appError('pdf', e.message);toast('Не удалось создать PDF: '+e.message,'err')})
-    .finally(()=>setLoader(false));
+  try {
+    await App.loadHtml2Pdf();
+    await html2pdf().set({
+      margin:[10,10,10,10], filename:`${name}.pdf`,
+      image:{type:'jpeg',quality:.98},
+      html2canvas:{scale:2,useCORS:true,logging:false},
+      jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
+    }).from(el).save();
+    appLog('pdf','готово');
+  } catch (e) {
+    appError('pdf', e.message);
+    toast('Не удалось создать PDF: '+e.message,'err');
+  } finally {
+    setLoader(false);
+  }
 }
 
 // ── Save to dashboard ─────────────────────────────────────────────
