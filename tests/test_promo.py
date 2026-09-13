@@ -301,3 +301,48 @@ async def test_activate_unknown_kind_does_not_grant_unlimited(client, db, user_s
     # Попытка откачена целиком: код не сгорел и активация не записана.
     assert promo["used_count"] == 0
     assert activations == 0
+
+
+# ── Деактивация кода: тело разбирает схема, а не сама ручка ─────────────────
+# Раньше ручка принимала голый dict и звала body.get("code","").strip():
+# числовой code давал AttributeError и 500 вместо внятного отказа.
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", [42, None, ["A"], {"code": "A"}])
+async def test_admin_deactivate_promo_rejects_non_string_code(
+    client, db, user_session, monkeypatch, code
+):
+    import main
+    monkeypatch.setattr(main, "ADMIN_EMAILS", ["test@example.com"])
+
+    resp = await client.post(
+        "/api/admin/promo/deactivate",
+        json={"code": code},
+        cookies={"session_id": user_session["session_id"]},
+    )
+
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_admin_deactivate_promo_still_deactivates(client, db, user_session, monkeypatch):
+    import main
+    monkeypatch.setattr(main, "ADMIN_EMAILS", ["test@example.com"])
+    with main.get_db() as conn:
+        conn.execute(
+            "INSERT INTO promo_codes (code, kind, value, max_uses) VALUES ('OFF-CODE','gen_pack',1,1)"
+        )
+        conn.commit()
+
+    resp = await client.post(
+        "/api/admin/promo/deactivate",
+        json={"code": "off-code"},
+        cookies={"session_id": user_session["session_id"]},
+    )
+
+    assert resp.status_code == 200
+    with main.get_db() as conn:
+        active = conn.execute(
+            "SELECT active FROM promo_codes WHERE code='OFF-CODE'"
+        ).fetchone()["active"]
+    assert active == 0

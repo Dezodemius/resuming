@@ -63,6 +63,15 @@ Gherkin, `# language: ru`), шаги — `tests/bdd/steps/`, окружение 
 `tests/bdd/environment.py` (свой `DATA_DIR`, выключенный лимитер, клиент поверх
 ASGI без uvicorn). Конфиг — `behave.ini`, запускать из корня проекта.
 
+**Правило для дорогих ручек.** Любая ручка, которая вызывает `call_ai()` или
+ходит в интернет (`httpx` наружу), обязана приехать с тестами на две вещи:
+отказ без авторизации и отказ при исчерпанной квоте — до вызова модели, а не
+после. Причина в цене ошибки: незакрытая ручка — это чужой трафик за наш счёт
+и наш адрес в чужих логах (так уже было с `/api/fetch-job`). Мутационный гейт
+это не ловит: отсутствующую проверку мутировать не в чем. Сценарии
+злоупотребления живут в `tests/bdd/features/abuse.feature`, точечные проверки —
+в `tests/test_security.py` и `tests/test_adversarial.py`.
+
 **Мутации (mutmut).** Конфиг — `[mutmut]` в `setup.cfg`; мутируются только
 `main.py`, `config.py`, `db.py`, `prompts.py`, `schemas.py`. Инкрементальный
 режим — `tools/mutation_diff.py`: берёт дифф с базовой веткой, сужает до
@@ -85,7 +94,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 версия хранится в `PRAGMA user_version`). Добавили шаг — подняли
 `SCHEMA_VERSION` и дописали тест в `tests/test_db.py`.
 
-`get_db()` — **контекстный менеджер** (`with get_db() as db:`): коммитит при успехе, откатывает при исключении и всегда закрывает соединение. Для «сырого» соединения (тесты, скрипты) есть `db.connect()`. Протухшие сессии, magic-токены и старые `anon_usage`/`usage_events` чистит фоновая задача `_cleanup_loop` → `cleanup_expired()`.
+`get_db()` — **контекстный менеджер** (`with get_db() as db:`): коммитит при успехе, откатывает при исключении и всегда закрывает соединение. Для «сырого» соединения (тесты, скрипты) есть `db.connect()`. Протухшие сессии, magic-токены, истёкшие MCP-токены (`MCP_TOKEN_DAYS`), брошенные `pending`-платежи (`PENDING_PAYMENT_TTL_HOURS`) и старые `anon_usage`/`usage_events` чистит фоновая задача `_cleanup_loop` → `cleanup_expired()`.
 
 **Ошибки и безопасность** — middleware `security_headers` вешает CSP (режим в `CSP_MODE`), `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` и HSTS (только при https-`APP_URL`). Обработчики `StarletteHTTPException`/`Exception` отдают `error.html` на навигацию браузера и JSON `{"detail": …}` на всё, что под `/api/`, `/auth/`, `/mcp`. MCP смонтирован на `/` через обёртку `_McpMountOr404` — иначе он перехватывал бы все неизвестные URL.
 
@@ -119,7 +128,7 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 
 **Rate limiting** — через `slowapi`; опционален (graceful fallback если не установлен). Есть глобальный backstop `240/minute` (`SlowAPIMiddleware` + `default_limits`) поверх точечных `@rate`. Ключ лимита — `_client_key`: `CF-Connecting-IP` → первый `X-Forwarded-For` → peer, иначе за Cloudflare+nginx все посетители попали бы в одно ведро. В тестах лимитер выключен через `RATE_LIMIT_ENABLED=0` (см. `tests/conftest.py`).
 
-**MCP** — FastMCP (streamable-http, stateless, json_response) смонтирован в конце `main.py` через `app.mount("/")`; endpoint — `/mcp`, session manager стартует внутри lifespan. Инструменты `get_profile` / `adapt_resume` авторизуются по `Authorization: Bearer <token>` через таблицу `api_tokens`; токен выдаёт `POST /api/mcp-token` (один активный на пользователя).
+**MCP** — FastMCP (streamable-http, stateless, json_response) смонтирован в конце `main.py` через `app.mount("/")`; endpoint — `/mcp`, session manager стартует внутри lifespan. Инструменты `get_profile` / `adapt_resume` авторизуются по `Authorization: Bearer <token>` через таблицу `api_tokens`; токен выдаёт `POST /api/mcp-token` (один активный на пользователя, срок жизни `MCP_TOKEN_DAYS`; истёкший не пускает и удаляется уборкой).
 
 **Фронтенд** — Jinja2-шаблоны в `templates/`. JS-логика встроена прямо в HTML. `_app_footer.html` и `_legal_base.html` — переиспользуемые части; общий подвал включают все публичные страницы, `_footer.html` остался только у `/admin`. Публичные реквизиты продавца живут в `config.py` (`SELLER_*`) и приходят в шаблоны глобалом `seller` — дублировать их в разметке нельзя, подвал и юридические страницы обязаны совпадать. Дизайн-каркас и токены — `static/app.css`, блоки лендинга и `/pricing` — `static/landing.css` (префикс `.lp-`).
 
@@ -150,6 +159,8 @@ ASGI без uvicorn). Конфиг — `behave.ini`, запускать из к�
 | `DEV_MODE` | `1` открывает `/dev` и `/api/dev/*` — вход без письма и тариф без оплаты (дев-стенд). При `APP_URL` на https гасится принудительно |
 | `DEV_BIND` | Адрес публикации порта дев-стенда (по умолчанию `127.0.0.1`) |
 | `CLEANUP_INTERVAL_SEC` / `ANON_USAGE_TTL_DAYS` / `EVENTS_TTL_DAYS` | Фоновая уборка БД |
+| `MCP_TOKEN_DAYS` | Срок жизни MCP-токена (по умолчанию 90 дней) |
+| `PENDING_PAYMENT_TTL_HOURS` | Через сколько неоплаченный счёт считается брошенным и удаляется (24) |
 
 ## Context management (экономия токенов)
 
