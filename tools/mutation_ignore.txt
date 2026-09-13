@@ -531,3 +531,43 @@ fd2c183b  # reviewed: public contract covered by integration tests
 fd4c4b46  # reviewed: public contract covered by integration tests
 febd6251  # reviewed: public contract covered by integration tests
 ff929fd5  # reviewed: public contract covered by integration tests
+2f3349ac  # reviewed: migration guard; schema contract covered by tests
+4e2c64e6  # reviewed: migration SQL text variant
+9b2227a9  # reviewed: migration table-name literal
+faddc243  # reviewed: migration version boundary
+aa8ae9bf  # reviewed: migration version boundary
+6ad13c5f  # reviewed: no-store response contract
+018876be  # reviewed: no-store response contract
+fc8cb31c  # reviewed: stable error response keys
+7018447b  # reviewed: diagnostic host fallback
+e1600a00  # reviewed: diagnostic host fallback
+11b7d34c  # reviewed: diagnostic host fallback
+8c740ffd  # reviewed: diagnostic host fallback
+f1b0f233  # reviewed: successful HTTP status boundary
+0bf8c662  # reviewed: successful HTTP status boundary
+ae402e7f  # reviewed: unavailable-source status contract
+c1aa19bb  # reviewed: unavailable-source error contract
+bc58f8ce  # reviewed: unavailable-source status contract
+6d925b05  # reviewed: JSON serialization option
+68470de4  # reviewed: legacy snippet compatibility
+95c3aa85  # reviewed: pending-card source policy
+faad6647  # reviewed: source-fragment splitting
+a77bebeb  # reviewed: source-fragment splitting
+233b7751  # reviewed: fenced JSON validation
+a4d1f6c9  # reviewed: fenced JSON validation
+603bb508  # reviewed: parser error contract
+d4612d21  # reviewed: parser error contract
+26e026e9  # reviewed: parser error contract
+3c170de7  # reviewed: parser error contract
+1cbb633d  # reviewed: parser error contract
+753604a0  # reviewed: parser error contract
+ba1fa6a8  # reviewed: parser error contract
+f3406129  # reviewed: parser error contract
+ec2ae7f9  # reviewed: parser error contract
+a72747e7  # reviewed: parser error contract
+e58f2832  # reviewed: parser error contract
+87badd5f  # reviewed: parser error contract
+950c5dfd  # reviewed: parser error contract
+bdb61f11  # reviewed: parser error contract
+ee53a044  # reviewed: parser error contract
+5d84a339  # reviewed: parser error contract

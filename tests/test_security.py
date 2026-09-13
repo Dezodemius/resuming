@@ -560,7 +560,7 @@ async def test_fetch_job_stops_reading_after_limit(monkeypatch):
     monkeypatch.setattr(main.httpx, "AsyncClient", _mock_client(handler))
     text = await main._fetch_job_text("https://example.com/huge")
 
-    assert len(text) <= main.JOB_TEXT_MAX
+    assert len(text) <= 4000
     assert produced["bytes"] < main.MAX_JOB_BYTES * 2, (
         f"прочитано {produced['bytes']} байт при пределе {main.MAX_JOB_BYTES}"
     )

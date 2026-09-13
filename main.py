@@ -1930,11 +1930,37 @@ def _deduct(db, user_id: int) -> tuple[bool, str, int]:
     Returns (ok, col_used, uses_left).
     Pro-пользователи не теряют счётчик — returns ('pro', 999).
     """
-    ok, col, left = _quota_state(db, user_id)
-    if not ok or col == "pro":
-        return ok, col, left
+    row = db.execute(
+        "SELECT free_left, paid_left, is_pro, pro_expires_at FROM users WHERE id=?",
+        (user_id,)
+    ).fetchone()
+
+    if _is_pro(row):
+        window_start = f"-{PRO_FAIR_USE_DAYS} days"
+        recent = db.execute(
+            "SELECT COUNT(*) FROM usage_events"
+            " WHERE user_id=?"
+            "   AND (event='generate' OR ("
+            "       event='generate_fail'"
+            "       AND json_extract(meta, '$.reason')='format_hijack'"
+            "   ))"
+            "   AND created > datetime('now', ?)",
+            (user_id, window_start),
+        ).fetchone()[0]
+        if recent >= PRO_FAIR_USE_LIMIT:
+            log.warning("pro fair-use limit hit: user=%s recent=%s", user_id, recent)
+            return False, "pro_capped", 0
+        return True, "pro", 999
+
+    total = row["free_left"] + row["paid_left"]
+    if total <= 0:
+        return False, "", 0
+
+    col = "free_left" if row["free_left"] > 0 else "paid_left"
     db.execute(f"UPDATE users SET {col}={col}-1 WHERE id=?", (user_id,))
     db.commit()
+    upd = db.execute("SELECT free_left, paid_left FROM users WHERE id=?", (user_id,)).fetchone()
+    left = upd["free_left"] + upd["paid_left"]
     log.info("deduct: user=%s col=%s left=%s", user_id, col, left)
     return True, col, left
 
@@ -3323,7 +3349,7 @@ async def _fetch_job_text(url: str) -> str:
         text = re.sub(r"<[^>]+>", " ", html)
         text = re.sub(r"\s+", " ", text).strip()
         log.info("fetch-job ok: host=%s chars=%d HTTP=%s", source_host, len(text), status)
-        return text[:JOB_TEXT_MAX]
+        return text[:4000]
     except HTTPException:
         raise
     except Exception as e:
