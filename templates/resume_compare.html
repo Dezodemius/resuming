@@ -1,0 +1,184 @@
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Сравнение профиля с вакансией — Резюмирую.рф</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
+<link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
+<script src="/static/logger.js"></script>
+<script src="/static/app.js"></script>
+{% include '_metrika.html' %}
+</head>
+<body>
+{% with nav_active = 'library' %}{% include '_app_header.html' %}{% endwith %}
+
+<div class="crumbs">
+  <div class="crumbs__inner">
+    <a class="crumbs__back" href="/resumes">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+      Мои резюме
+    </a>
+    <div class="crumbs__div"></div>
+    <span class="crumb crumb--current">Сравнение</span>
+  </div>
+</div>
+
+<main class="cmp">
+  <header class="cmp__head">
+    <div>
+      <p class="cmp__eyebrow">AI-анализ вакансии</p>
+      <h1 class="cmp__title">Насколько вы подходите</h1>
+      <p class="cmp__vacancy">{{ vacancy_title }} · {{ company_name }}</p>
+    </div>
+    <button class="btn-primary cmp__run" id="cmp-run" type="button">Запустить сравнение · 1 генерация</button>
+  </header>
+
+  <section class="cmp__state" id="cmp-state" aria-live="polite">
+    <div class="cmp-empty" id="cmp-empty">
+      <div class="cmp-empty__icon">✦</div>
+      <h2>Сопоставим требования с вашим профилем</h2>
+      <p>Модель разберёт уровень навыков и контекст опыта. Результат не сохраняется, а запуск расходует одну генерацию.</p>
+    </div>
+    <div class="cmp-loading" id="cmp-loading" hidden>
+      <div class="cmp-spinner" aria-hidden="true"></div>
+      <h2>Анализируем вакансию…</h2>
+      <p>Собираем требования и проверяем их по данным профиля.</p>
+    </div>
+    <div class="cmp-error" id="cmp-error" hidden>
+      <div class="cmp-error__icon">!</div>
+      <h2 id="cmp-error-title">Не удалось выполнить сравнение</h2>
+      <p id="cmp-error-text"></p>
+      <button class="btn-soft" id="cmp-retry" type="button">Попробовать снова</button>
+    </div>
+  </section>
+
+  <section class="cmp-result" id="cmp-result" hidden>
+    <div class="cmp-score-card">
+      <div class="cmp-score-card__label">Совместимость с вакансией</div>
+      <div class="cmp-score-card__value"><span id="cmp-score">0</span><span>%</span></div>
+      <div class="cmp-score-card__bar"><span id="cmp-score-bar"></span></div>
+      <p class="cmp-score-card__hint">Процент рассчитан сервером: обязательные требования влияют сильнее желательных.</p>
+    </div>
+    <div class="cmp-counts" id="cmp-counts"></div>
+    <div class="cmp-table-wrap">
+      <table class="cmp-table">
+        <caption>Требования вакансии и подтверждения в профиле</caption>
+        <thead><tr><th>Требование</th><th>Важность</th><th>Статус</th><th>Подтверждение или пробел</th></tr></thead>
+        <tbody id="cmp-rows"></tbody>
+      </table>
+    </div>
+    <p class="cmp-note">«Не найдено в профиле» означает, что подтверждение не указано в сохранённых данных, а не то, что навыка у вас точно нет.</p>
+  </section>
+</main>
+
+{% include '_consent_modal.html' %}
+<div class="toast" id="toast"></div>
+
+<script>
+const COMPARISON_ID = {{ resume_id|int }};
+const AUTORUN = {{ 'true' if autorun else 'false' }};
+const STATUS_LABELS = { matched:'Соответствует', partial:'Частично', not_found:'Не найдено в профиле' };
+const IMPORTANCE_LABELS = { required:'Обязательно', preferred:'Желательно' };
+
+const els = {
+  run: document.getElementById('cmp-run'), empty: document.getElementById('cmp-empty'),
+  loading: document.getElementById('cmp-loading'), error: document.getElementById('cmp-error'),
+  errorTitle: document.getElementById('cmp-error-title'), errorText: document.getElementById('cmp-error-text'),
+  retry: document.getElementById('cmp-retry'), result: document.getElementById('cmp-result'),
+  score: document.getElementById('cmp-score'), scoreBar: document.getElementById('cmp-score-bar'),
+  counts: document.getElementById('cmp-counts'), rows: document.getElementById('cmp-rows'),
+};
+let retryable = false;
+
+function setState(name) {
+  els.empty.hidden = name !== 'empty';
+  els.loading.hidden = name !== 'loading';
+  els.error.hidden = name !== 'error';
+  els.result.hidden = name !== 'success';
+  els.run.hidden = name === 'loading' || name === 'success';
+  els.run.disabled = name === 'loading';
+}
+
+function showError(title, text, canRetry) {
+  retryable = canRetry;
+  els.errorTitle.textContent = title;
+  els.errorText.textContent = text;
+  els.retry.hidden = !canRetry;
+  setState('error');
+}
+
+function apiError(res, body) {
+  if (res.status === 402 && body?.error === 'pro_limit') return 'Лимит Pro на период исчерпан. Попробуйте позже.';
+  if (res.status === 402 && body?.error === 'no_uses') return 'Генерации закончились. Оформите Pro или купите пакет.';
+  if (body?.error === 'vacancy_text_unavailable') return 'Исходный текст вакансии недоступен. Откройте карточку и добавьте источник заново.';
+  if (body?.error === 'profile_missing') return 'Сохраните профиль с опытом и навыками, затем запустите сравнение снова.';
+  return body?.detail || 'Сервис сравнения временно недоступен.';
+}
+
+function countCard(label, value, kind) {
+  const card = document.createElement('div'); card.className = 'cmp-count cmp-count--' + kind;
+  const valueEl = document.createElement('strong'); valueEl.textContent = String(value || 0);
+  const labelEl = document.createElement('span'); labelEl.textContent = label;
+  card.append(valueEl, labelEl); return card;
+}
+
+function renderComparison(payload) {
+  const comparison = payload?.comparison;
+  if (!comparison || !Array.isArray(comparison.requirements)) throw new Error('Пустой ответ сравнения');
+  const score = Number(comparison.score);
+  if (!Number.isInteger(score) || score < 0 || score > 100) throw new Error('Некорректный процент');
+  const counts = comparison.counts || {};
+  els.score.textContent = String(score);
+  els.scoreBar.style.width = score + '%';
+  els.counts.replaceChildren(
+    countCard('соответствует', counts.matched, 'matched'),
+    countCard('частично', counts.partial, 'partial'),
+    countCard('не найдено', counts.not_found, 'not-found')
+  );
+  els.rows.replaceChildren();
+  comparison.requirements.forEach(item => {
+    const row = document.createElement('tr');
+    const requirement = document.createElement('td'); requirement.textContent = item.requirement || '';
+    const importance = document.createElement('td'); importance.textContent = IMPORTANCE_LABELS[item.importance] || '—';
+    const status = document.createElement('td');
+    const badge = document.createElement('span'); badge.className = 'cmp-status cmp-status--' + (STATUS_LABELS[item.status] ? item.status : 'not_found');
+    badge.textContent = STATUS_LABELS[item.status] || STATUS_LABELS.not_found; status.append(badge);
+    const evidence = document.createElement('td'); evidence.textContent = item.profile_evidence || item.gap_explanation || 'Подтверждение не указано';
+    row.append(requirement, importance, status, evidence); els.rows.append(row);
+  });
+  setState('success');
+}
+
+async function runComparison() {
+  setState('loading');
+  try {
+    const res = await fetch('/api/resumes/' + COMPARISON_ID + '/profile-comparison', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const body = await res.json().catch(() => ({}));
+    if (window.AiConsent && window.AiConsent.refused(res, body)) {
+      window.AiConsent.reset();
+      setState('empty');
+      if (await window.AiConsent.ensure()) return runComparison();
+      return;
+    }
+    if (res.status === 401) { window.location.href = '/new?auth_required=1'; return; }
+    if (!res.ok) {
+      showError('Сравнение не запущено', apiError(res, body), res.status >= 500);
+      return;
+    }
+    renderComparison(body);
+  } catch (error) {
+    showError('Нет соединения', 'Проверьте сеть и повторите попытку. Новый успешный запуск расходует одну генерацию.', true);
+  }
+}
+
+els.run.addEventListener('click', runComparison);
+els.retry.addEventListener('click', () => { if (retryable) runComparison(); });
+window.addEventListener('DOMContentLoaded', () => {
+  if (AUTORUN) {
+    history.replaceState(null, '', window.location.pathname);
+    runComparison();
+  }
+});
+</script>
+</body>
+</html>

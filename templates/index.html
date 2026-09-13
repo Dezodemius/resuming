@@ -442,6 +442,7 @@ let hasProfile   = false;
 let anonymousProfile = null;
 let lastResume   = null;
 let lastResumeId = null;
+let lastJobSource = '';
 let lastTab      = 'match';
 let expCnt = 0, eduCnt = 0;
 let pendingAction = null;
@@ -874,6 +875,7 @@ async function doMatch() {
       showGateAnon(d.anon_uses_left);
     }
 
+    lastJobSource = d.job_source || '';
     lastResume = d.resume;
     renderResume(d.resume, true);
     show('btn-regen');
@@ -932,6 +934,7 @@ async function doGeneralResume() {
       showGateAnon(d.anon_uses_left);
     }
 
+    lastJobSource = '';
     lastResume = d.resume;
     renderResume(d.resume, false);
     show('btn-regen');
@@ -1016,6 +1019,8 @@ async function saveCurrentResume() {
           resume_data: lastResume,
           kind:         lastTab === 'match' ? 'matched' : 'general',
           company_name: v('job-company') || '',
+          job_url:      lastTab === 'match' ? (v('job-url') || '') : '',
+          job_text:     lastTab === 'match' ? lastJobSource : '',
           job_snippet:  v('job-text').substring(0, 300)
         })
       });

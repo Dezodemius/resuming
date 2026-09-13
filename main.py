@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
+from pydantic import ValidationError
 
 try:
     from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -798,7 +799,7 @@ from schemas import (  # noqa: E402
     EmailReq, ProfileData, MatchReq, GenerateFromProfileReq,
     GenerateReq, PayReq, ImproveReq, AnonymousPreviewReq,
     PromoActivateReq, PromoCreateReq, PromoDeactivateReq, TrackReq, SiteConsentReq,
-    AiConsentReq,
+    AiConsentReq, SaveResumeReq, ProfileComparisonAiResponse, JOB_TEXT_MAX,
     DevLoginReq, DevGrantReq,
     # Потолок значения промокода — один и тот же для схемы новых кодов и для
     # подстраховки при активации уже заведённых (см. promo_activate).
@@ -998,10 +999,24 @@ async def generate_preview(req: AnonymousPreviewReq, request: Request, response:
         log_event(db, "anon_preview", anon_id=anon_id)
         db.commit()
 
-    return {"resume": resume, "anon_uses_left": ANON_LIMIT - uses - 1}
+    return {
+        "resume": resume,
+        "anon_uses_left": ANON_LIMIT - uses - 1,
+        # Только для последующего сохранения после входа; клиент держит
+        # источник в памяти страницы и не кладёт его в browser storage.
+        "job_source": job_text[:JOB_TEXT_MAX] if req.kind == "match" else "",
+    }
 
 # ── Health checks ─────────────────────────────────────────────────────────
 _NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _comparison_error(status_code: int, code: str, detail: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": code, "detail": detail},
+        headers=_NO_STORE,
+    )
 
 
 @app.api_route("/healthz", methods=["GET", "HEAD"])
@@ -1167,6 +1182,29 @@ async def resume_edit_page(resume_id: int, request: Request):
     return tpl.TemplateResponse(request, "resume_edit.html", {
         "resume_id":  resume_id,
         "user": user,
+    })
+
+
+@app.get("/resumes/{resume_id}/compare", response_class=HTMLResponse)
+async def resume_compare_page(resume_id: int, request: Request):
+    user = await get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/new?auth_required=1", status_code=303)
+    with get_db() as db:
+        row = db.execute(
+            "SELECT company_name, json_extract(resume_data, '$.target_role') AS title"
+            " FROM resumes WHERE id=? AND user_id=? AND kind='matched'"
+            " AND json_extract(resume_data, '$.generation_status') IS NULL",
+            (resume_id, user["id"]),
+        ).fetchone()
+    if not row:
+        return RedirectResponse(url="/resumes", status_code=303)
+    return tpl.TemplateResponse(request, "resume_compare.html", {
+        "resume_id": resume_id,
+        "user": user,
+        "company_name": row["company_name"] or "Без компании",
+        "vacancy_title": row["title"] or "Вакансия",
+        "autorun": request.query_params.get("run") == "1",
     })
 
 # ── AI section improvement ────────────────────────────────────────────────
@@ -1850,12 +1888,8 @@ def _is_pro(user_row) -> bool:
     except Exception:
         return False
 
-def _deduct(db, user_id: int) -> tuple[bool, str, int]:
-    """
-    Списывает одну генерацию.
-    Returns (ok, col_used, uses_left).
-    Pro-пользователи не теряют счётчик — returns ('pro', 999).
-    """
+def _quota_state(db, user_id: int) -> tuple[bool, str, int]:
+    """Возвращает доступность, источник квоты и остаток без списания."""
     row = db.execute(
         "SELECT free_left, paid_left, is_pro, pro_expires_at FROM users WHERE id=?",
         (user_id,)
@@ -1881,6 +1915,42 @@ def _deduct(db, user_id: int) -> tuple[bool, str, int]:
             log.warning("pro fair-use limit hit: user=%s recent=%s", user_id, recent)
             return False, "pro_capped", 0
         return True, "pro", 999          # безлимит, ничего не списываем
+
+    total = row["free_left"] + row["paid_left"]
+    if total <= 0:
+        return False, "", 0
+
+    col = "free_left" if row["free_left"] > 0 else "paid_left"
+    return True, col, total - 1
+
+
+def _deduct(db, user_id: int) -> tuple[bool, str, int]:
+    """
+    Списывает одну генерацию.
+    Returns (ok, col_used, uses_left).
+    Pro-пользователи не теряют счётчик — returns ('pro', 999).
+    """
+    row = db.execute(
+        "SELECT free_left, paid_left, is_pro, pro_expires_at FROM users WHERE id=?",
+        (user_id,)
+    ).fetchone()
+
+    if _is_pro(row):
+        window_start = f"-{PRO_FAIR_USE_DAYS} days"
+        recent = db.execute(
+            "SELECT COUNT(*) FROM usage_events"
+            " WHERE user_id=?"
+            "   AND (event='generate' OR ("
+            "       event='generate_fail'"
+            "       AND json_extract(meta, '$.reason')='format_hijack'"
+            "   ))"
+            "   AND created > datetime('now', ?)",
+            (user_id, window_start),
+        ).fetchone()[0]
+        if recent >= PRO_FAIR_USE_LIMIT:
+            log.warning("pro fair-use limit hit: user=%s recent=%s", user_id, recent)
+            return False, "pro_capped", 0
+        return True, "pro", 999
 
     total = row["free_left"] + row["paid_left"]
     if total <= 0:
@@ -2338,6 +2408,82 @@ def _parse_ai(raw: str) -> dict:
         log.warning("AI returned non-JSON (len=%d): %s", len(raw), raw[:500])
         raise HTTPException(502, "Модель вернула некорректный ответ. Попробуйте ещё раз.")
 
+
+def _parse_profile_comparison_ai(
+    raw: str,
+    profile_ids: set[str],
+    vacancy_ids: set[str],
+) -> ProfileComparisonAiResponse:
+    """Строго разбирает один comparison JSON и проверяет provenance refs."""
+    if not isinstance(raw, str):
+        raise ValueError("comparison response must be text")
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if len(lines) < 3 or lines[0].strip() not in ("```", "```json") or lines[-1].strip() != "```":
+            raise ValueError("invalid markdown fence")
+        cleaned = "\n".join(lines[1:-1]).strip()
+    if "```" in cleaned:
+        raise ValueError("multiple markdown fences")
+    try:
+        payload = json.loads(cleaned, parse_constant=_reject_json_constant)
+        if not isinstance(payload, dict):
+            raise ValueError("comparison response must be an object")
+        parsed = ProfileComparisonAiResponse.model_validate(payload)
+    except (ValueError, ValidationError) as exc:
+        raise ValueError("invalid comparison response") from exc
+
+    for item in parsed.requirements:
+        if any(ref not in vacancy_ids for ref in item.vacancy_refs):
+            raise ValueError("unknown vacancy ref")
+        if any(ref not in profile_ids for ref in item.profile_refs):
+            raise ValueError("unknown profile ref")
+    return parsed
+
+
+def _score_profile_comparison(requirements) -> tuple[int, dict[str, int]]:
+    """Детерминированно считает score из уже провалидированных требований."""
+    weights = {"required": 3, "preferred": 1}
+    status_points = {"matched": 2, "partial": 1, "not_found": 0}
+    counts = {"matched": 0, "partial": 0, "not_found": 0, "critical_gaps": 0}
+    max_points = 0
+    earned_points = 0
+    for item in requirements:
+        weight = weights[item.importance]
+        max_points += 2 * weight
+        earned_points += weight * status_points[item.status]
+        counts[item.status] += 1
+        if item.importance == "required" and item.status == "not_found":
+            counts["critical_gaps"] += 1
+    base_score = (100 * earned_points + max_points // 2) // max_points
+    gap_penalty = min(30, 10 * counts["critical_gaps"])
+    return max(0, base_score - gap_penalty), counts
+
+
+def _public_profile_comparison(parsed, profile_sources: dict[str, str]) -> dict:
+    score, counts = _score_profile_comparison(parsed.requirements)
+    requirements = []
+    for item in parsed.requirements:
+        evidence_parts = []
+        for ref in item.profile_refs:
+            value = profile_sources[ref]
+            if value not in evidence_parts:
+                evidence_parts.append(value)
+        requirements.append({
+            "requirement": item.requirement,
+            "importance": item.importance,
+            "status": item.status,
+            "profile_evidence": "; ".join(evidence_parts)[:300] or None,
+            "gap_explanation": item.gap_explanation,
+        })
+    return {
+        "scoring_version": 1,
+        "score": score,
+        "counts": counts,
+        "requirements": requirements,
+    }
+
+
 def _resume_group_name(company: str, kind: str) -> str:
     """Название группы в библиотеке. Не подставляет должность вместо компании."""
     company = (company or "").strip()
@@ -2394,10 +2540,12 @@ def _insert_pending_resume(db, user_id: int, req: MatchReq, job_text: str, job_u
     company = _resume_group_name(req.company, kind)
     title = (req.job_title or "").strip() or _guess_job_title(job_text)
     resume = _pending_resume_data(title, company)
+    stored_job_text = job_text[:JOB_TEXT_MAX] if job_text and not job_url else None
     cur = db.execute(
-        "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
-        " VALUES (?,?,?,?,?,?,datetime('now'))",
-        (user_id, company, job_url, job_text[:300], _json_for_db(resume), kind),
+        "INSERT INTO resumes"
+        " (user_id, company_name, job_url, job_snippet, job_text, resume_data, kind, updated)"
+        " VALUES (?,?,?,?,?,?,?,datetime('now'))",
+        (user_id, company, job_url, job_text[:300], stored_job_text, _json_for_db(resume), kind),
     )
     return cur.lastrowid, resume
 
@@ -2475,6 +2623,14 @@ async def _finish_match_generation(
 ) -> None:
     try:
         resolved_text, _ = await _resolve_job_text(job_text, job_url)
+        # Сохраняем доверенный источник до AI-вызова. Это не результат
+        # генерации и не должно поднимать карточку в сортировке библиотеки.
+        with get_db() as db:
+            db.execute(
+                "UPDATE resumes SET job_text=?, job_snippet=? WHERE id=? AND user_id=?",
+                (resolved_text[:JOB_TEXT_MAX], resolved_text[:300], resume_id, user_id),
+            )
+            db.commit()
         raw = await call_ai(_match_prompt(profile, resolved_text, extra_hint))
         # Уход от формата не должен возвращать списание (см. match_to_job) —
         # иначе инъекция через асинхронный сценарий даёт бесплатный вызов AI,
@@ -2497,9 +2653,15 @@ async def _finish_match_generation(
         resume.pop("generation_status", None)
         with get_db() as db:
             db.execute(
-                "UPDATE resumes SET resume_data=?, job_snippet=?, updated=datetime('now')"
+                "UPDATE resumes SET resume_data=?, job_text=?, job_snippet=?, updated=datetime('now')"
                 " WHERE id=? AND user_id=?",
-                (json.dumps(resume, ensure_ascii=False), resolved_text[:300], resume_id, user_id),
+                (
+                    json.dumps(resume, ensure_ascii=False),
+                    resolved_text[:JOB_TEXT_MAX],
+                    resolved_text[:300],
+                    resume_id,
+                    user_id,
+                ),
             )
             log_event(db, "generate", user_id=user_id, kind="match_async", col=col)
             db.commit()
@@ -2514,7 +2676,8 @@ async def _finish_match_generation(
 
 
 def _save_resume(db, user_id: int, resume: dict, kind: str,
-                 company: str = "", job_url: str = "", job_snippet: str = "") -> int:
+                 company: str = "", job_url: str = "", job_text: str = "",
+                 job_snippet: str = "") -> int:
     """Сохраняет резюме. Для бесплатных пользователей проверяет лимит FREE_RESUMES."""
     _ensure_resume_capacity(db, user_id)
 
@@ -2524,10 +2687,13 @@ def _save_resume(db, user_id: int, resume: dict, kind: str,
     # сравнение, и 'T' > ' ' ставил свежесозданные резюме выше только что
     # отредактированных независимо от реального времени.
     company_name = _resume_group_name(company, kind)
+    full_source = (job_text or "").strip()[:JOB_TEXT_MAX]
+    snippet = full_source[:300] if full_source else (job_snippet or "")[:300]
     c = db.execute(
-        "INSERT INTO resumes (user_id, company_name, job_url, job_snippet, resume_data, kind, updated)"
-        " VALUES (?,?,?,?,?,?,datetime('now'))",
-        (user_id, company_name, job_url, job_snippet[:300],
+        "INSERT INTO resumes"
+        " (user_id, company_name, job_url, job_snippet, job_text, resume_data, kind, updated)"
+        " VALUES (?,?,?,?,?,?,?,datetime('now'))",
+        (user_id, company_name, job_url, snippet, full_source or None,
          _json_for_db(resume), kind)
     )
     db.commit()
@@ -2591,7 +2757,9 @@ async def get_resume(resume_id: int, request: Request):
         raise HTTPException(401, "Требуется авторизация")
     with get_db() as db:
         row = db.execute(
-            "SELECT * FROM resumes WHERE id=? AND user_id=?", (resume_id, user["id"])
+            "SELECT id, user_id, company_name, job_url, job_snippet, resume_data,"
+            " kind, status, created, updated FROM resumes WHERE id=? AND user_id=?",
+            (resume_id, user["id"]),
         ).fetchone()
     if not row:
         raise HTTPException(404, "Резюме не найдено")
@@ -2601,6 +2769,214 @@ async def get_resume(resume_id: int, request: Request):
     # здесь означает не «устаревшая карточка», а перезапись свежего резюме
     # старыми данными.
     return JSONResponse(r, headers=_NO_STORE)
+
+
+@app.post("/api/resumes/{resume_id}/profile-comparison")
+@rate("10/minute")
+async def compare_profile_to_vacancy(resume_id: int, request: Request):
+    """Ephemeral AI-сравнение канонического профиля с вакансией карточки."""
+    user = await get_current_user(request)
+    if not user:
+        return _comparison_error(401, "auth_required", "Войдите в аккаунт")
+
+    with get_db() as db:
+        resume_row = db.execute(
+            "SELECT id, company_name, job_url, job_text FROM resumes"
+            " WHERE id=? AND user_id=? AND kind='matched'"
+            " AND json_extract(resume_data, '$.generation_status') IS NULL",
+            (resume_id, user["id"]),
+        ).fetchone()
+        profile_row = db.execute(
+            "SELECT data FROM profiles WHERE user_id=?", (user["id"],)
+        ).fetchone()
+    if not resume_row:
+        return _comparison_error(404, "comparison_not_found", "Сравнение недоступно")
+    if not _has_ai_consent(user):
+        return _consent_required()
+    if not profile_row:
+        return _comparison_error(409, "profile_missing", "Сначала заполните профиль")
+
+    profile_raw = profile_row["data"]
+    try:
+        if len(profile_raw.encode("utf-8")) > RESUME_JSON_MAX:
+            raise ValueError("oversized profile")
+        profile = json.loads(profile_raw, parse_constant=_reject_json_constant)
+        if not isinstance(profile, dict):
+            raise ValueError("profile is not an object")
+    except (TypeError, ValueError):
+        return _comparison_error(
+            409,
+            "profile_missing",
+            "Профиль повреждён или слишком большой. Сохраните его заново.",
+        )
+
+    # Право на дорогую операцию проверяем до legacy fetch. Финальный deduct
+    # ниже остаётся авторитетным на случай конкурентного запроса.
+    with get_db() as db:
+        quota_ok, quota_col, _ = _quota_state(db, user["id"])
+    if not quota_ok:
+        code = "pro_limit" if quota_col == "pro_capped" else "no_uses"
+        return _comparison_error(402, code, "Недостаточно генераций для сравнения")
+
+    job_text = (resume_row["job_text"] or "").strip()
+    source_kind = "stored"
+    if not job_text:
+        job_url = (resume_row["job_url"] or "").strip()
+        if not job_url:
+            with get_db() as db:
+                log_event(
+                    db,
+                    "comparison_blocked",
+                    user_id=user["id"],
+                    kind="profile_compare",
+                    reason="vacancy_text_unavailable",
+                    source="missing",
+                )
+                db.commit()
+            return _comparison_error(
+                409,
+                "vacancy_text_unavailable",
+                "Исходный текст этой вакансии недоступен",
+            )
+        try:
+            job_text = await _fetch_job_text(job_url)
+        except Exception:
+            with get_db() as db:
+                log_event(
+                    db,
+                    "comparison_blocked",
+                    user_id=user["id"],
+                    kind="profile_compare",
+                    reason="vacancy_text_unavailable",
+                    source="legacy_fetch",
+                )
+                db.commit()
+            return _comparison_error(
+                409,
+                "vacancy_text_unavailable",
+                "Не удалось повторно загрузить исходную вакансию",
+            )
+        source_kind = "legacy_fetch"
+        with get_db() as db:
+            db.execute(
+                "UPDATE resumes SET job_text=?, job_snippet=? WHERE id=? AND user_id=?",
+                (job_text[:JOB_TEXT_MAX], job_text[:300], resume_id, user["id"]),
+            )
+            db.commit()
+
+    if len(job_text) < 30 or len(job_text) > JOB_TEXT_MAX:
+        return _comparison_error(
+            409,
+            "vacancy_text_unavailable",
+            "Исходный текст вакансии недоступен или имеет неверный размер",
+        )
+
+    if _looks_like_injection(profile_raw, job_text):
+        with get_db() as db:
+            error = _flag_abuse(db, user=user)
+            log_event(
+                db,
+                "abuse_blocked",
+                user_id=user["id"],
+                kind="profile_compare",
+                stage="input",
+            )
+            db.commit()
+        return _comparison_error(402, error, "Сравнение заблокировано проверкой данных")
+
+    prompt, profile_sources, vacancy_sources = _profile_comparison_prompt(profile, job_text)
+    if not vacancy_sources or len(prompt) > 48_000:
+        return _comparison_error(
+            409,
+            "vacancy_text_unavailable",
+            "Текст вакансии не удалось подготовить для сравнения",
+        )
+
+    with get_db() as db:
+        ok, col, uses_left = _deduct(db, user["id"])
+    if not ok:
+        code = "pro_limit" if col == "pro_capped" else "no_uses"
+        return _comparison_error(402, code, "Недостаточно генераций для сравнения")
+
+    started = time.monotonic()
+    try:
+        raw = await call_ai(prompt)
+    except Exception as exc:
+        with get_db() as db:
+            _refund(db, user["id"], col)
+            log_event(
+                db,
+                "generate_fail",
+                user_id=user["id"],
+                kind="profile_compare",
+                reason="ai_error",
+            )
+            db.commit()
+        status = exc.status_code if isinstance(exc, HTTPException) else 502
+        if status not in (502, 503, 504):
+            status = 502
+        detail = exc.detail if isinstance(exc, HTTPException) else "Сервис сравнения временно недоступен"
+        return _comparison_error(status, "comparison_ai_error", str(detail))
+
+    try:
+        parsed = _parse_profile_comparison_ai(
+            raw,
+            set(profile_sources),
+            set(vacancy_sources),
+        )
+        comparison = _public_profile_comparison(parsed, profile_sources)
+    except (ValueError, ValidationError):
+        with get_db() as db:
+            _refund(db, user["id"], col)
+            log_event(
+                db,
+                "generate_fail",
+                user_id=user["id"],
+                kind="profile_compare",
+                reason="invalid_response",
+            )
+            db.commit()
+        log.warning(
+            "profile-compare invalid response: user=%s resume=%s response_len=%d",
+            user["id"],
+            resume_id,
+            len(raw) if isinstance(raw, str) else -1,
+        )
+        return _comparison_error(
+            502,
+            "comparison_invalid_response",
+            "Модель вернула некорректное сравнение. Попробуйте ещё раз.",
+        )
+
+    counts = comparison["counts"]
+    with get_db() as db:
+        log_event(
+            db,
+            "generate",
+            user_id=user["id"],
+            kind="profile_compare",
+            col=col,
+            source=source_kind,
+            score=comparison["score"],
+            matched=counts["matched"],
+            partial=counts["partial"],
+            not_found=counts["not_found"],
+            critical_gaps=counts["critical_gaps"],
+        )
+        db.commit()
+    log.info(
+        "profile-compare ok: user=%s resume=%s source=%s score=%s duration=%.1fs",
+        user["id"],
+        resume_id,
+        source_kind,
+        comparison["score"],
+        time.monotonic() - started,
+    )
+    return JSONResponse(
+        {"comparison": comparison, "uses_left": uses_left},
+        headers=_NO_STORE,
+    )
+
 
 # Статусы доски — те же пять, что рисует templates/resumes.html (STATUS_ORDER).
 # PUT принимал любую строку любой длины: карточка с посторонним статусом не
@@ -2668,21 +3044,23 @@ async def save_resume_json(request: Request):
     user = await get_current_user(request)
     if not user:
         raise HTTPException(401, "Требуется авторизация")
-    body = await request.json()
-    if not isinstance(body, dict):
-        raise HTTPException(400, "Некорректное тело запроса")
-    resume_data = body.get("resume_data")
-    # Именно объект: список или строка тоже сохранялись в resume_data, после
-    # чего карточка не открывалась ни в библиотеке, ни в редакторе.
-    if not isinstance(resume_data, dict) or not resume_data:
-        raise HTTPException(400, "Нет данных резюме")
+    try:
+        raw_body = await request.json()
+        if not isinstance(raw_body, dict):
+            raise ValueError("body is not an object")
+        body = SaveResumeReq.model_validate(raw_body)
+    except (ValueError, ValidationError):
+        raise HTTPException(400, "Некорректные данные резюме")
     with get_db() as db:
         rid = _save_resume(
-            db, user["id"], resume_data,
-            "general" if body.get("kind") != "matched" else "matched",
-            body.get("company_name", ""),
-            body.get("job_url", ""),
-            body.get("job_snippet", ""),
+            db,
+            user["id"],
+            body.resume_data,
+            body.kind,
+            company=body.company_name,
+            job_url=body.job_url,
+            job_text=body.job_text,
+            job_snippet=body.job_snippet,
         )
     return {"resume_id": rid}
 
@@ -2926,7 +3304,8 @@ async def _fetch_job_text(url: str) -> str:
     """
     if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "Некорректная ссылка на вакансию")
-    log.info("fetch-job start: %s", url)
+    source_host = urlparse(url).hostname or "invalid-host"
+    log.info("fetch-job start: host=%s", source_host)
     try:
         async with httpx.AsyncClient(
             timeout=15, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0"}
@@ -2942,6 +3321,10 @@ async def _fetch_job_text(url: str) -> str:
                     if r.is_redirect and r.headers.get("location"):
                         current = urljoin(current, r.headers["location"])
                         continue
+                    if not 200 <= r.status_code < 300:
+                        raise HTTPException(
+                            400, "Страница вакансии недоступна — вставьте описание вручную"
+                        )
                     ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
                     if ctype and not ctype.startswith(JOB_CONTENT_TYPES):
                         raise HTTPException(
@@ -2952,7 +3335,11 @@ async def _fetch_job_text(url: str) -> str:
                         chunks.append(chunk)
                         size += len(chunk)
                         if size >= MAX_JOB_BYTES:
-                            log.info("fetch-job: ответ обрезан на %d байтах (%s)", size, current)
+                            log.info(
+                                "fetch-job: ответ host=%s обрезан на %d байтах",
+                                parsed.hostname,
+                                size,
+                            )
                             break
                     html = b"".join(chunks).decode(r.charset_encoding or "utf-8", errors="replace")
                     status = r.status_code
@@ -2961,12 +3348,12 @@ async def _fetch_job_text(url: str) -> str:
                 raise HTTPException(400, "Слишком много перенаправлений по ссылке")
         text = re.sub(r"<[^>]+>", " ", html)
         text = re.sub(r"\s+", " ", text).strip()
-        log.info("fetch-job ok: %s -> %d chars (HTTP %s)", url, len(text), status)
+        log.info("fetch-job ok: host=%s chars=%d HTTP=%s", source_host, len(text), status)
         return text[:4000]
     except HTTPException:
         raise
     except Exception as e:
-        log.warning("fetch-job failed: %s: %s", url, e)
+        log.warning("fetch-job failed: host=%s error=%s", source_host, type(e).__name__)
         raise HTTPException(502, "Не удалось загрузить вакансию по ссылке — вставьте текст вручную")
 
 @app.post("/api/fetch-job")
@@ -3590,7 +3977,12 @@ async def admin_stats(request: Request):
     }
 
 # Промпты вынесены в prompts.py.
-from prompts import _match_prompt, _general_prompt, _generate_prompt  # noqa: E402,F401
+from prompts import (  # noqa: E402,F401
+    _match_prompt,
+    _general_prompt,
+    _generate_prompt,
+    _profile_comparison_prompt,
+)
 
 # ── MCP server (Model Context Protocol) ────────────────────────────────────
 # Доступ из Claude Desktop/Code к адаптации резюме. Подключение:
