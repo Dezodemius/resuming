@@ -30,7 +30,7 @@ _EXPECTED_COLUMNS = {
     "promo_activations": ["code", "created", "id", "user_id"],
     "promo_codes": ["active", "code", "comment", "created", "expires_at", "kind",
                     "max_uses", "used_count", "value"],
-    "resumes": ["company_name", "created", "id", "job_snippet", "job_url", "kind",
+    "resumes": ["company_name", "created", "id", "job_snippet", "job_text", "job_url", "kind",
                 "resume_data", "status", "updated", "user_id"],
     "sessions": ["created", "expires_at", "id", "user_id"],
     "usage_events": ["anon_id", "created", "event", "id", "meta", "user_id"],

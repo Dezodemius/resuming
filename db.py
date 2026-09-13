@@ -98,6 +98,7 @@ def init_db():
                 company_name TEXT,
                 job_url      TEXT,
                 job_snippet  TEXT,
+                job_text     TEXT,
                 resume_data  TEXT NOT NULL,
                 kind         TEXT DEFAULT 'matched',
                 status       TEXT DEFAULT 'draft',
@@ -269,7 +270,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -307,6 +308,10 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 8:
         _migration_8_ai_consent_hash_and_legal_guards(db)
         db.execute("PRAGMA user_version = 8")
+        applied += 1
+    if version < 9:
+        _migration_9_resume_job_text(db)
+        db.execute("PRAGMA user_version = 9")
         applied += 1
     if applied:
         db.commit()
@@ -637,3 +642,22 @@ def _migration_8_ai_consent_hash_and_legal_guards(db: sqlite3.Connection) -> Non
             SELECT RAISE(ABORT, 'legal_events is append-only');
         END;
     """)
+
+
+def _migration_9_resume_job_text(db: sqlite3.Connection) -> None:
+    """Хранит полный нормализованный источник вакансии для новых карточек.
+
+    Legacy job_snippet намеренно не копируется: даже короткий фрагмент не
+    доказывает, что исходная вакансия была сохранена полностью. Для старых
+    matched-карточек источник восстанавливается только по job_url.
+    """
+    # Some early test/backup databases legitimately predate the resumes table;
+    # init_db() will create it with the new column on the next startup.
+    tables = {row["name"] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "resumes" not in tables:
+        return
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(resumes)").fetchall()}
+    if "job_text" not in columns:
+        db.execute("ALTER TABLE resumes ADD COLUMN job_text TEXT")
