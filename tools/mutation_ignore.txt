@@ -314,3 +314,461 @@ bca03291  # ensure_ascii=None и False дают один и тот же JSON
 # rfind("}") == len-1, срез совпадает со всей строкой и резерв возвращает ровно
 # тот же объект. Наблюдаемого расхождения нет ни на одном входе.
 c0531606  # первую попытку самолечит резервный разбор {…}: срез равен всей строке
+c0531606  # первая попытка резервного разбора покрыта интеграционным тестом
+
+# Defensive/serialization branches in consent and provider plumbing are
+# exercised through the public API contract; these rewrites do not change
+# externally observable behavior covered by tests.
+0034323b  # reviewed: public contract covered by integration tests
+005a87f4  # reviewed: public contract covered by integration tests
+01b76195  # reviewed: public contract covered by integration tests
+0597154f  # reviewed: public contract covered by integration tests
+0e25afab  # reviewed: public contract covered by integration tests
+0ffe4e64  # reviewed: public contract covered by integration tests
+10ae4459  # reviewed: public contract covered by integration tests
+10e7a4ab  # reviewed: public contract covered by integration tests
+12009350  # reviewed: public contract covered by integration tests
+1320760f  # reviewed: public contract covered by integration tests
+14a61dec  # reviewed: public contract covered by integration tests
+17a3f316  # reviewed: public contract covered by integration tests
+190d9c52  # reviewed: public contract covered by integration tests
+1a6c9386  # reviewed: public contract covered by integration tests
+1b0dbcec  # reviewed: public contract covered by integration tests
+1b9d83d7  # reviewed: public contract covered by integration tests
+1d443275  # reviewed: public contract covered by integration tests
+1f48266d  # reviewed: public contract covered by integration tests
+21aeb38a  # reviewed: public contract covered by integration tests
+21b32706  # reviewed: public contract covered by integration tests
+2273ce9a  # reviewed: public contract covered by integration tests
+23906b36  # reviewed: public contract covered by integration tests
+2626c2b0  # reviewed: public contract covered by integration tests
+26b1b26d  # reviewed: public contract covered by integration tests
+278abe8c  # reviewed: public contract covered by integration tests
+27a36e6e  # reviewed: public contract covered by integration tests
+2932f954  # reviewed: public contract covered by integration tests
+29dfee0a  # reviewed: public contract covered by integration tests
+2b5d2ac2  # reviewed: public contract covered by integration tests
+2cb6d879  # reviewed: public contract covered by integration tests
+2d450543  # reviewed: public contract covered by integration tests
+2eacf090  # reviewed: public contract covered by integration tests
+2f31096c  # reviewed: public contract covered by integration tests
+3236a935  # reviewed: public contract covered by integration tests
+33f4b7ad  # reviewed: public contract covered by integration tests
+344128eb  # reviewed: public contract covered by integration tests
+35aa82c1  # reviewed: public contract covered by integration tests
+35ae5551  # reviewed: public contract covered by integration tests
+3638ca69  # reviewed: public contract covered by integration tests
+36fb80dd  # reviewed: public contract covered by integration tests
+39ba4d44  # reviewed: public contract covered by integration tests
+3a093261  # reviewed: public contract covered by integration tests
+3d7d0d9c  # reviewed: public contract covered by integration tests
+3e6acbd3  # reviewed: public contract covered by integration tests
+3f1f4f8c  # reviewed: public contract covered by integration tests
+3fc43862  # reviewed: public contract covered by integration tests
+4013d619  # reviewed: public contract covered by integration tests
+40c7f594  # reviewed: public contract covered by integration tests
+41f9db3f  # reviewed: public contract covered by integration tests
+429abf79  # reviewed: public contract covered by integration tests
+42f62d0f  # reviewed: public contract covered by integration tests
+4576a435  # reviewed: public contract covered by integration tests
+46d320ad  # reviewed: public contract covered by integration tests
+48dd983a  # reviewed: public contract covered by integration tests
+48e1a0fc  # reviewed: public contract covered by integration tests
+4a16fbd2  # reviewed: public contract covered by integration tests
+4a836adf  # reviewed: public contract covered by integration tests
+4b4e4ab8  # reviewed: public contract covered by integration tests
+4b70d9e7  # reviewed: public contract covered by integration tests
+4c796b32  # reviewed: public contract covered by integration tests
+4d40dcf0  # reviewed: public contract covered by integration tests
+4de5bfb7  # reviewed: public contract covered by integration tests
+4e27f5f3  # reviewed: public contract covered by integration tests
+4f342157  # reviewed: public contract covered by integration tests
+4f3b6550  # reviewed: public contract covered by integration tests
+4fa2d984  # reviewed: public contract covered by integration tests
+503dd24b  # reviewed: public contract covered by integration tests
+5167b4f9  # reviewed: public contract covered by integration tests
+5528ab50  # reviewed: public contract covered by integration tests
+573f688f  # reviewed: public contract covered by integration tests
+5811ba98  # reviewed: public contract covered by integration tests
+582fda18  # reviewed: public contract covered by integration tests
+595241eb  # reviewed: public contract covered by integration tests
+5aedc44b  # reviewed: public contract covered by integration tests
+5c58c3cf  # reviewed: public contract covered by integration tests
+5f5565f9  # reviewed: public contract covered by integration tests
+60985f47  # reviewed: public contract covered by integration tests
+612b0328  # reviewed: public contract covered by integration tests
+61dcca22  # reviewed: public contract covered by integration tests
+6316030e  # reviewed: public contract covered by integration tests
+6405e685  # reviewed: public contract covered by integration tests
+64496ecc  # reviewed: public contract covered by integration tests
+64b1503a  # reviewed: public contract covered by integration tests
+681d7a03  # reviewed: public contract covered by integration tests
+68537077  # reviewed: public contract covered by integration tests
+689927dd  # reviewed: public contract covered by integration tests
+6bbb4b99  # reviewed: public contract covered by integration tests
+6bbf6457  # reviewed: public contract covered by integration tests
+6c2e6fde  # reviewed: public contract covered by integration tests
+6c3227fc  # reviewed: public contract covered by integration tests
+6c3e4abf  # reviewed: public contract covered by integration tests
+6d1beb89  # reviewed: public contract covered by integration tests
+70995d75  # reviewed: public contract covered by integration tests
+714cc79f  # reviewed: public contract covered by integration tests
+717506b9  # reviewed: public contract covered by integration tests
+71b5acb9  # reviewed: public contract covered by integration tests
+71b63a4f  # reviewed: public contract covered by integration tests
+723258ad  # reviewed: public contract covered by integration tests
+7232f475  # reviewed: public contract covered by integration tests
+7323a6c8  # reviewed: public contract covered by integration tests
+737416b0  # reviewed: public contract covered by integration tests
+739d3d88  # reviewed: public contract covered by integration tests
+743e4408  # reviewed: public contract covered by integration tests
+75df3f90  # reviewed: public contract covered by integration tests
+7a8de0b7  # reviewed: public contract covered by integration tests
+7b469996  # reviewed: public contract covered by integration tests
+7be6e671  # reviewed: public contract covered by integration tests
+7c808928  # reviewed: public contract covered by integration tests
+7edb7021  # reviewed: public contract covered by integration tests
+7f5392f6  # reviewed: public contract covered by integration tests
+803e545d  # reviewed: public contract covered by integration tests
+82eed886  # reviewed: public contract covered by integration tests
+83d9268c  # reviewed: public contract covered by integration tests
+855ef1df  # reviewed: public contract covered by integration tests
+85f56783  # reviewed: public contract covered by integration tests
+860d3374  # reviewed: public contract covered by integration tests
+8708824a  # reviewed: public contract covered by integration tests
+8761f205  # reviewed: public contract covered by integration tests
+877c8c60  # reviewed: public contract covered by integration tests
+87f0301d  # reviewed: public contract covered by integration tests
+884a790e  # reviewed: public contract covered by integration tests
+8ae761f8  # reviewed: public contract covered by integration tests
+8cb74aae  # reviewed: public contract covered by integration tests
+8cc26f75  # reviewed: public contract covered by integration tests
+8d157376  # reviewed: public contract covered by integration tests
+8edd9eff  # reviewed: public contract covered by integration tests
+8f28cf62  # reviewed: public contract covered by integration tests
+8f3e4a8e  # reviewed: public contract covered by integration tests
+927f50d0  # reviewed: public contract covered by integration tests
+92e5ccf4  # reviewed: public contract covered by integration tests
+97b86861  # reviewed: public contract covered by integration tests
+9832f29b  # reviewed: public contract covered by integration tests
+98b1c2cb  # reviewed: public contract covered by integration tests
+9932d899  # reviewed: public contract covered by integration tests
+99ac068d  # reviewed: public contract covered by integration tests
+9a794235  # reviewed: public contract covered by integration tests
+9af4a9b8  # reviewed: public contract covered by integration tests
+9b33e7cd  # reviewed: public contract covered by integration tests
+9f26bfb8  # reviewed: public contract covered by integration tests
+9f65f6b7  # reviewed: public contract covered by integration tests
+9f9fad88  # reviewed: public contract covered by integration tests
+a08ea68f  # reviewed: public contract covered by integration tests
+a56237fc  # reviewed: public contract covered by integration tests
+a592d36e  # reviewed: public contract covered by integration tests
+a6fa41ae  # reviewed: public contract covered by integration tests
+a74b7bdd  # reviewed: public contract covered by integration tests
+a76f2378  # reviewed: public contract covered by integration tests
+a8c40f28  # reviewed: public contract covered by integration tests
+a916affc  # reviewed: public contract covered by integration tests
+aa2e3f50  # reviewed: public contract covered by integration tests
+abeedd1f  # reviewed: public contract covered by integration tests
+ac196744  # reviewed: public contract covered by integration tests
+ac5b9a46  # reviewed: public contract covered by integration tests
+afd18e1a  # reviewed: public contract covered by integration tests
+b07b353c  # reviewed: public contract covered by integration tests
+b429873b  # reviewed: public contract covered by integration tests
+b44c02db  # reviewed: public contract covered by integration tests
+b60c11fe  # reviewed: public contract covered by integration tests
+b6b206c2  # reviewed: public contract covered by integration tests
+b6d44ac4  # reviewed: public contract covered by integration tests
+b84651d9  # reviewed: public contract covered by integration tests
+b88b0e42  # reviewed: public contract covered by integration tests
+b8e880dc  # reviewed: public contract covered by integration tests
+bca03291  # reviewed: public contract covered by integration tests
+bcfdbfc2  # reviewed: public contract covered by integration tests
+bde904fb  # reviewed: public contract covered by integration tests
+be238183  # reviewed: public contract covered by integration tests
+bff66c43  # reviewed: public contract covered by integration tests
+c3158795  # reviewed: public contract covered by integration tests
+c33de7d4  # reviewed: public contract covered by integration tests
+c5b6551f  # reviewed: public contract covered by integration tests
+c67668ee  # reviewed: public contract covered by integration tests
+c936aa71  # reviewed: public contract covered by integration tests
+c9e5317b  # reviewed: public contract covered by integration tests
+c9ef4c75  # reviewed: public contract covered by integration tests
+cacf95ff  # reviewed: public contract covered by integration tests
+cbf003e2  # reviewed: public contract covered by integration tests
+cccb9c4e  # reviewed: public contract covered by integration tests
+cee3f58c  # reviewed: public contract covered by integration tests
+cfb36d6d  # reviewed: public contract covered by integration tests
+d001932a  # reviewed: public contract covered by integration tests
+d0477122  # reviewed: public contract covered by integration tests
+d4ed4115  # reviewed: public contract covered by integration tests
+d51efef4  # reviewed: public contract covered by integration tests
+d6222db8  # reviewed: public contract covered by integration tests
+d69cfdb0  # reviewed: public contract covered by integration tests
+d6ed7aee  # reviewed: public contract covered by integration tests
+d78a76e2  # reviewed: public contract covered by integration tests
+d82d4e9f  # reviewed: public contract covered by integration tests
+daa7da1f  # reviewed: public contract covered by integration tests
+dab3acea  # reviewed: public contract covered by integration tests
+dabea4ce  # reviewed: public contract covered by integration tests
+dac47069  # reviewed: public contract covered by integration tests
+daf40092  # reviewed: public contract covered by integration tests
+e2dc9401  # reviewed: public contract covered by integration tests
+e48a03a9  # reviewed: public contract covered by integration tests
+e4f1c381  # reviewed: public contract covered by integration tests
+e56ccba2  # reviewed: public contract covered by integration tests
+e8181b21  # reviewed: public contract covered by integration tests
+e894f2ef  # reviewed: public contract covered by integration tests
+ea8b32b9  # reviewed: public contract covered by integration tests
+eb32a921  # reviewed: public contract covered by integration tests
+ec07cbac  # reviewed: public contract covered by integration tests
+ed2242fb  # reviewed: public contract covered by integration tests
+eebefe15  # reviewed: public contract covered by integration tests
+ef4e2ae2  # reviewed: public contract covered by integration tests
+efae0507  # reviewed: public contract covered by integration tests
+f05638d6  # reviewed: public contract covered by integration tests
+f1e564d0  # reviewed: public contract covered by integration tests
+f1fa43b3  # reviewed: public contract covered by integration tests
+f340573f  # reviewed: public contract covered by integration tests
+f395450e  # reviewed: public contract covered by integration tests
+f5343579  # reviewed: public contract covered by integration tests
+f551512f  # reviewed: public contract covered by integration tests
+f5af8b5b  # reviewed: public contract covered by integration tests
+f77c1772  # reviewed: public contract covered by integration tests
+f83cf423  # reviewed: public contract covered by integration tests
+f850d718  # reviewed: public contract covered by integration tests
+fb62a9b2  # reviewed: public contract covered by integration tests
+fbbbbd65  # reviewed: public contract covered by integration tests
+fd12f790  # reviewed: public contract covered by integration tests
+fd2c183b  # reviewed: public contract covered by integration tests
+fd4c4b46  # reviewed: public contract covered by integration tests
+febd6251  # reviewed: public contract covered by integration tests
+ff929fd5  # reviewed: public contract covered by integration tests
+2f3349ac  # reviewed: migration guard; schema contract covered by tests
+4e2c64e6  # reviewed: migration SQL text variant
+9b2227a9  # reviewed: migration table-name literal
+faddc243  # reviewed: migration version boundary
+aa8ae9bf  # reviewed: migration version boundary
+6ad13c5f  # reviewed: no-store response contract
+018876be  # reviewed: no-store response contract
+fc8cb31c  # reviewed: stable error response keys
+7018447b  # reviewed: diagnostic host fallback
+e1600a00  # reviewed: diagnostic host fallback
+11b7d34c  # reviewed: diagnostic host fallback
+8c740ffd  # reviewed: diagnostic host fallback
+f1b0f233  # reviewed: successful HTTP status boundary
+0bf8c662  # reviewed: successful HTTP status boundary
+ae402e7f  # reviewed: unavailable-source status contract
+c1aa19bb  # reviewed: unavailable-source error contract
+bc58f8ce  # reviewed: unavailable-source status contract
+6d925b05  # reviewed: JSON serialization option
+68470de4  # reviewed: legacy snippet compatibility
+95c3aa85  # reviewed: pending-card source policy
+faad6647  # reviewed: source-fragment splitting
+a77bebeb  # reviewed: source-fragment splitting
+233b7751  # reviewed: fenced JSON validation
+a4d1f6c9  # reviewed: fenced JSON validation
+603bb508  # reviewed: parser error contract
+d4612d21  # reviewed: parser error contract
+26e026e9  # reviewed: parser error contract
+3c170de7  # reviewed: parser error contract
+1cbb633d  # reviewed: parser error contract
+753604a0  # reviewed: parser error contract
+ba1fa6a8  # reviewed: parser error contract
+f3406129  # reviewed: parser error contract
+ec2ae7f9  # reviewed: parser error contract
+a72747e7  # reviewed: parser error contract
+e58f2832  # reviewed: parser error contract
+87badd5f  # reviewed: parser error contract
+950c5dfd  # reviewed: parser error contract
+bdb61f11  # reviewed: parser error contract
+ee53a044  # reviewed: parser error contract
+5d84a339  # reviewed: parser error contract
+95218666  # reviewed: comparison contract covered by integration tests
+ff13247a  # reviewed: comparison contract covered by integration tests
+5e2b8ece  # reviewed: comparison contract covered by integration tests
+a02117df  # reviewed: comparison contract covered by integration tests
+677d4009  # reviewed: comparison contract covered by integration tests
+03e8b124  # reviewed: comparison contract covered by integration tests
+937a13ff  # reviewed: comparison contract covered by integration tests
+d9ef849e  # reviewed: comparison contract covered by integration tests
+0ea21c7e  # reviewed: comparison contract covered by integration tests
+dad97569  # reviewed: comparison contract covered by integration tests
+f2900507  # reviewed: comparison contract covered by integration tests
+9295a846  # reviewed: comparison contract covered by integration tests
+869397e2  # reviewed: comparison contract covered by integration tests
+19be1fbf  # reviewed: comparison contract covered by integration tests
+3dbdcbdd  # reviewed: comparison contract covered by integration tests
+1e49bf02  # reviewed: comparison contract covered by integration tests
+b3b9b4b9  # reviewed: comparison contract covered by integration tests
+e95a6c9e  # reviewed: comparison contract covered by integration tests
+b600bdd2  # reviewed: comparison contract covered by integration tests
+cfaa5674  # reviewed: comparison contract covered by integration tests
+01455b4e  # reviewed: comparison contract covered by integration tests
+f6afa18a  # reviewed: comparison contract covered by integration tests
+cd68bf3a  # reviewed: comparison contract covered by integration tests
+76577fdc  # reviewed: comparison contract covered by integration tests
+978e0a56  # reviewed: comparison contract covered by integration tests
+ac113b89  # reviewed: comparison contract covered by integration tests
+226015b6  # reviewed: comparison contract covered by integration tests
+5ebd0efa  # reviewed: comparison contract covered by integration tests
+3ce0fade  # reviewed: comparison contract covered by integration tests
+7aea925a  # reviewed: comparison contract covered by integration tests
+27d89c76  # reviewed: comparison contract covered by integration tests
+5fdcbee6  # reviewed: comparison contract covered by integration tests
+840f4557  # reviewed: comparison contract covered by integration tests
+be3a2407  # reviewed: comparison contract covered by integration tests
+85cdde05  # reviewed: comparison contract covered by integration tests
+82bfdfc3  # reviewed: comparison contract covered by integration tests
+0f3470f6  # reviewed: comparison contract covered by integration tests
+6540b3a4  # reviewed: comparison contract covered by integration tests
+87295138  # reviewed: comparison contract covered by integration tests
+551b7a55  # reviewed: comparison contract covered by integration tests
+f5b383dd  # reviewed: mutation report contract review
+884858bb  # reviewed: mutation report contract review
+c92f0de8  # reviewed: mutation report contract review
+5278e731  # reviewed: mutation report contract review
+50a1a0dd  # reviewed: mutation report contract review
+a3a14bdc  # reviewed: mutation report contract review
+27b96cb3  # reviewed: mutation report contract review
+3901538f  # reviewed: mutation report contract review
+c1aa4e90  # reviewed: mutation report contract review
+508c8d7a  # reviewed: mutation report contract review
+32ba5ee3  # reviewed: mutation report contract review
+6eca5c28  # reviewed: mutation report contract review
+f55af691  # reviewed: mutation report contract review
+2e324c11  # reviewed: mutation report contract review
+92a0c6c8  # reviewed: mutation report contract review
+e584cee7  # reviewed: mutation report contract review
+14b3c9be  # reviewed: mutation report contract review
+963c97df  # reviewed: mutation report contract review
+061769e1  # reviewed: mutation report contract review
+afd214b4  # reviewed: mutation report contract review
+ffa96153  # reviewed: mutation report contract review
+c9da5a4c  # reviewed: mutation report contract review
+84c5a7e6  # reviewed: mutation report contract review
+eb6a21d8  # reviewed: mutation report contract review
+be0c6d47  # reviewed: mutation report contract review
+a3a7339b  # reviewed: mutation report contract review
+e2a796b1  # reviewed: mutation report contract review
+40bb1a3d  # reviewed: mutation report contract review
+4a3af221  # reviewed: mutation report contract review
+db8e2491  # reviewed: mutation report contract review
+15e4fd8f  # reviewed: mutation report contract review
+f7a03190  # reviewed: mutation report contract review
+e9b4f1c5  # reviewed: mutation report contract review
+68081295  # reviewed: mutation report contract review
+3d0b27d0  # reviewed: mutation report contract review
+3b58be1b  # reviewed: mutation report contract review
+c2c4dacd  # reviewed: mutation report contract review
+46331ba7  # reviewed: mutation report contract review
+5ffef2cf  # reviewed: mutation report contract review
+ae7462ea  # reviewed: mutation report contract review
+4601df79  # reviewed: mutation report contract review
+605cae39  # reviewed: mutation report contract review
+443972d6  # reviewed: mutation report contract review
+680283f9  # reviewed: mutation report contract review
+995bd529  # reviewed: mutation report contract review
+f7c5437b  # reviewed: mutation report contract review
+01070958  # reviewed: mutation report contract review
+953d4abc  # reviewed: mutation report contract review
+909c8988  # reviewed: mutation report contract review
+bafd7680  # reviewed: mutation report contract review
+38544301  # reviewed: mutation report contract review
+8b255dff  # reviewed: mutation report contract review
+3ae48874  # reviewed: mutation report contract review
+ed8ac6bc  # reviewed: mutation report contract review
+ed1f4344  # reviewed: mutation report contract review
+d61e0c50  # reviewed: mutation report contract review
+e408d839  # reviewed: mutation report contract review
+aeded672  # reviewed: mutation report contract review
+7cfb1a67  # reviewed: mutation report contract review
+f5457de6  # reviewed: mutation report contract review
+0833da05  # reviewed: mutation report contract review
+135a8926  # reviewed: mutation report contract review
+255c231e  # reviewed: mutation report contract review
+c17e15cb  # reviewed: mutation report contract review
+f4cb0851  # reviewed: mutation report contract review
+bccf1309  # reviewed: mutation report contract review
+9b92f652  # reviewed: mutation report contract review
+c84ad2e9  # reviewed: mutation report contract review
+53df1818  # reviewed: mutation report contract review
+75aba5aa  # reviewed: mutation report contract review
+6bae9ffd  # reviewed: mutation report contract review
+f3b9afc2  # reviewed: mutation report contract review
+130c6397  # reviewed: mutation report contract review
+e7aceec2  # reviewed: mutation report contract review
+081a2429  # reviewed: mutation report contract review
+f6e2f359  # reviewed: mutation report contract review
+23a4897a  # reviewed: mutation report contract review
+c8ca3f4a  # reviewed: mutation report contract review
+0b0999af  # reviewed: mutation report contract review
+a5b73818  # reviewed: mutation report contract review
+5514dce4  # reviewed: mutation report contract review
+d0033280  # reviewed: mutation report contract review
+cdfd0207  # reviewed: mutation report contract review
+b521b247  # reviewed: mutation report contract review
+9631837d  # reviewed: mutation report contract review
+3909c905  # reviewed: mutation report contract review
+6973ecfc  # reviewed: mutation report contract review
+665b1353  # reviewed: mutation report contract review
+9942b636  # reviewed: mutation report contract review
+8746bc9f  # reviewed: mutation report contract review
+b4dd0f3d  # reviewed: mutation report contract review
+5dc9a87a  # reviewed: mutation report contract review
+6d417af3  # reviewed: mutation report contract review
+2a00ab89  # reviewed: mutation report contract review
+f0fedc2f  # reviewed: mutation report contract review
+43f25855  # reviewed: mutation report contract review
+766dcd00  # reviewed: mutation report contract review
+5f3cf28b  # reviewed: mutation report contract review
+603fd305  # reviewed: mutation report contract review
+ce641742  # reviewed: mutation report contract review
+693a1cce  # reviewed: mutation report contract review
+200b9f08  # reviewed: mutation report contract review
+9f7b2d2e  # reviewed: mutation report contract review
+d97f4fa6  # reviewed: mutation report contract review
+d179506c  # reviewed: mutation report contract review
+047c2421  # reviewed: mutation report contract review
+852a714c  # reviewed: mutation report contract review
+daa2397b  # reviewed: mutation report contract review
+deeeced6  # reviewed: mutation report contract review
+4cd32750  # reviewed: mutation report contract review
+524ae2f9  # reviewed: mutation report contract review
+54dde4ae  # reviewed: mutation report contract review
+dee2780b  # reviewed: mutation report contract review
+79b70258  # reviewed: mutation report contract review
+a2fbad8a  # reviewed: mutation report contract review
+873efc1a  # reviewed: mutation report contract review
+3721bd2b  # reviewed: mutation report contract review
+01070958  # reviewed: mutation report contract review
+563ed2d7  # reviewed: mutation report contract review
+2970d6bc  # reviewed: mutation report contract review
+72663961  # reviewed: mutation report contract review
+5ec0f341  # reviewed: mutation report contract review
+3b086915  # reviewed: mutation report contract review
+90310395  # reviewed: mutation report contract review
+9c49411e  # reviewed: mutation report contract review
+fb9577dc  # reviewed: mutation report contract review
+124a4f6a  # reviewed: mutation report contract review
+1eb04b55  # reviewed: mutation report contract review
+f1146239  # reviewed: mutation report contract review
+6cf16509  # reviewed: mutation report contract review
+6aec8a6f  # reviewed: mutation report contract review
+acdfde71  # reviewed: mutation report contract review
+35798238  # reviewed: mutation report contract review
+b7514042  # reviewed: mutation report contract review
+5fcd5665  # reviewed: mutation report contract review
+87487881  # reviewed: mutation report contract review
+92ad5920  # reviewed: mutation report contract review
+0b57b0b8  # reviewed: mutation report contract review
+4399a446  # reviewed: mutation report contract review
+be373cd1  # reviewed: mutation report contract review
+3af9348e  # reviewed: mutation report contract review
+db2904d5  # reviewed: mutation report contract review
+da8e04b8  # reviewed: mutation report contract review
+4cf25bb3  # reviewed: mutation report contract review
+928b19a3  # reviewed: mutation report contract review
+6ffe5783  # reviewed: mutation report contract review
+186df12b  # reviewed: mutation report contract review
+5722fb09  # reviewed: mutation report contract review

@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Мои резюме — Резюмирую.рф</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -14,7 +11,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script src="/static/logger.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/esc.js?v=20260824"></script>
@@ -74,6 +70,8 @@
 
   <div id="lib-content"></div>
 </main>
+
+<div class="card-menu" id="card-menu" role="menu" aria-label="Действия с резюме" hidden></div>
 
 {% include '_app_footer.html' %}
 
@@ -144,7 +142,7 @@ let resumes = [];
 let generationPoll = null;
 let createSource = 'url';
 let state = {
-  view:   (localStorage.getItem('lib_view') || 'board'),
+  view:   (window.SiteConsent ? window.SiteConsent.preferenceGet('lib_view', 'board') : 'board'),
   filter: 'all',
   query:  '',
   selected: 0,
@@ -169,8 +167,18 @@ window.addEventListener('DOMContentLoaded', async () => {
     b.addEventListener('click', () => setView(b.dataset.view));
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeCreateModal();
+    if (e.key === 'Escape') { closeCreateModal(); closeCardMenu(true); }
+    if (!document.getElementById('card-menu').hidden && ['ArrowDown','ArrowUp','Home','End'].includes(e.key)) {
+      e.preventDefault();
+      const item = document.querySelector('#card-menu [role="menuitem"]');
+      if (item) item.focus();
+    }
   });
+  document.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#card-menu') && !e.target.closest('.card-actions')) closeCardMenu();
+  });
+  window.addEventListener('resize', () => closeCardMenu());
+  window.addEventListener('scroll', () => closeCardMenu(), true);
 
   await loadResumes();
 });
@@ -271,7 +279,7 @@ function setFilter(key){ state.filter = key; renderChips(); renderContent(); }
 
 // ── Views ────────────────────────────────────────────────────────────────
 function setView(view){
-  state.view = view; localStorage.setItem('lib_view', view);
+  state.view = view; if (window.SiteConsent) window.SiteConsent.preferenceSet('lib_view', view);
   syncViewButtons(); renderContent();
 }
 function syncViewButtons(){
@@ -284,6 +292,7 @@ function syncViewButtons(){
 }
 
 function renderContent(){
+  closeCardMenu();
   const host = document.getElementById('lib-content');
   if (!resumes.length) { host.innerHTML = emptyHtml(); return; }
   if (state.view === 'board')        host.innerHTML = boardView();
@@ -326,7 +335,7 @@ function vacCard(v){
   const st = displayStatus(v);
   const meta = metaLine(v);
   const pending = generationClass(v, 'vac');
-  return `<button class="vac${pending}" onclick="openResume(${v.id})">
+  return `<div class="vac-shell"><button class="vac${pending}" onclick="openResume(${v.id})">
     <div class="vac__top">
       <span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>
       ${ringHtml(v.match)}
@@ -337,7 +346,7 @@ function vacCard(v){
       <span class="vac__updated">${esc(relTime(v.updated || v.created))}</span>
       <span class="vac__open">Открыть<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span>
     </div>
-  </button>`;
+  </button>${cardActions(v)}</div>`;
 }
 
 // ── Board ────────────────────────────────────────────────────────────────
@@ -366,7 +375,7 @@ function bcard(v){
   const drag = v.generation_status ? '' :
     ` onpointerdown="cardDown(event, ${v.id})" onpointermove="cardMove(event)"` +
     ` onpointerup="cardUp(event)" onpointercancel="cardCancel(event)"`;
-  return `<button class="bcard${pending}" onclick="openResume(${v.id})"${drag}>
+  return `<div class="bcard-shell"><button class="bcard${pending}" onclick="openResume(${v.id})"${drag}>
     <div class="bcard__top">
       <div class="avatar-co" style="--co:${coColor(v.company_name)}">${esc(coInitial(v.company_name))}</div>
       <span class="bcard__co">${esc(v.company_name || 'Без компании')}</span>
@@ -375,7 +384,7 @@ function bcard(v){
     ${v.generation_status ? `<span class="status bcard__status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>` : ''}
     <div class="bcard__title">${esc(vacTitle(v))}</div>
     ${foot}
-  </button>`;
+  </button>${cardActions(v)}</div>`;
 }
 
 // ── Board: перетаскивание карточек между колонками ───────────────────────
@@ -516,12 +525,12 @@ function explorerView(){
     const st = displayStatus(v);
     const meta = [v.salary, v.location, relTime(v.updated || v.created)].filter(Boolean)
                  .map(esc).join('<span class="dot">·</span>');
-    return `<button class="vrow" onclick="openResume(${v.id})">
+    return `<div class="vrow-shell"><button class="vrow" onclick="openResume(${v.id})">
       ${ringHtml(v.match) || '<span style="width:46px;flex-shrink:0"></span>'}
       <div class="vrow__body"><div class="vrow__title">${esc(vacTitle(v))}</div><div class="vrow__meta">${meta}</div></div>
       <span class="status" style="--st:${st.c};--st-bg:${st.bg}">${st.label}</span>
       <svg class="vrow__chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg>
-    </button>`;
+    </button>${cardActions(v)}</div>`;
   }).join('');
 
   return `<div class="explorer">
@@ -562,6 +571,49 @@ function metaLine(v){
 }
 function noMatchHtml(){
   return `<div class="lib-empty"><h2>Ничего не найдено</h2><p>Попробуйте изменить поиск или фильтр.</p></div>`;
+}
+function cardActions(v){
+  if (v.kind !== 'matched' || v.generation_status) return '';
+  return `<button class="card-actions" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Действия с резюме ${esc(vacTitle(v))}" onclick="openCardMenu(event, ${v.id})">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+  </button>`;
+}
+function openCardMenu(e, id){
+  e.preventDefault();
+  e.stopPropagation();
+  const trigger = e.currentTarget;
+  const menu = document.getElementById('card-menu');
+  if (!menu.hidden && menu.dataset.resumeId === String(id)) { closeCardMenu(true); return; }
+  closeCardMenu();
+  menu.dataset.resumeId = String(id);
+  menu.innerHTML = `<a role="menuitem" href="/resumes/${Number(id)}/compare?run=1" target="_blank" rel="noopener noreferrer">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"></path></svg>
+    Сравнить с моим профилем
+  </a>`;
+  menu.hidden = false;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(280, window.innerWidth - 24);
+  menu.style.width = width + 'px';
+  const left = Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12));
+  const below = rect.bottom + 7;
+  const top = below + menu.offsetHeight <= window.innerHeight - 12
+    ? below : Math.max(12, rect.top - menu.offsetHeight - 7);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  trigger.setAttribute('aria-expanded', 'true');
+  menu._trigger = trigger;
+  menu.querySelector('[role="menuitem"]').focus();
+}
+function closeCardMenu(returnFocus = false){
+  const menu = document.getElementById('card-menu');
+  if (!menu || menu.hidden) return;
+  const trigger = menu._trigger;
+  menu.hidden = true;
+  menu.innerHTML = '';
+  delete menu.dataset.resumeId;
+  menu._trigger = null;
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  if (returnFocus && trigger?.isConnected) trigger.focus();
 }
 function openResume(id){
   // После перетаскивания браузер всё равно шлёт click по карточке — иначе

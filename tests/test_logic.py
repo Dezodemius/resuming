@@ -7,11 +7,13 @@ import pytest
 
 from main import (
     _deduct, _refund, _parse_ai,
+    _parse_profile_comparison_ai,
     _looks_like_injection, _looks_like_honest_json_attempt, _flag_abuse,
     _resume_group_name, _guess_job_title, _pending_resume_data,
     _public_generation_error, _validate_job_source, _resolve_job_text,
     _mark_generation_failed, _save_resume, _insert_pending_resume, MatchReq,
 )
+from prompts import _comparison_vacancy_fragments, _profile_comparison_prompt
 
 
 def _add_user(db, free_left=3, paid_left=0, is_pro=0, pro_expires_at=None) -> int:
@@ -25,6 +27,79 @@ def _add_user(db, free_left=3, paid_left=0, is_pro=0, pro_expires_at=None) -> in
 
 def _future(days: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def _comparison_payload(**overrides):
+    payload = {
+        "schema_version": 1,
+        "requirements": [{
+            "requirement": "Python",
+            "importance": "required",
+            "status": "matched",
+            "vacancy_refs": ["V001"],
+            "profile_refs": ["P_SKILLS"],
+            "gap_explanation": None,
+        }],
+    }
+    payload["requirements"][0].update(overrides)
+    return payload
+
+
+def test_profile_comparison_parser_accepts_plain_and_json_fenced_response():
+    import json
+
+    raw = json.dumps(_comparison_payload())
+    assert _parse_profile_comparison_ai(raw, {"P_SKILLS"}, {"V001"}).requirements[0].status == "matched"
+    fenced = "```json\n" + raw + "\n```"
+    assert _parse_profile_comparison_ai(fenced, {"P_SKILLS"}, {"V001"}).schema_version == 1
+
+
+@pytest.mark.parametrize("raw", [
+    "```json\n{\"schema_version\":1}\n",  # missing closing fence
+    "```text\n{}\n```",                    # unsupported fence language
+    "```\n```",                            # no JSON body
+    "{}\n```",                             # stray closing fence
+])
+def test_profile_comparison_parser_rejects_malformed_fences(raw):
+    with pytest.raises(ValueError):
+        _parse_profile_comparison_ai(raw, {"P_SKILLS"}, {"V001"})
+
+
+def test_profile_comparison_parser_rejects_unknown_provenance_refs():
+    import json
+
+    with pytest.raises(ValueError):
+        _parse_profile_comparison_ai(
+            json.dumps(_comparison_payload(profile_refs=["P_UNKNOWN"])),
+            {"P_SKILLS"}, {"V001"},
+        )
+    with pytest.raises(ValueError):
+        _parse_profile_comparison_ai(
+            json.dumps(_comparison_payload(vacancy_refs=["V999"])),
+            {"P_SKILLS"}, {"V001"},
+        )
+
+
+def test_profile_comparison_prompt_is_bounded_and_addresses_source_refs():
+    profile = {
+        "city": "Москва", "skills": "Python, FastAPI",
+        "languages": "Русский", "experience": [{"role": "Backend", "desc": "API"}],
+        "education": [],
+    }
+    long_sentence = "A " * 600
+    prompt, profile_refs, vacancy_refs = _profile_comparison_prompt(
+        profile, "Python обязателен.\nDocker желателен. " + long_sentence,
+    )
+    assert "SOURCE PROFILE" in prompt and "SOURCE VACANCY" in prompt
+    assert "P_SKILLS" in profile_refs and "P_EXP_1_DESC" in profile_refs
+    assert len(vacancy_refs) >= 3
+    assert all(len(text) <= 900 for text in vacancy_refs.values())
+
+
+def test_comparison_vacancy_fragments_split_sentences_and_newlines():
+    fragments = _comparison_vacancy_fragments("Python. Docker\nFastAPI!")
+    assert list(fragments) == ["V001", "V002", "V003"]
+    assert list(fragments.values()) == ["Python.", "Docker", "FastAPI!"]
 
 
 # ── _deduct ──────────────────────────────────────────────────────────────────
@@ -390,7 +465,7 @@ def test_flag_abuse_bumps_ip_key_even_when_anon_id_missing(db):
 
 # ── call_ai: реальный HTTP-запрос к модели ─────────────────────────────────
 # "options": {...} — диалект нативного /api/chat Ollama. На /v1/chat/completions
-# (в т.ч. у внешних провайдеров вроде DeepSeek) он молча игнорируется — ни
+# (в том числе у внешних провайдеров) он молча игнорируется — ни
 # температура, ни потолок токенов реально не применялись. Все остальные тесты
 # в проекте подменяют call_ai целиком и этого бы не поймали — этот тест
 # единственный, кто действительно проверяет собранный HTTP-запрос.

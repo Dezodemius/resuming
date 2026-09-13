@@ -43,16 +43,24 @@ async def test_offer_page_shows_tariff_numbers(client):
 
 @pytest.mark.parametrize("path", ["/", "/pricing", "/offer", "/contacts", "/privacy"])
 async def test_public_sales_pages_show_seller_details(client, path):
-    """Реквизиты самозанятого видны до покупки на каждой продающей странице."""
+    """Настроенные реквизиты видны до покупки, пустые значения не печатаются."""
     import config
 
     r = await client.get(path)
     assert r.status_code == 200
-    assert config.SELLER_NAME in r.text
-    assert config.SELLER_INN in r.text
-    assert config.SELLER_CITY in r.text
-    assert config.SELLER_PHONE in r.text
-    assert config.SELLER_EMAIL in r.text
+    for value in (
+        config.SELLER_NAME,
+        config.SELLER_INN,
+        config.SELLER_CITY,
+        config.SELLER_PHONE,
+        config.SELLER_EMAIL,
+    ):
+        if value:
+            assert value in r.text
+    if not config.SELLER_EMAIL:
+        assert "mailto:" not in r.text
+    if not config.SELLER_PHONE:
+        assert "tel:" not in r.text
 
 
 async def test_payment_copy_matches_one_time_access(client):
@@ -72,9 +80,10 @@ async def test_privacy_page_matches_actual_data_locations(client):
     хранения у внешнего AI-провайдера."""
     r = await client.get("/privacy")
     assert r.status_code == 200
-    assert "на территории Российской Федерации" in r.text
-    assert "DeepSeek" in r.text
-    assert "территории КНР" in r.text
+    assert "в инфраструктуре Оператора" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "api.deepseek.com" not in r.text
+    assert "территории КНР" not in r.text
     assert "Германия / Финляндия" not in r.text
     assert "без сохранения на стороне провайдера" not in r.text
 
@@ -84,9 +93,12 @@ async def test_new_page_notifies_about_personal_data_at_collection_points(client
     профиля, а не только ссылкой на политику в подвале."""
     r = await client.get("/new")
     assert r.status_code == 200
-    assert "Продолжая вход любым способом" in r.text
-    assert "согласие на обработку персональных данных" in r.text
-    assert "передаются AI-провайдеру DeepSeek на территории КНР" in r.text
+    assert 'id="terms-accepted"' in r.text
+    assert "Я принимаю" in r.text
+    assert 'href="/terms"' in r.text
+    assert "Политикой обработки персональных данных" in r.text
+    assert "локальная AI-модель Оператора" in r.text
+    assert "Продолжая вход любым способом" not in r.text
 
 
 async def test_billing_returns_amount_of_actual_payment(client):
@@ -210,8 +222,9 @@ async def _login(client, email):
         # не его, а поведение самой генерации, поэтому ставим отметку сразу —
         # иначе каждый из них упирался бы в 403 consent_required.
         db.execute(
-            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=? WHERE email=?",
-            (main.AI_CONSENT_REV, email),
+            "UPDATE users SET ai_consent_at=datetime('now'), ai_consent_rev=?, "
+            "ai_consent_hash=? WHERE email=?",
+            (main.AI_CONSENT_REV, main.AI_CONSENT_HASH, email),
         )
         db.commit()
         return db.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()["id"]
@@ -324,6 +337,100 @@ async def test_resume_list_is_not_cacheable(client):
     r = await client.get("/api/resumes")
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
+
+
+async def test_profile_comparison_returns_deterministic_table_and_spends_one_use(client, monkeypatch):
+    """Сравнение использует канонический профиль и возвращает серверный score."""
+    uid = await _login(client, "profile-compare@test.com")
+    profile = {
+        "name": "Иван",
+        "city": "Москва",
+        "experience": [{
+            "role": "Backend developer",
+            "company": "Acme",
+            "period": "2020-2024",
+            "desc": "Разрабатывал API на Python и поддерживал Docker-сервисы.",
+        }],
+        "education": [],
+        "skills": "Python, FastAPI",
+        "languages": "Русский",
+    }
+    job_text = "Python обязателен. Docker будет плюсом. Руководство командой обязательно."
+    with main.get_db() as db:
+        db.execute(
+            "INSERT INTO profiles (user_id, data) VALUES (?,?)",
+            (uid, main._json_for_db(profile)),
+        )
+        rid = main._save_resume(
+            db, uid, {"target_role": "Backend developer"}, "matched",
+            "Acme", "https://example.com/job/1", job_text,
+        )
+
+    async def fake_ai(prompt):
+        assert "P_SKILLS" in prompt
+        assert "V001" in prompt
+        return main.json.dumps({
+            "schema_version": 1,
+            "requirements": [
+                {"requirement": "Python", "importance": "required", "status": "matched",
+                 "vacancy_refs": ["V001"], "profile_refs": ["P_SKILLS"], "gap_explanation": None},
+                {"requirement": "Docker", "importance": "preferred", "status": "partial",
+                 "vacancy_refs": ["V002"], "profile_refs": ["P_EXP_1_DESC"],
+                 "gap_explanation": "Есть опыт поддержки сервисов, но уровень не указан."},
+                {"requirement": "Руководство командой", "importance": "required", "status": "not_found",
+                 "vacancy_refs": ["V003"], "profile_refs": [],
+                 "gap_explanation": "В профиле нет подтверждения руководства командой."},
+            ],
+        })
+
+    monkeypatch.setattr(main, "call_ai", fake_ai)
+    r = await client.post(f"/api/resumes/{rid}/profile-comparison", json={})
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["comparison"]["score"] == 40
+    assert body["comparison"]["counts"] == {
+        "matched": 1, "partial": 1, "not_found": 1, "critical_gaps": 1,
+    }
+    assert body["comparison"]["requirements"][1]["profile_evidence"]
+    assert r.headers["cache-control"] == "no-store"
+    with main.get_db() as db:
+        row = db.execute("SELECT free_left FROM users WHERE id=?", (uid,)).fetchone()
+        assert row["free_left"] == 2
+
+
+async def test_profile_comparison_checks_auth_and_quota_before_ai_or_fetch(client, monkeypatch):
+    """Дорогая ручка не должна вызывать AI/сеть без auth или квоты."""
+    called = {"ai": 0, "fetch": 0}
+
+    async def never_ai(prompt):
+        called["ai"] += 1
+        return "{}"
+
+    async def never_fetch(url):
+        called["fetch"] += 1
+        return "Python backend vacancy text long enough"
+
+    monkeypatch.setattr(main, "call_ai", never_ai)
+    monkeypatch.setattr(main, "_fetch_job_text", never_fetch)
+    assert (await client.post("/api/resumes/1/profile-comparison", json={})).status_code == 401
+
+    uid = await _login(client, "profile-compare-quota@test.com")
+    with main.get_db() as db:
+        db.execute("INSERT INTO profiles (user_id, data) VALUES (?,?)", (
+            uid, main._json_for_db({"skills": "Python", "experience": [], "education": []}),
+        ))
+        rid = main._save_resume(
+            db, uid, {"target_role": "Backend"}, "matched", "Acme",
+            "https://example.com/job/2", "",
+        )
+        db.execute("UPDATE users SET free_left=0, paid_left=0, is_pro=0 WHERE id=?", (uid,))
+        db.commit()
+
+    r = await client.post(f"/api/resumes/{rid}/profile-comparison", json={})
+    assert r.status_code == 402
+    assert r.json()["error"] == "no_uses"
+    assert called == {"ai": 0, "fetch": 0}
 
 
 async def test_single_resume_is_not_cacheable(client):

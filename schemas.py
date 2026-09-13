@@ -1,8 +1,8 @@
 """Pydantic-схемы запросов API."""
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 # ── Лимиты полей ────────────────────────────────────────────────────────────
 # Резюме — текстовый документ на пару страниц, а не файл: лимиты ниже взяты с
@@ -55,9 +55,16 @@ _PROFILE_STR_MAX   = 5_000
 _PROFILE_LIST_MAX  = 50
 _PROFILE_MAX_DEPTH = 4
 
+# Публичный предел единого нормализованного источника вакансии. Его импортируют
+# fetch/storage/comparison paths, чтобы 20 000 не разъехались по файлам.
+JOB_TEXT_MAX = _JOB_TEXT_MAX
+
 
 class EmailReq(BaseModel):
     email: EmailStr
+    # Явное действие, а не текст около кнопки. Старый клиент по умолчанию
+    # получает 400 от /auth/email/request и не может начать регистрацию.
+    terms_accepted: bool = False
 
     @field_validator("email", mode="before")
     @classmethod
@@ -117,6 +124,79 @@ class ResumeStatusReq(BaseModel):
     status: str = Field(..., max_length=_STATUS_MAX)
 
 
+class SaveResumeReq(BaseModel):
+    """Сохранение результата анонимной генерации после входа.
+
+    job_snippet оставлен только для обратной совместимости со старым клиентом;
+    доверенным полным источником считается исключительно job_text.
+    """
+    resume_data: Dict[str, Any]
+    kind: Literal["general", "matched"] = "general"
+    company_name: str = Field("", max_length=_COMPANY_MAX)
+    job_url: str = Field("", max_length=_URL_MAX)
+    job_text: str = Field("", max_length=_JOB_TEXT_MAX)
+    job_snippet: str = Field("", max_length=300)
+
+    @field_validator("resume_data")
+    @classmethod
+    def _non_empty_resume(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if not value:
+            raise ValueError("Нет данных резюме")
+        return value
+
+
+class ProfileComparisonRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirement: str = Field(..., min_length=1, max_length=300)
+    importance: Literal["required", "preferred"]
+    status: Literal["matched", "partial", "not_found"]
+    vacancy_refs: List[str] = Field(..., min_length=1, max_length=5)
+    profile_refs: List[str] = Field(default_factory=list, max_length=5)
+    gap_explanation: Optional[str] = Field(None, max_length=400)
+
+    @field_validator("requirement")
+    @classmethod
+    def _normalize_requirement(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("Пустое требование")
+        return value
+
+    @field_validator("vacancy_refs", "profile_refs")
+    @classmethod
+    def _unique_refs(cls, refs: List[str]) -> List[str]:
+        if len(refs) != len(set(refs)):
+            raise ValueError("Повторяющиеся ссылки на источник")
+        return refs
+
+    @model_validator(mode="after")
+    def _consistent_status(self):
+        gap = (self.gap_explanation or "").strip()
+        if self.status == "matched" and (not self.profile_refs or gap):
+            raise ValueError("matched требует profile_refs и не допускает gap_explanation")
+        if self.status == "partial" and (not self.profile_refs or not gap):
+            raise ValueError("partial требует profile_refs и gap_explanation")
+        if self.status == "not_found" and (self.profile_refs or not gap):
+            raise ValueError("not_found требует пустые profile_refs и gap_explanation")
+        self.gap_explanation = gap or None
+        return self
+
+
+class ProfileComparisonAiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1]
+    requirements: List[ProfileComparisonRequirement] = Field(..., min_length=1, max_length=25)
+
+    @model_validator(mode="after")
+    def _unique_requirements(self):
+        normalized = [" ".join(item.requirement.split()).casefold() for item in self.requirements]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("Повторяющиеся требования")
+        return self
+
+
 class ImproveReq(BaseModel):
     kind:    str = Field(..., max_length=_KIND_MAX)  # "summary" | "bullets" | "skills"
     text:    str = Field(..., max_length=_IMPROVE_TEXT_MAX)
@@ -162,6 +242,8 @@ class AnonymousPreviewReq(BaseModel):
     # По умолчанию False: старый клиент из кеша браузера получит отказ, а не
     # молча отправит данные наружу без подтверждения.
     consent:     bool = False
+    consent_rev: str = Field("", max_length=32)
+    consent_hash: str = Field("", max_length=64)
 
     @field_validator("profile")
     @classmethod
@@ -176,16 +258,23 @@ class TrackReq(BaseModel):
     event: str = Field(..., max_length=_EVENT_MAX)
 
 
+class AiConsentReq(BaseModel):
+    """Точная редакция документа, которую пользователь видел в браузере."""
+    document_rev: str = Field(..., min_length=1, max_length=32)
+    document_hash: str = Field(..., min_length=64, max_length=64)
+
+
+class SiteConsentReq(BaseModel):
+    """Единственная необязательная категория браузерного хранения сейчас."""
+    choice: str = Field(..., pattern="^(analytics|necessary)$")
+
+
 class PromoActivateReq(BaseModel):
     code: str = Field(..., max_length=_CODE_MAX)
 
 
 class PromoDeactivateReq(BaseModel):
-    """Тело /api/admin/promo/deactivate.
-
-    Раньше ручка принимала голый dict и звала `body.get("code","").strip()` —
-    числовой `code` давал AttributeError и 500 вместо внятного 422.
-    """
+    """Тело /api/admin/promo/deactivate с типизированным кодом."""
     code: str = Field(..., max_length=_CODE_MAX)
 
 

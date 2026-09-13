@@ -15,17 +15,22 @@
       <a href="/pricing">Тарифы</a>
       <a href="/offer">Публичная оферта</a>
       <a href="/privacy">Политика конфиденциальности</a>
+      <a href="/terms">Пользовательское соглашение</a>
+      <a href="#" data-open-site-consent>Настройки cookie</a>
       <a href="/contacts">Контакты</a>
     </nav>
   </div>
   <div class="foot__bottom">
     <div class="foot__bottom-in">
       <div>© {{ current_year }} Резюмирую.рф</div>
-      <div class="foot__legal">
-        {{ seller.status }} {{ seller.name }} · ИНН {{ seller.inn }} · г. {{ seller.city }} ·
-        <a href="tel:{{ seller.phone_href }}">{{ seller.phone }}</a> ·
-        <a href="mailto:{{ seller.email }}">{{ seller.email }}</a>
-      </div>
+      {% if seller.status or seller.name or seller.inn or seller.city or seller.phone or seller.email %}<div class="foot__legal">
+        {% if seller.status or seller.name %}{{ seller.status }}{% if seller.status and seller.name %} {% endif %}{{ seller.name }}{% endif %}
+        {% if seller.inn %}{% if seller.status or seller.name %} · {% endif %}ИНН {{ seller.inn }}{% endif %}
+        {% if seller.city %}{% if seller.status or seller.name or seller.inn %} · {% endif %}г. {{ seller.city }}{% endif %}
+        {% if seller.phone %}{% if seller.status or seller.name or seller.inn or seller.city %} · {% endif %}<a href="tel:{{ seller.phone_href or seller.phone }}">{{ seller.phone }}</a>{% endif %}
+        {% if seller.email %}{% if seller.status or seller.name or seller.inn or seller.city or seller.phone %} · {% endif %}<a href="mailto:{{ seller.email }}">{{ seller.email }}</a>{% endif %}
+      </div>{% endif %}
     </div>
   </div>
 </footer>
+{% include '_site_consent.html' %}

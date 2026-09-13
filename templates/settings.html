@@ -4,9 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Настройки — Резюмирую.рф</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=2">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=2">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v=2">
@@ -14,7 +11,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="stylesheet" href="/static/app.css?v=20260912-mobile">
-<script>(function(){try{if(localStorage.getItem('theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script>
 const PRO_FAIR_USE_LIMIT = {{ pro_fair_use_limit }};
 const PRO_FAIR_USE_DAYS = {{ pro_fair_use_days }};
@@ -82,6 +78,7 @@ const PRO_DAYS = {{ pro_days }};
 .oauth-row-right{display:flex;align-items:center;gap:10px;min-width:0}
 .oauth-row-val{font-size:12px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
 .oauth-row .btn-soft{height:30px;padding:0 11px;font-size:12px;flex-shrink:0}
+.oauth-row .btn-soft[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
 
 /* ── Payment history ── */
 .history-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}
@@ -137,6 +134,7 @@ const PRO_DAYS = {{ pro_days }};
   .usage-row{align-items:flex-start;gap:10px}
   .plan-card{padding:18px}
 }
+/* Keep this page's local upgrade modal aligned with the shared mobile overlay. */
 .modal-wrap{z-index:1100;overflow-y:auto;overscroll-behavior:contain}
 .modal{min-width:0;max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain}
 </style>
@@ -185,6 +183,13 @@ const PRO_DAYS = {{ pro_days }};
   <!-- Login methods -->
   <div class="usage-card">
     <div class="usage-title">Способы входа</div>
+    {% set terms_current = user.terms_rev == terms_rev and user.terms_hash == terms_hash %}
+    {% if not terms_current %}
+    <label class="consent-check" style="margin:0 0 12px">
+      <input type="checkbox" id="settings-terms-accepted">
+      <span>Я принимаю <a href="/terms" target="_blank">Пользовательское соглашение</a>, чтобы подключить новый способ входа.</span>
+    </label>
+    {% endif %}
     <div class="oauth-row">
       <span class="oauth-row-label">Почта</span>
       <span class="oauth-row-right"><span class="oauth-row-val">{{ user.email }}</span></span>
@@ -197,7 +202,7 @@ const PRO_DAYS = {{ pro_days }};
         <span class="oauth-row-val">{{ linked_providers['yandex'] }}</span>
         <button class="btn-soft" onclick="unlinkOauth('yandex')" type="button">Отключить</button>
         {% else %}
-        <a class="btn-soft" href="/auth/yandex">Подключить</a>
+        <a class="btn-soft" href="/auth/yandex"{% if not terms_current %} aria-disabled="true" tabindex="-1" onclick="startSettingsOAuth(event, this)"{% endif %}>Подключить</a>
         {% endif %}
       </span>
     </div>
@@ -210,7 +215,7 @@ const PRO_DAYS = {{ pro_days }};
         <span class="oauth-row-val">{{ linked_providers['vk'] }}</span>
         <button class="btn-soft" onclick="unlinkOauth('vk')" type="button">Отключить</button>
         {% else %}
-        <a class="btn-soft" href="/auth/vk">Подключить</a>
+        <a class="btn-soft" href="/auth/vk"{% if not terms_current %} aria-disabled="true" tabindex="-1" onclick="startSettingsOAuth(event, this)"{% endif %}>Подключить</a>
         {% endif %}
       </span>
     </div>
@@ -223,7 +228,7 @@ const PRO_DAYS = {{ pro_days }};
         <span class="oauth-row-val">{{ linked_providers['mailru'] }}</span>
         <button class="btn-soft" onclick="unlinkOauth('mailru')" type="button">Отключить</button>
         {% else %}
-        <a class="btn-soft" href="/auth/mailru">Подключить</a>
+        <a class="btn-soft" href="/auth/mailru"{% if not terms_current %} aria-disabled="true" tabindex="-1" onclick="startSettingsOAuth(event, this)"{% endif %}>Подключить</a>
         {% endif %}
       </span>
     </div>
@@ -320,6 +325,27 @@ async function unlinkOauth(provider) {
     toast('Ошибка: ' + e.message, 'err');
   }
 }
+
+function syncSettingsTermsGate() {
+  const accepted = document.getElementById('settings-terms-accepted')?.checked;
+  document.querySelectorAll('[onclick="startSettingsOAuth(event, this)"]').forEach((link) => {
+    link.setAttribute('aria-disabled', String(!accepted));
+    link.tabIndex = accepted ? 0 : -1;
+  });
+}
+
+function startSettingsOAuth(event, link) {
+  event.preventDefault();
+  if (!document.getElementById('settings-terms-accepted')?.checked) {
+    toast('Примите Пользовательское соглашение перед подключением', 'err');
+    return;
+  }
+  const url = new URL(link.href, location.origin);
+  url.searchParams.set('terms', '1');
+  location.assign(url.pathname + url.search);
+}
+
+document.getElementById('settings-terms-accepted')?.addEventListener('change', syncSettingsTermsGate);
 
 function renderPlanRow(b) {
   const isPro = b.is_pro;

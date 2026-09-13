@@ -38,6 +38,8 @@ def _preview_body(consent: bool = True, profile: dict | None = None) -> dict:
         "profile": profile or {"name": "Аноним"},
         "target_role": "QA",
         "consent": consent,
+        "consent_rev": main.AI_CONSENT_REV if consent else "",
+        "consent_hash": main.AI_CONSENT_HASH if consent else "",
     }
 
 

@@ -7,6 +7,7 @@ import pytest
 import main
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
 # ── Security headers ─────────────────────────────────────────────────────
@@ -39,22 +40,27 @@ async def test_hsts_only_for_https_app_url(client, monkeypatch):
     assert r.headers["Strict-Transport-Security"].startswith("max-age=")
 
 
-def test_csp_allows_every_external_subresource_used_in_templates():
-    """CSP должен покрывать все внешние скрипты и стили из шаблонов.
+def test_csp_allows_every_external_subresource_used_by_frontend():
+    """CSP должен покрывать внешние ресурсы, включая ленивые загрузчики.
 
-    Иначе новый CDN в шаблоне тихо блокируется браузером — и ломается уже
-    в проде, а не на ревью.
+    Необязательные ресурсы больше не стоят в HTML до consent, поэтому кроме
+    шаблонов проверяем присваивания script.src в локальном JavaScript.
     """
-    pattern = re.compile(
+    template_pattern = re.compile(
         r"<(?:script|link)\b[^>]*?(?:src|href)=[\"']https://([a-zA-Z0-9.-]+)", re.I
+    )
+    dynamic_pattern = re.compile(
+        r"\.src\s*=\s*[\"']https://([a-zA-Z0-9.-]+)", re.I
     )
     hosts = set()
     for tpl in TEMPLATES.glob("*.html"):
-        hosts |= set(pattern.findall(tpl.read_text(encoding="utf-8")))
+        hosts |= set(template_pattern.findall(tpl.read_text(encoding="utf-8")))
+    for script in STATIC.glob("*.js"):
+        hosts |= set(dynamic_pattern.findall(script.read_text(encoding="utf-8")))
 
-    assert hosts, "не нашли ни одного внешнего ресурса — регулярка сломалась"
+    assert {"cdnjs.cloudflare.com", "mc.yandex.ru"} <= hosts
     missing = [h for h in hosts if h not in main._CSP]
-    assert not missing, f"CSP не разрешает используемые в шаблонах хосты: {missing}"
+    assert not missing, f"CSP не разрешает используемые frontend-хосты: {missing}"
 
 
 def test_csp_allows_metrika_webvisor_websocket():

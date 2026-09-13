@@ -322,7 +322,7 @@ def report(by_status: dict[str, list[str]], allow_survived: int, mutmut_exit_cod
 
     if remaining:
         print("\nНе убитые мутанты (посмотреть диф: mutmut show <имя>):")
-        for name in remaining[:40]:
+        for name in remaining:
             print(f"  {name}")
             described = mutation_ignore.describe(MUTANTS_DIR, files or [], name)
             if described:
@@ -331,8 +331,6 @@ def report(by_status: dict[str, list[str]], allow_survived: int, mutmut_exit_cod
                 print(f"      + {became}")
                 print("      если эквивалентный — строка для tools/mutation_ignore.txt:")
                 print(f"      {digest}  # причина")
-        if len(remaining) > 40:
-            print(f"  … ещё {len(remaining) - 40}")
 
     if len(remaining) > allow_survived:
         print(f"\nFAIL: не убито {len(remaining)} мутантов при допустимых {allow_survived}.")

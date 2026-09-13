@@ -1,0 +1,19 @@
+{# Неблокирующие настройки cookie. Состояние и редакция выдаются сервером. #}
+<link rel="stylesheet" href="/static/site-consent.css?v=20260905">
+<section id="site-consent-banner" class="site-consent" data-state="{{ site_consent_state|default('unknown') }}" data-rev="{{ site_consent_rev|default('') }}" data-metrika-id="{{ metrika_id|default('') }}" aria-label="Настройки cookie" {% if site_consent_state|default('unknown') != 'unknown' %}hidden{% endif %}>
+  <div class="site-consent__body">
+    <div>
+      <strong>Настройки cookie</strong>
+      <p>Мы используем необходимые cookie для работы сайта. Аналитика Яндекс Метрики включается только с вашего разрешения.</p>
+      <p class="site-consent__current" aria-live="polite"></p>
+    </div>
+    <div class="site-consent__actions">
+      <button class="site-consent__primary" type="button" data-site-consent-choice="analytics">Разрешить аналитику</button>
+      <button class="site-consent__secondary" type="button" data-site-consent-choice="necessary">Только необходимые</button>
+      <button class="site-consent__tertiary" type="button" data-site-consent-close {% if site_consent_state|default('unknown') == 'unknown' %}hidden{% endif %}>Закрыть</button>
+      <a href="/privacy#cookies">Подробнее</a>
+    </div>
+    <p class="site-consent__status" aria-live="polite"></p>
+  </div>
+</section>
+<script src="/static/site-consent.js?v=20260905"></script>

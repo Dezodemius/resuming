@@ -60,6 +60,10 @@ def init_db():
                 pro_expires_at TEXT,
                 ai_consent_at  TEXT,
                 ai_consent_rev TEXT,
+                ai_consent_hash TEXT,
+                terms_accepted_at TEXT,
+                terms_rev      TEXT,
+                terms_hash     TEXT,
                 created      TEXT DEFAULT (datetime('now'))
             );
 
@@ -75,6 +79,9 @@ def init_db():
                 email      TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 used       INTEGER DEFAULT 0,
+                terms_accepted INTEGER NOT NULL DEFAULT 0,
+                terms_rev      TEXT,
+                terms_hash     TEXT,
                 created    TEXT DEFAULT (datetime('now'))
             );
 
@@ -91,6 +98,7 @@ def init_db():
                 company_name TEXT,
                 job_url      TEXT,
                 job_snippet  TEXT,
+                job_text     TEXT,
                 resume_data  TEXT NOT NULL,
                 kind         TEXT DEFAULT 'matched',
                 status       TEXT DEFAULT 'draft',
@@ -170,6 +178,43 @@ def init_db():
                 meta    TEXT,
                 created TEXT DEFAULT (datetime('now'))
             );
+
+            -- Неизменяемое доказательство юридически значимых действий.
+            -- metadata намеренно хранит только безопасный технический
+            -- контекст, а не тело формы, IP, User-Agent или prompt.
+            CREATE TABLE IF NOT EXISTS legal_events (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                purpose        TEXT NOT NULL,
+                document_rev   TEXT NOT NULL,
+                document_hash  TEXT NOT NULL,
+                action         TEXT NOT NULL,
+                occurred_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                user_id        INTEGER,
+                correlation_id TEXT,
+                metadata       TEXT
+            );
+
+            -- Приложение может только добавлять юридические события. Это не
+            -- заменяет защищённые резервные копии/внешний аудит, но исключает
+            -- случайное изменение истории обычным SQL приложения.
+            CREATE TRIGGER IF NOT EXISTS legal_events_no_update
+            BEFORE UPDATE ON legal_events
+            BEGIN
+                SELECT RAISE(ABORT, 'legal_events is append-only');
+            END;
+            CREATE TRIGGER IF NOT EXISTS legal_events_no_delete
+            BEFORE DELETE ON legal_events
+            BEGIN
+                SELECT RAISE(ABORT, 'legal_events is append-only');
+            END;
+
+            -- Prompt остаётся в локальной БД только во время внешнего вызова;
+            -- finally удаляет запись, TTL спасает при падении процесса.
+            CREATE TABLE IF NOT EXISTS ai_prompt_buffer (
+                id         TEXT PRIMARY KEY,
+                prompt     TEXT NOT NULL,
+                created    TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         if fresh:
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -203,6 +248,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_events_event_created ON usage_events(event, created);
             CREATE INDEX IF NOT EXISTS idx_events_user_created  ON usage_events(user_id, created);
             CREATE INDEX IF NOT EXISTS idx_events_created       ON usage_events(created);
+            CREATE INDEX IF NOT EXISTS idx_legal_events_user_created ON legal_events(user_id, occurred_at);
+            CREATE INDEX IF NOT EXISTS idx_legal_events_correlation ON legal_events(correlation_id);
+            CREATE INDEX IF NOT EXISTS idx_ai_prompt_buffer_created ON ai_prompt_buffer(created);
         """)
 
 
@@ -222,7 +270,7 @@ def init_db():
 #   • шаг не переиспользует функции приложения — он должен работать и через год,
 #     когда те функции изменятся;
 #   • добавили шаг — подняли SCHEMA_VERSION и дописали тест в tests/test_db.py.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 9
 
 
 def migrate(db: sqlite3.Connection) -> int:
@@ -252,6 +300,18 @@ def migrate(db: sqlite3.Connection) -> int:
     if version < 6:
         _migration_6_api_token_expiry(db)
         db.execute("PRAGMA user_version = 6")
+        applied += 1
+    if version < 7:
+        _migration_7_privacy_legal_events(db)
+        db.execute("PRAGMA user_version = 7")
+        applied += 1
+    if version < 8:
+        _migration_8_ai_consent_hash_and_legal_guards(db)
+        db.execute("PRAGMA user_version = 8")
+        applied += 1
+    if version < 9:
+        _migration_9_resume_job_text(db)
+        db.execute("PRAGMA user_version = 9")
         applied += 1
     if applied:
         db.commit()
@@ -509,3 +569,95 @@ def _migration_6_api_token_expiry(db: sqlite3.Connection) -> None:
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created)"
     )
+
+
+def _migration_7_privacy_legal_events(db: sqlite3.Connection) -> None:
+    """Доказательства условий/cookie/AI и короткий буфер внешнего prompt.
+
+    Старые сессии и выданные ранее magic-ссылки продолжают работать: новые
+    колонки nullable там, где история физически не могла содержать отметку.
+    Новые email-запросы всегда записывают terms_accepted=1 до отправки ссылки.
+    """
+    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    for column in ("ai_consent_hash", "terms_accepted_at", "terms_rev", "terms_hash"):
+        if column not in user_columns:
+            db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+
+    token_columns = {row["name"] for row in db.execute("PRAGMA table_info(magic_tokens)").fetchall()}
+    if "terms_accepted" not in token_columns:
+        # NULL distinguishes old, already-issued tokens from a new request that
+        # expressly declined terms (which is rejected before insertion).
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_accepted INTEGER")
+    if "terms_rev" not in token_columns:
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_rev TEXT")
+    if "terms_hash" not in token_columns:
+        db.execute("ALTER TABLE magic_tokens ADD COLUMN terms_hash TEXT")
+
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS legal_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            purpose        TEXT NOT NULL,
+            document_rev   TEXT NOT NULL,
+            document_hash  TEXT NOT NULL,
+            action         TEXT NOT NULL,
+            occurred_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            user_id        INTEGER,
+            correlation_id TEXT,
+            metadata       TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ai_prompt_buffer (
+            id      TEXT PRIMARY KEY,
+            prompt  TEXT NOT NULL,
+            created TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_legal_events_user_created
+            ON legal_events(user_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS idx_legal_events_correlation
+            ON legal_events(correlation_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_prompt_buffer_created
+            ON ai_prompt_buffer(created);
+    """)
+
+
+def _migration_8_ai_consent_hash_and_legal_guards(db: sqlite3.Connection) -> None:
+    """Инвалидирует AI-согласие при смене текста и защищает legal-журнал.
+
+    Отдельный шаг нужен даже несмотря на добавление колонки в migration 7:
+    ранняя v7 могла быть запущена во время разработки до появления проверки
+    hash. NULL у прежних записей безопасно заставляет запросить согласие снова.
+    """
+    user_columns = {row["name"] for row in db.execute("PRAGMA table_info(users)").fetchall()}
+    if "ai_consent_hash" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN ai_consent_hash TEXT")
+
+    db.executescript("""
+        CREATE TRIGGER IF NOT EXISTS legal_events_no_update
+        BEFORE UPDATE ON legal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'legal_events is append-only');
+        END;
+        CREATE TRIGGER IF NOT EXISTS legal_events_no_delete
+        BEFORE DELETE ON legal_events
+        BEGIN
+            SELECT RAISE(ABORT, 'legal_events is append-only');
+        END;
+    """)
+
+
+def _migration_9_resume_job_text(db: sqlite3.Connection) -> None:
+    """Хранит полный нормализованный источник вакансии для новых карточек.
+
+    Legacy job_snippet намеренно не копируется: даже короткий фрагмент не
+    доказывает, что исходная вакансия была сохранена полностью. Для старых
+    matched-карточек источник восстанавливается только по job_url.
+    """
+    # Some early test/backup databases legitimately predate the resumes table;
+    # init_db() will create it with the new column on the next startup.
+    tables = {row["name"] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if "resumes" not in tables:
+        return
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(resumes)").fetchall()}
+    if "job_text" not in columns:
+        db.execute("ALTER TABLE resumes ADD COLUMN job_text TEXT")
