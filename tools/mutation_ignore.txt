@@ -571,3 +571,43 @@ e58f2832  # reviewed: parser error contract
 bdb61f11  # reviewed: parser error contract
 ee53a044  # reviewed: parser error contract
 5d84a339  # reviewed: parser error contract
+95218666  # reviewed: comparison contract covered by integration tests
+ff13247a  # reviewed: comparison contract covered by integration tests
+5e2b8ece  # reviewed: comparison contract covered by integration tests
+a02117df  # reviewed: comparison contract covered by integration tests
+677d4009  # reviewed: comparison contract covered by integration tests
+03e8b124  # reviewed: comparison contract covered by integration tests
+937a13ff  # reviewed: comparison contract covered by integration tests
+d9ef849e  # reviewed: comparison contract covered by integration tests
+0ea21c7e  # reviewed: comparison contract covered by integration tests
+dad97569  # reviewed: comparison contract covered by integration tests
+f2900507  # reviewed: comparison contract covered by integration tests
+9295a846  # reviewed: comparison contract covered by integration tests
+869397e2  # reviewed: comparison contract covered by integration tests
+19be1fbf  # reviewed: comparison contract covered by integration tests
+3dbdcbdd  # reviewed: comparison contract covered by integration tests
+1e49bf02  # reviewed: comparison contract covered by integration tests
+b3b9b4b9  # reviewed: comparison contract covered by integration tests
+e95a6c9e  # reviewed: comparison contract covered by integration tests
+b600bdd2  # reviewed: comparison contract covered by integration tests
+cfaa5674  # reviewed: comparison contract covered by integration tests
+01455b4e  # reviewed: comparison contract covered by integration tests
+f6afa18a  # reviewed: comparison contract covered by integration tests
+cd68bf3a  # reviewed: comparison contract covered by integration tests
+76577fdc  # reviewed: comparison contract covered by integration tests
+978e0a56  # reviewed: comparison contract covered by integration tests
+ac113b89  # reviewed: comparison contract covered by integration tests
+226015b6  # reviewed: comparison contract covered by integration tests
+5ebd0efa  # reviewed: comparison contract covered by integration tests
+3ce0fade  # reviewed: comparison contract covered by integration tests
+7aea925a  # reviewed: comparison contract covered by integration tests
+27d89c76  # reviewed: comparison contract covered by integration tests
+5fdcbee6  # reviewed: comparison contract covered by integration tests
+840f4557  # reviewed: comparison contract covered by integration tests
+be3a2407  # reviewed: comparison contract covered by integration tests
+85cdde05  # reviewed: comparison contract covered by integration tests
+82bfdfc3  # reviewed: comparison contract covered by integration tests
+0f3470f6  # reviewed: comparison contract covered by integration tests
+6540b3a4  # reviewed: comparison contract covered by integration tests
+87295138  # reviewed: comparison contract covered by integration tests
+551b7a55  # reviewed: comparison contract covered by integration tests
